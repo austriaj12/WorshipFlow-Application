@@ -1,0 +1,93 @@
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('api', {
+  // Slide Synchronization Control
+  sendSlideUpdate: (slideData) => {
+    ipcRenderer.send('slide-update-send', slideData);
+  },
+  
+  onSlideRender: (callback) => {
+    ipcRenderer.removeAllListeners('slide-update-receive');
+    ipcRenderer.on('slide-update-receive', (event, slideData) => {
+      callback(slideData);
+    });
+  },
+
+  // SQLite Database Layer Operations
+  getAllSongs: () => ipcRenderer.invoke('db:get-all-songs'),
+  
+  searchSongs: (query) => ipcRenderer.invoke('db:search-songs', query),
+  
+  getSong: (songId) => ipcRenderer.invoke('db:get-song', songId),
+  
+  saveSong: (songData) => ipcRenderer.invoke('db:save-song', songData), // { id, title, author, key, tempo, contentJson }
+  
+  deleteSong: (songId) => ipcRenderer.invoke('db:delete-song', songId),
+  
+  queryBible: (translation, bookName, chapter, startVerse, endVerse) => 
+    ipcRenderer.invoke('db:query-bible', { translation, bookName, chapter, startVerse, endVerse }),
+
+  // Media Library & File Picker operations
+  getMedia: () => ipcRenderer.invoke('db:get-media'),
+  createMedia: (mediaData) => ipcRenderer.invoke('db:create-media', mediaData),
+  deleteMedia: (mediaId) => ipcRenderer.invoke('db:delete-media', mediaId),
+  selectLocalFile: () => ipcRenderer.invoke('media:select-file'),
+  getFileSize: (filepath) => ipcRenderer.invoke('media:get-size', filepath),
+  selectDirectory: () => ipcRenderer.invoke('media:select-directory'),
+  readDirectory: (dirPath) => ipcRenderer.invoke('media:read-directory', dirPath),
+
+  // Song creation convenience (used by operator for blank slides/scripture)
+  createSong: (songData) => ipcRenderer.invoke('app:create-song', songData),
+
+  // Projector Window Controls
+  toggleProjector: () => ipcRenderer.invoke('window:toggle-projector'),
+  getProjectorStatus: () => ipcRenderer.invoke('window:get-projector-status'),
+  // Stage Display Window Controls
+  openStage: (displayIndex) => ipcRenderer.invoke('window:open-stage', displayIndex),
+  closeStage: () => ipcRenderer.invoke('window:close-stage'),
+  getStageStatus: () => ipcRenderer.invoke('window:get-stage-status'),
+  getDisplays: () => ipcRenderer.invoke('system:get-displays'),
+
+  // Playlist / Service Flow Operations
+  getPlaylist: () => ipcRenderer.invoke('db:get-playlist'),
+  
+  addToPlaylist: (playlistData) => ipcRenderer.invoke('db:playlist-add', playlistData),
+  
+  removeFromPlaylist: (playlistId) => ipcRenderer.invoke('db:playlist-remove', playlistId),
+  
+  reorderPlaylist: (items) => ipcRenderer.invoke('db:playlist-reorder', items),
+  clearPlaylist: () => ipcRenderer.invoke('db:playlist-clear'),
+  importPlaylist: (items) => ipcRenderer.invoke('db:playlist-import', items),
+  
+  // Custom Window Title bar customization
+  updateTitleBar: (config) => ipcRenderer.send('window:update-titlebar', config),
+
+  // File Presentation Open / Save Operations
+  savePresentation: (playlistData, filePath) => ipcRenderer.invoke('media:save-presentation', { playlistData, filePath }),
+  openPresentation: () => ipcRenderer.invoke('media:open-presentation'),
+  
+  // PPTX and PDF imports
+  importPowerPoint: () => ipcRenderer.invoke('media:import-powerpoint'),
+  importPDF: () => ipcRenderer.invoke('media:import-pdf'),
+  savePdfPages: (data) => ipcRenderer.invoke('media:save-pdf-pages', data),
+
+  // Stage update channel (send from operator -> main -> stage window)
+  sendStageUpdate: (slideData) => ipcRenderer.send('stage-update-send', slideData),
+  onStageRender: (callback) => {
+    ipcRenderer.removeAllListeners('stage-update-receive');
+    ipcRenderer.on('stage-update-receive', (event, slideData) => callback(slideData));
+  },
+  onProjectorStatusChange: (callback) => ipcRenderer.on('window:projector-status-change', (event, status) => callback(status)),
+  onRemoteCommand: (callback) => {
+    ipcRenderer.removeAllListeners('remote-command');
+    ipcRenderer.on('remote-command', (event, data) => callback(data));
+  }
+});
+
+// Server controls for Stage Display and Mobile Remotes
+contextBridge.exposeInMainWorld('stageServer', {
+  start: (port) => ipcRenderer.invoke('server:start-stage-server', port),
+  stop: () => ipcRenderer.invoke('server:stop-stage-server'),
+  getUrl: () => ipcRenderer.invoke('server:get-stage-server-url'),
+  getRemoteUrl: () => ipcRenderer.invoke('server:get-remote-url')
+});

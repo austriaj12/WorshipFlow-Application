@@ -1,0 +1,4865 @@
+import React, { useState, useEffect } from 'react';
+import ReactDOM from 'react-dom/client';
+import './index.css';
+import { 
+  useLibraryStore, 
+  usePresentationStore, 
+  useLiveOutputStore,
+  useStageLayoutStore
+} from './store';
+import { 
+  Search, 
+  Music, 
+  BookOpen, 
+  Image, 
+  Play, 
+  Pause, 
+  ChevronRight, 
+  Volume2, 
+  Eye, 
+  EyeOff, 
+  Maximize2, 
+  Trash2, 
+  Plus, 
+  Grid3X3,
+  Layers,
+  ChevronDown,
+  ChevronUp,
+  X,
+  Edit,
+  Save,
+  Film,
+  Settings,
+  FolderOpen,
+  Folder,
+  CornerUpLeft,
+  ArrowUp,
+  Monitor,
+  Clock,
+  Layout,
+  FileText,
+  Sliders,
+  GripVertical,
+  Trash,
+  Square,
+  Wifi,
+  Smartphone
+} from 'lucide-react';
+import QRCode from 'qrcode';
+
+// URL.parse polyfill for older Electron contexts
+if (typeof URL.parse !== 'function') {
+  URL.parse = function(url, base) {
+    try {
+      return new URL(url, base);
+    } catch (e) {
+      return null;
+    }
+  };
+}
+
+const isBgColor = (bg) => {
+  if (!bg) return false;
+  return bg.startsWith('#') || bg.startsWith('rgb') || bg.startsWith('hsl');
+};
+
+function OperatorDashboard() {
+  // Global Top Navigation Tabs
+  const [activeHeaderTab, setActiveHeaderTab] = useState('presentation'); 
+  const [countdownSubTab, setCountdownSubTab] = useState('countdown'); // 'countdown' | 'timer'
+
+  // Remote Sync modal states
+  const [isRemoteSyncOpen, setIsRemoteSyncOpen] = useState(false);
+  const [remoteUrl, setRemoteUrl] = useState('');
+  const [remoteQrData, setRemoteQrData] = useState('');
+
+  // Local Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  
+  // Custom aspect ratio configs (CSS flexible previews)
+  const [aspectRatio, setAspectRatio] = useState('video'); // 'video' (16:9) | '[4/3]' (4:3)
+
+  // Projector Window Status state
+  const [isLiveActive, setIsLiveActive] = useState(false);
+
+  // Zustand Store Hooks
+  const { 
+    songs, 
+    loading: libraryLoading, 
+    selectedSong, 
+    fetchSongs, 
+    searchSongs, 
+    selectSong, 
+    saveSong, 
+    deleteSong 
+  } = useLibraryStore();
+
+  const { 
+    playlist, 
+    fetchPlaylist, 
+    addToPlaylist, 
+    removeFromPlaylist, 
+    reorderPlaylist,
+    clearPlaylist,
+    importPlaylist
+  } = usePresentationStore();
+
+  const { 
+    activeSlideText, 
+    activeSlideLabel, 
+    activeBgAsset, 
+    activeSlideStyle,
+    blackout, 
+    clearLyrics, 
+    setLiveSlide, 
+    setBlackout, 
+    setClearLyrics 
+  } = useLiveOutputStore();
+
+  const { stageLayout, setStageLayout, setRightPanels, setLeftWidthPct } = useStageLayoutStore();
+
+  // Local Reactive Lists
+  const [activeSlideIndex, setActiveSlideIndex] = useState(0);
+  const [selectedMedia, setSelectedMedia] = useState(null);
+  const [mediaList, setMediaList] = useState([]);
+  
+  // Collapsible Background Panel state
+  const [isBgPanelCollapsed, setIsBgPanelCollapsed] = useState(() => localStorage.getItem('isBgPanelCollapsed') === 'true');
+
+  // Media Player states
+  const [mediaPlaying, setMediaPlaying] = useState(false);
+  const [mediaLoop, setMediaLoop] = useState(true);
+  const [mediaVolume, setMediaVolume] = useState(100);
+  const operatorMediaRef = React.useRef(null);
+
+  // Local Directory Scanner & Resizable Splitter states
+  const [bgDirectoryPath, setBgDirectoryPath] = useState(() => localStorage.getItem('bgDirectoryPath') || '');
+  const [pathInputVal, setPathInputVal] = useState(bgDirectoryPath);
+  const [bgPanelHeight, setBgPanelHeight] = useState(() => parseInt(localStorage.getItem('bgPanelHeight')) || 320); // default higher to support form checklist
+  const [isResizingBgPanel, setIsResizingBgPanel] = useState(false);
+  const [selectedSlideIndexes, setSelectedSlideIndexes] = useState([0]);
+  const [thumbnailScale, setThumbnailScale] = useState(() => parseInt(localStorage.getItem('thumbnailScale') || '50'));
+
+  useEffect(() => {
+    setPathInputVal(bgDirectoryPath);
+  }, [bgDirectoryPath]);
+
+  useEffect(() => {
+    localStorage.setItem('thumbnailScale', String(thumbnailScale));
+  }, [thumbnailScale]);
+
+  // Strict double-action confirmation lifecycle states & background form states
+  const [bgType, setBgType] = useState('color'); // 'color' | 'image' | 'video'
+  const [bgColorInput, setBgColorInput] = useState('#000000');
+  const [applyToTarget, setApplyToTarget] = useState('active'); // 'active' | 'selected' | 'all'
+  const [presentationFilePath, setPresentationFilePath] = useState(null);
+  const [isFileDropdownOpen, setIsFileDropdownOpen] = useState(false);
+  const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
+  const [checklistSlideIndexes, setChecklistSlideIndexes] = useState([]);
+  const [stagedBgAsset, setStagedBgAsset] = useState(null); // null = nothing selected, "" = no background, string = file path
+  const [bgActionStatus, setBgActionStatus] = useState('idle'); // 'idle' | 'success'
+  const [draggedIndex, setDraggedIndex] = useState(null);
+  
+  // Scripture lookup forms state
+  const [bibleTranslation, setBibleTranslation] = useState('KJV');
+  const [bibleBook, setBibleBook] = useState('Psalms');
+  const [bibleChapter, setBibleChapter] = useState(23);
+  const [bibleStartVerse, setBibleStartVerse] = useState(1);
+  const [bibleEndVerse, setBibleEndVerse] = useState(3);
+  const [scriptureResults, setScriptureResults] = useState([]);
+
+  // Countdown State
+  const [countdownMinutes, setCountdownMinutes] = useState(5);
+  const [countdownSeconds, setCountdownSeconds] = useState(0);
+  const [isCountdownRunning, setIsCountdownRunning] = useState(false);
+  const [countdownTitle, setCountdownTitle] = useState("The service is about to start");
+  const [countdownSubtext, setCountdownSubtext] = useState("Please take your seats");
+  const [countdownMode, setCountdownMode] = useState("duration"); // "duration" | "target" | "current"
+  const [countdownTargetTime, setCountdownTargetTime] = useState("10:30");
+  const [countdownShowOn, setCountdownShowOn] = useState("both"); // "both" | "main" | "stage"
+  const [countdownOvertime, setCountdownOvertime] = useState(false);
+  const [countdownTitleSize, setCountdownTitleSize] = useState(56);
+  const [countdownTimeSize, setCountdownTimeSize] = useState(160);
+  const [countdownSubtextSize, setCountdownSubtextSize] = useState(36);
+  const [countdownBgColor, setCountdownBgColor] = useState("#0f172a");
+  const [countdownActive, setCountdownActive] = useState(false);
+
+  // Count-up Timer State
+  const [timerMinutes, setTimerMinutes] = useState(0);
+  const [timerSeconds, setTimerSeconds] = useState(0);
+  const [isTimerRunning, setIsTimerRunning] = useState(false);
+  const [timerTitle, setTimerTitle] = useState("Service Timer");
+  const [timerShowOn, setTimerShowOn] = useState("both"); // "both" | "main" | "stage"
+  const [timerTitleSize, setTimerTitleSize] = useState(56);
+  const [timerTimeSize, setTimerTimeSize] = useState(160);
+  const [timerBgColor, setTimerBgColor] = useState("#0f172a");
+  const [timerActive, setTimerActive] = useState(false);
+
+  // Modal Controllers
+  const [isAddSongOpen, setIsAddSongOpen] = useState(false);
+  const [isEditSongOpen, setIsEditSongOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [activeSettingsTab, setActiveSettingsTab] = useState('appearance'); // Default to appearance tab
+
+  // Appearance / Custom Theme states matching UI specs
+  const [appearanceMode, setAppearanceMode] = useState(() => localStorage.getItem('appearanceMode') || 'Dark');
+  
+  const [lightBg, setLightBg] = useState(() => localStorage.getItem('lightBg') || '#F8FAFC');
+  const [lightFg, setLightFg] = useState(() => localStorage.getItem('lightFg') || '#0F172A');
+  const [lightAccent, setLightAccent] = useState(() => localStorage.getItem('lightAccent') || '#4F46E5');
+
+  const [darkBg, setDarkBg] = useState(() => localStorage.getItem('darkBg') || '#121212');
+  const [darkFg, setDarkFg] = useState(() => localStorage.getItem('darkFg') || '#F1F5F9');
+  const [darkAccent, setDarkAccent] = useState(() => localStorage.getItem('darkAccent') || '#6366F1');
+
+  const [lightPreset, setLightPreset] = useState('Default Light');
+  const [darkPreset, setDarkPreset] = useState('Default Dark');
+
+  // One-time check to migrate old storage keys to new premium theme defaults
+  useEffect(() => {
+    const cachedLight = localStorage.getItem('lightBg');
+    const cachedDark = localStorage.getItem('darkBg');
+    
+    if (cachedLight === '#EEEEEE' || !cachedLight) {
+      setLightBg('#F8FAFC');
+      setLightFg('#0F172A');
+      setLightAccent('#4F46E5');
+    }
+    if (cachedDark === '#0B0F19' || cachedDark === '#101010' || !cachedDark) {
+      setDarkBg('#121212');
+      setDarkFg('#F1F5F9');
+      setDarkAccent('#6366F1');
+    }
+  }, []);
+
+  // Text Styling toolbar states (shared across Add/Edit workflows)
+  const [songFont, setSongFont] = useState('Inter');
+  const [songSize, setSongSize] = useState(90);
+  const [songWeight, setSongWeight] = useState('bold'); // Default bold weight settings
+  const [songColor, setSongColor] = useState('#ffffff');
+  const [songBgColor, setSongBgColor] = useState('#000000');
+  const [songBgOpacity, setSongBgOpacity] = useState('0%');
+  const [songAlign, setSongAlign] = useState('center');
+  const [songVertical, setSongVertical] = useState('center');
+  const [songAnimation, setSongAnimation] = useState('Zoom In/Out');
+  const [songSpeed, setSongSpeed] = useState('Medium (0.6s)');
+
+  // Form Cursor/Focus synchronization indexes for real-time preview highlight
+  const [activeAddPreviewIdx, setActiveAddPreviewIdx] = useState(0);
+  const [activeEditPreviewIdx, setActiveEditPreviewIdx] = useState(0);
+
+  // Add Song Form states
+  const [newSongTitle, setNewSongTitle] = useState('');
+  const [newSongSlidesRaw, setNewSongSlidesRaw] = useState('');
+
+  // Edit Song Form states
+  const [editSongTitle, setEditSongTitle] = useState('');
+  const [editSongSlidesRaw, setEditSongSlidesRaw] = useState('');
+
+  // Floating Audio track details
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [volume, setVolume] = useState(80);
+
+  // Right-click context menu state for song library items
+  const [contextMenu, setContextMenu] = useState(null); // { x: number, y: number, songId: number }
+
+  const [stageActive, setStageActive] = useState(false);
+  const [stageServerUrl, setStageServerUrl] = useState(null);
+  const [stageMessage, setStageMessage] = useState('');
+  const [typedMessage, setTypedMessage] = useState('');
+  const [previewClockTime, setPreviewClockTime] = useState('');
+
+  const [stageShowClock, setStageShowClock] = useState(true);
+  const [stageShowSlideIndex, setStageShowSlideIndex] = useState(false);
+  const [stageShowNextPreview, setStageShowNextPreview] = useState(true);
+  const [stageTextStyle, setStageTextStyle] = useState('Upper-case Bold');
+  const [stageLeftWidthPct, setStageLeftWidthPctState] = useState(parseFloat(localStorage.getItem('stageLayout_leftWidthPct') || '75'));
+  const [stagePanelVisibility, setStagePanelVisibility] = useState({ nextLyrics: true, message: true, scripture: true, presenterNotes: true });
+  const [stagePanelHeights, setStagePanelHeights] = useState({ nextLyrics: 35, message: 35, scripture: 15, presenterNotes: 15 });
+  const [stageUpNextFontSize, setStageUpNextFontSize] = useState(parseInt(localStorage.getItem('stageUpNextFontSize') || '20'));
+  const [stageTopLineColor, setStageTopLineColor] = useState(() => localStorage.getItem('stageTopLineColor') || '#334155');
+  const [stageMiddleLineColor, setStageMiddleLineColor] = useState(() => localStorage.getItem('stageMiddleLineColor') || '#0284c7');
+  const [stageMainLineColor, setStageMainLineColor] = useState(() => localStorage.getItem('stageMainLineColor') || '#7dd3fc');
+  const [stageUpNextLineColor, setStageUpNextLineColor] = useState(() => localStorage.getItem('stageUpNextLineColor') || '#f97316');
+
+  useEffect(() => {
+    localStorage.setItem('stageTopLineColor', stageTopLineColor);
+  }, [stageTopLineColor]);
+  useEffect(() => {
+    localStorage.setItem('stageMiddleLineColor', stageMiddleLineColor);
+  }, [stageMiddleLineColor]);
+  useEffect(() => {
+    localStorage.setItem('stageMainLineColor', stageMainLineColor);
+  }, [stageMainLineColor]);
+  useEffect(() => {
+    localStorage.setItem('stageUpNextLineColor', stageUpNextLineColor);
+  }, [stageUpNextLineColor]);
+
+  const [displays, setDisplays] = useState([]);
+  const [selectedProjectorDisplay, setSelectedProjectorDisplay] = useState(1);
+  const [selectedStageDisplay, setSelectedStageDisplay] = useState(2);
+
+  const fetchDisplays = async () => {
+    if (window.api && window.api.getDisplays) {
+      try {
+        const list = await window.api.getDisplays();
+        setDisplays(list || []);
+      } catch (err) {
+        console.error('Failed to get displays:', err);
+      }
+    }
+  };
+
+  useEffect(() => {
+    const update = () => {
+      const now = new Date();
+      setPreviewClockTime(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+    };
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const refreshWindowStatuses = async () => {
+    if (window.api) {
+      try {
+        const active = await window.api.getProjectorStatus();
+        setIsLiveActive(active);
+      } catch (err) {
+        console.error('Failed to get projector status:', err);
+      }
+      try {
+        const activeStage = await window.api.getStageStatus();
+        setStageActive(activeStage);
+      } catch (err) {
+        console.error('Failed to get stage status:', err);
+      }
+    }
+    if (window.stageServer) {
+      try {
+        const urlResult = await window.stageServer.getUrl();
+        setStageServerUrl(urlResult?.url || null);
+      } catch (err) {
+        console.error('Failed to get stage server URL:', err);
+      }
+    }
+  };
+
+
+
+  useEffect(() => {
+    const handleGlobalClick = () => setContextMenu(null);
+    window.addEventListener('click', handleGlobalClick);
+    return () => window.removeEventListener('click', handleGlobalClick);
+  }, []);
+
+  // Initialize store lists and check live status on mount
+  useEffect(() => {
+    fetchSongs();
+    // Retry fetch shortly after mount in case the preload bridge wasn't ready yet
+    setTimeout(() => fetchSongs(), 500);
+    setTimeout(() => fetchSongs(), 1500);
+    fetchPlaylist();
+    loadLocalBackgrounds();
+    refreshWindowStatuses();
+    refreshWindowStatuses();
+    fetchDisplays();
+
+    if (window.api && window.api.onProjectorStatusChange) {
+      window.api.onProjectorStatusChange((status) => {
+        setIsLiveActive(status);
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    loadLocalBackgrounds();
+  }, [bgDirectoryPath]);
+
+  const handleToggleProjector = async () => {
+    if (window.api && window.api.toggleProjector) {
+      try {
+        const active = await window.api.toggleProjector(selectedProjectorDisplay);
+        setIsLiveActive(active);
+      } catch (err) {
+        console.error('Failed to toggle projector screen:', err);
+      }
+    }
+  };
+
+  const loadLocalBackgrounds = async (dirPath = bgDirectoryPath) => {
+    if (window.api && window.api.readDirectory) {
+      try {
+        const result = await window.api.readDirectory(dirPath);
+        if (result) {
+          setBgDirectoryPath(result.currentPath);
+          localStorage.setItem('bgDirectoryPath', result.currentPath);
+          setMediaList(result.items || []);
+        }
+      } catch (err) {
+        console.error('Failed to load local backgrounds:', err);
+      }
+    }
+  };
+
+  const handleApplyBackground = async () => {
+    if (!selectedSong) return;
+    const currentSlides = getSlidesArray();
+    if (!currentSlides || currentSlides.length === 0) return;
+
+    let targetBg = '';
+    if (bgType === 'color') {
+      targetBg = bgColorInput || '#000000';
+    } else {
+      if (stagedBgAsset === null) return;
+      targetBg = stagedBgAsset;
+    }
+
+    let updatedSlides;
+    if (applyToTarget === 'active') {
+      updatedSlides = currentSlides.map((slide, idx) => {
+        if (selectedSlideIndexes.includes(idx)) {
+          const currentStyle = slide.style || {};
+          return {
+            ...slide,
+            style: {
+              ...currentStyle,
+              background: targetBg
+            }
+          };
+        }
+        return slide;
+      });
+    } else if (applyToTarget === 'selected') {
+      updatedSlides = currentSlides.map((slide, idx) => {
+        if (checklistSlideIndexes.includes(idx)) {
+          const currentStyle = slide.style || {};
+          return {
+            ...slide,
+            style: {
+              ...currentStyle,
+              background: targetBg
+            }
+          };
+        }
+        return slide;
+      });
+    } else {
+      updatedSlides = currentSlides.map((slide) => {
+        const currentStyle = slide.style || {};
+        return {
+          ...slide,
+          style: {
+            ...currentStyle,
+            background: targetBg
+          }
+        };
+      });
+    }
+
+    setBgActionStatus('success');
+    setTimeout(() => setBgActionStatus('idle'), 1500);
+
+    const contentJson = JSON.stringify(updatedSlides);
+    try {
+      await saveSong({
+        id: selectedSong.id,
+        title: selectedSong.title,
+        author: selectedSong.author || 'WorshipFlow',
+        key: selectedSong.key || '',
+        tempo: selectedSong.tempo || '',
+        contentJson
+      });
+      
+      const activeSlide = updatedSlides[activeSlideIndex];
+      if (activeSlide) {
+        setLiveSlide(
+          activeSlide.text,
+          activeSlide.label,
+          targetBg,
+          activeSlide.style
+        );
+      }
+    } catch (err) {
+      console.error('Failed to apply background mutation:', err);
+    }
+  };
+
+  const handleOpenRemoteSync = async () => {
+    if (window.stageServer && window.stageServer.getRemoteUrl) {
+      try {
+        const res = await window.stageServer.getRemoteUrl();
+        setRemoteUrl(res.url);
+        
+        const qrData = await QRCode.toDataURL(res.url, {
+          width: 256,
+          margin: 1,
+          color: {
+            dark: '#0f172a',
+            light: '#ffffff'
+          }
+        });
+        setRemoteQrData(qrData);
+        setIsRemoteSyncOpen(true);
+      } catch (err) {
+        console.error('Failed to generate remote sync QR:', err);
+        alert('Could not open remote control server URL: ' + err.message);
+      }
+    } else {
+      alert('Remote sync API not available in this environment.');
+    }
+  };
+
+  const handleNewPresentation = async () => {
+    if (confirm("Are you sure you want to clear the current presentation?")) {
+      await clearPlaylist();
+      selectSong(null);
+      setPresentationFilePath(null);
+      setSearchQuery('');
+      setActiveHeaderTab('presentation');
+    }
+  };
+
+  const handleOpenPresentation = async () => {
+    if (!window.api || !window.api.openPresentation) return;
+    try {
+      const res = await window.api.openPresentation();
+      if (res && res.success && res.playlistData) {
+        await importPlaylist(res.playlistData);
+        setPresentationFilePath(res.filePath);
+        setSearchQuery('');
+        setActiveHeaderTab('presentation');
+        if (res.playlistData.length > 0 && res.playlistData[0].song_id) {
+          selectSong(res.playlistData[0].song_id);
+        }
+      } else if (res && res.error) {
+        alert("Failed to load presentation: " + res.error);
+      }
+    } catch (err) {
+      alert("Error loading presentation: " + err.message);
+    }
+  };
+
+  const handleImportPowerPoint = async () => {
+    if (!window.api || !window.api.importPowerPoint) return;
+    try {
+      const res = await window.api.importPowerPoint();
+      if (res && res.success && res.song) {
+        await fetchSongs();
+        selectSong(res.song.id);
+        await addToPlaylist(res.song.title, 'song', res.song.id);
+      }
+    } catch (err) {
+      alert("Failed to import PowerPoint: " + err.message);
+    }
+  };
+
+  const getMediaType = (url) => {
+    if (!url) return 'unknown';
+    const cleanUrl = url.toLowerCase().split('?')[0];
+    if (/\.(mp4|webm|mov|avi)$/i.test(cleanUrl)) return 'video';
+    if (/\.(jpg|jpeg|png|webp|gif)$/i.test(cleanUrl)) return 'image';
+    if (/\.(mp3|wav|m4a|aac|ogg)$/i.test(cleanUrl)) return 'audio';
+    return 'unknown';
+  };
+
+  const detectPlaylistItemType = (item) => {
+    const song = songs.find(s => s.id === item.song_id);
+    if (!song) return 'Song';
+    if (song.author === 'PowerPoint Import') return 'PowerPoint';
+    if (song.author === 'PDF Import') return 'PDF';
+    if (song.author === 'Media') {
+      const mediaType = song.key || 'media';
+      return mediaType.charAt(0).toUpperCase() + mediaType.slice(1);
+    }
+    return 'Song';
+  };
+
+  const handleAddMediaClick = async () => {
+    if (!window.api || !window.api.selectLocalFile) return;
+    try {
+      const filePath = await window.api.selectLocalFile();
+      if (!filePath) return;
+
+      let fileSize = 0;
+      if (window.api.getFileSize) {
+        fileSize = await window.api.getFileSize(filePath);
+      }
+      const sizeMB = fileSize / (1024 * 1024);
+      if (sizeMB > 300) {
+        alert(`Import Failed: Media file size (${sizeMB.toFixed(1)}MB) exceeds the 300MB safety limit to prevent lag.`);
+        return;
+      }
+
+      const filename = filePath.split(/[\\/]/).pop();
+      const extension = filename.split('.').pop().toLowerCase();
+      
+      const type = getMediaType(filePath);
+      if (type === 'unknown') {
+        alert("Unsupported media type: Please select an Image, Video, or Audio file.");
+        return;
+      }
+
+      // Format clean path
+      const formattedPath = formatBgPath(filePath);
+
+      // Create slide content schema representing this media item
+      const contentJson = JSON.stringify([{
+        label: type.toUpperCase(),
+        text: '',
+        bgAsset: formattedPath,
+        style: {
+          background: formattedPath,
+          animation: 'Instant',
+          speed: 'Fast (0.3s)'
+        }
+      }]);
+
+      const saved = await window.api.saveSong({
+        title: filename,
+        author: 'Media',
+        key: type, // Store media type in key column
+        tempo: '',
+        contentJson
+      });
+
+      if (saved) {
+        await fetchSongs();
+        selectSong(saved.id);
+
+        // Add to presentations flow lineup
+        await addToPlaylist(saved.title, 'song', saved.id);
+      }
+    } catch (err) {
+      console.error('Failed to import media file:', err);
+      alert('Failed to import media: ' + err.message);
+    }
+  };
+
+  const handleImportPDF = async () => {
+    if (!window.api || !window.api.importPDF) return;
+    try {
+      // Step 1: Main opens dialog, returns file path + outputDir
+      const res = await window.api.importPDF();
+      if (!res || !res.success) return;
+      
+      if (res.needsRendering) {
+        // Step 2: Render PDF pages in browser context (DOMMatrix/Canvas available here)
+        const pdfjsLib = await import('pdfjs-dist');
+        // Use bundled worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+          'pdfjs-dist/build/pdf.worker.mjs',
+          import.meta.url
+        ).toString();
+
+        const fileUrl = `file:///${res.filePath.replace(/\\/g, '/')}`;
+        // pdfjs expects an object with a `url` property for remote/local files
+        const loadingTask = pdfjsLib.getDocument({ url: fileUrl });
+        const pdf = await loadingTask.promise;
+        const pages = [];
+
+        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+          const page = await pdf.getPage(pageNum);
+          const viewport = page.getViewport({ scale: 2.0 }); // 2x for high resolution
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          const ctx = canvas.getContext('2d');
+          await page.render({ canvasContext: ctx, viewport }).promise;
+          pages.push(canvas.toDataURL('image/png'));
+        }
+
+        // Step 3: Send rendered PNGs back to main to save to disk + DB
+        const saveRes = await window.api.savePdfPages({ title: res.title, outputDir: res.outputDir, pages });
+        if (saveRes && saveRes.success && saveRes.song) {
+          await fetchSongs();
+          selectSong(saveRes.song.id);
+          await addToPlaylist(saveRes.song.title, 'song', saveRes.song.id);
+        } else {
+          alert('Failed to save PDF pages: ' + (saveRes?.error || 'Unknown error'));
+        }
+      } else if (res.song) {
+        // Legacy path (song already saved by main)
+        await fetchSongs();
+        selectSong(res.song.id);
+        await addToPlaylist(res.song.title, 'song', res.song.id);
+      }
+    } catch (err) {
+      console.error('PDF import error:', err);
+      alert('Failed to import PDF: ' + err.message);
+    }
+  };
+
+  const handleSavePresentation = async () => {
+    if (!window.api || !window.api.savePresentation) return;
+    const res = await window.api.savePresentation(playlist, presentationFilePath);
+    if (res && res.success) {
+      setPresentationFilePath(res.filePath);
+    }
+  };
+
+  const handleSavePresentationAs = async () => {
+    if (!window.api || !window.api.savePresentation) return;
+    const res = await window.api.savePresentation(playlist, null);
+    if (res && res.success) {
+      setPresentationFilePath(res.filePath);
+    }
+  };
+
+  const handleDropPlaylist = async (targetIndex) => {
+    if (draggedIndex === null || draggedIndex === targetIndex) return;
+    const reordered = [...playlist];
+    const [removed] = reordered.splice(draggedIndex, 1);
+    reordered.splice(targetIndex, 0, removed);
+    setDraggedIndex(null);
+    await reorderPlaylist(reordered);
+  };
+  useEffect(() => {
+    if (!isResizingBgPanel) return;
+
+    const handleMouseMove = (e) => {
+      const newHeight = window.innerHeight - e.clientY;
+      const clampedHeight = Math.min(450, Math.max(100, newHeight));
+      setBgPanelHeight(clampedHeight);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizingBgPanel(false);
+      localStorage.setItem('bgPanelHeight', bgPanelHeight);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizingBgPanel, bgPanelHeight]);
+
+  // Theme variable applying effect
+  useEffect(() => {
+    applyThemeConfig();
+    localStorage.setItem('appearanceMode', appearanceMode);
+    localStorage.setItem('lightBg', lightBg);
+    localStorage.setItem('lightFg', lightFg);
+    localStorage.setItem('lightAccent', lightAccent);
+    localStorage.setItem('darkBg', darkBg);
+    localStorage.setItem('darkFg', darkFg);
+    localStorage.setItem('darkAccent', darkAccent);
+  }, [appearanceMode, lightBg, lightFg, lightAccent, darkBg, darkFg, darkAccent]);
+
+  const applyThemeConfig = () => {
+    let activeBg = darkBg;
+    let activeFg = darkFg;
+    let activeAccent = darkAccent;
+
+    if (appearanceMode === 'Light') {
+      activeBg = lightBg;
+      activeFg = lightFg;
+      activeAccent = lightAccent;
+    } else if (appearanceMode === 'System') {
+      const isSystemDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (!isSystemDark) {
+        activeBg = lightBg;
+        activeFg = lightFg;
+        activeAccent = lightAccent;
+      }
+    }
+
+    const rootEl = document.documentElement;
+    rootEl.style.setProperty('--bg-app', activeBg);
+
+    // Calculate complementary panels/borders dynamically to avoid flat grey color-blocking
+    if (activeBg.toUpperCase() === '#F8FAFC') {
+      rootEl.style.setProperty('--bg-panel', '#FFFFFF');
+      rootEl.style.setProperty('--border-app', '#E2E8F0');
+      rootEl.style.setProperty('--text-muted', '#64748B');
+    } else if (activeBg.toUpperCase() === '#121212') {
+      rootEl.style.setProperty('--bg-panel', '#1C1C1C');
+      rootEl.style.setProperty('--border-app', '#262626');
+      rootEl.style.setProperty('--text-muted', '#A1A1AA');
+    } else if (activeBg.toUpperCase() === '#EEEEEE') {
+      rootEl.style.setProperty('--bg-panel', '#FFFFFF');
+      rootEl.style.setProperty('--border-app', '#D1D5DB');
+      rootEl.style.setProperty('--text-muted', '#6B7280');
+    } else if (activeBg.toUpperCase() === '#101010') {
+      rootEl.style.setProperty('--bg-panel', '#1A1A1A');
+      rootEl.style.setProperty('--border-app', '#2A2A2A');
+      rootEl.style.setProperty('--text-muted', '#8A8A8A');
+    } else {
+      const r = parseInt(activeBg.slice(1, 3), 16) || 0;
+      const g = parseInt(activeBg.slice(3, 5), 16) || 0;
+      const b = parseInt(activeBg.slice(5, 7), 16) || 0;
+      const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+      
+      const offset = brightness > 128 ? -8 : 12;
+      const nr = Math.min(255, Math.max(0, r + offset));
+      const ng = Math.min(255, Math.max(0, g + offset));
+      const nb = Math.min(255, Math.max(0, b + offset));
+      
+      const panelColor = `#${nr.toString(16).padStart(2, '0')}${ng.toString(16).padStart(2, '0')}${nb.toString(16).padStart(2, '0')}`;
+      rootEl.style.setProperty('--bg-panel', panelColor);
+      rootEl.style.setProperty('--border-app', brightness > 128 ? 'rgba(0,0,0,0.09)' : 'rgba(255,255,255,0.09)');
+      rootEl.style.setProperty('--text-muted', brightness > 128 ? '#4B5563' : '#9CA3AF');
+    }
+    
+    rootEl.style.setProperty('--text-main', activeFg);
+    rootEl.style.setProperty('--brand', activeAccent);
+
+    // Synchronize native window titlebar overlay colors with theme state
+    if (window.api && window.api.updateTitleBar) {
+      const panelColor = rootEl.style.getPropertyValue('--bg-panel').trim();
+      window.api.updateTitleBar({
+        color: panelColor || '#1C1C1C',
+        symbolColor: activeFg || '#E2E8F0'
+      });
+    }
+  };
+
+  // Reset helpers for settings presets
+  const handleLightPresetChange = (val) => {
+    setLightPreset(val);
+    if (val === 'Default Light') {
+      setLightBg('#F8FAFC');
+      setLightFg('#0F172A');
+      setLightAccent('#4F46E5');
+    }
+  };
+
+  const handleDarkPresetChange = (val) => {
+    setDarkPreset(val);
+    if (val === 'Default Dark') {
+      setDarkBg('#121212');
+      setDarkFg('#F1F5F9');
+      setDarkAccent('#6366F1');
+    }
+  };
+
+  // File presentation hotkeys
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        if (e.shiftKey && e.key.toUpperCase() === 'S') {
+          e.preventDefault();
+          handleSavePresentationAs();
+        } else if (e.key.toLowerCase() === 's') {
+          e.preventDefault();
+          handleSavePresentation();
+        } else if (e.key.toLowerCase() === 'o') {
+          e.preventDefault();
+          handleOpenPresentation();
+        } else if (e.key.toLowerCase() === 'n') {
+          e.preventDefault();
+          handleNewPresentation();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [playlist, presentationFilePath]);
+
+  // Close File dropdown on outside click
+  useEffect(() => {
+    if (!isFileDropdownOpen) return;
+    const handleOutsideClick = () => {
+      setIsFileDropdownOpen(false);
+    };
+    const timer = setTimeout(() => {
+      window.addEventListener('click', handleOutsideClick);
+    }, 0);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('click', handleOutsideClick);
+    };
+  }, [isFileDropdownOpen]);
+
+  // Countdown timer logic
+  useEffect(() => {
+    let timer = null;
+    if (isCountdownRunning) {
+      timer = setInterval(() => {
+        if (countdownMode === 'current') {
+          const now = new Date();
+          setCountdownMinutes(now.getHours());
+          setCountdownSeconds(now.getMinutes());
+        } else if (countdownMode === 'target') {
+          const parts = countdownTargetTime.split(':');
+          const target = new Date();
+          target.setHours(parseInt(parts[0]) || 0, parseInt(parts[1]) || 0, 0, 0);
+          if (target < new Date()) {
+            target.setDate(target.getDate() + 1);
+          }
+          const diffMs = target - new Date();
+          const diffSecs = Math.max(0, Math.floor(diffMs / 1000));
+          if (diffSecs <= 0) {
+            if (countdownOvertime) {
+              if (countdownSeconds < 59) {
+                setCountdownSeconds(countdownSeconds + 1);
+              } else {
+                setCountdownMinutes(countdownMinutes + 1);
+                setCountdownSeconds(0);
+              }
+            } else {
+              setIsCountdownRunning(false);
+              setCountdownMinutes(0);
+              setCountdownSeconds(0);
+            }
+          } else {
+            setCountdownMinutes(Math.floor(diffSecs / 60));
+            setCountdownSeconds(diffSecs % 60);
+          }
+        } else {
+          // Duration Mode
+          if (countdownSeconds > 0) {
+            setCountdownSeconds(countdownSeconds - 1);
+          } else if (countdownMinutes > 0) {
+            setCountdownMinutes(countdownMinutes - 1);
+            setCountdownSeconds(59);
+          } else {
+            if (countdownOvertime) {
+              if (countdownSeconds < 59) {
+                setCountdownSeconds(countdownSeconds + 1);
+              } else {
+                setCountdownMinutes(countdownMinutes + 1);
+                setCountdownSeconds(0);
+              }
+            } else {
+              setIsCountdownRunning(false);
+              clearInterval(timer);
+            }
+          }
+        }
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [isCountdownRunning, countdownMinutes, countdownSeconds, countdownMode, countdownTargetTime, countdownOvertime]);
+
+  // Count-up Timer ticking logic
+  useEffect(() => {
+    let interval = null;
+    if (isTimerRunning) {
+      interval = setInterval(() => {
+        setTimerSeconds(prev => {
+          if (prev < 59) {
+            return prev + 1;
+          } else {
+            setTimerMinutes(m => m + 1);
+            return 0;
+          }
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isTimerRunning]);
+
+  // Scroll active preview cards into view automatically
+  useEffect(() => {
+    if (isAddSongOpen) {
+      const activeCard = document.getElementById(`add-preview-card-${activeAddPreviewIdx}`);
+      if (activeCard) {
+        activeCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+  }, [activeAddPreviewIdx, isAddSongOpen]);
+
+  useEffect(() => {
+    if (isEditSongOpen) {
+      const activeCard = document.getElementById(`edit-preview-card-${activeEditPreviewIdx}`);
+      if (activeCard) {
+        activeCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+  }, [activeEditPreviewIdx, isEditSongOpen]);
+
+  // Format background file path safely for Electron browser windows
+  const formatBgPath = (pathStr) => {
+    if (!pathStr) return '';
+    if (pathStr.startsWith('#') || pathStr.startsWith('rgb') || pathStr.startsWith('hsl') || pathStr === 'transparent') {
+      return pathStr;
+    }
+    if (pathStr.startsWith('file:///') || pathStr.startsWith('http://') || pathStr.startsWith('https://') || pathStr.startsWith('worshipflow-asset://')) {
+      return pathStr;
+    }
+    const cleanPath = pathStr.replace(/\\/g, '/');
+    return `file:///${cleanPath.startsWith('/') ? cleanPath.slice(1) : cleanPath}`;
+  };
+
+  // Sync state selection to trigger live preview text updates
+  const handleSelectSlide = (index, slidesList) => {
+    setActiveSlideIndex(index);
+    const activeSlide = slidesList && slidesList[index];
+    if (activeSlide) {
+      const rawBg = activeSlide.bgAsset || (activeSlide.style && activeSlide.style.background) || (selectedMedia ? selectedMedia.filepath : '');
+      const bgPath = formatBgPath(rawBg);
+      setLiveSlide(
+        activeSlide.bgAsset ? '' : activeSlide.text, 
+        activeSlide.label, 
+        bgPath,
+        activeSlide.style
+      );
+      if (selectedSong && selectedSong.author === 'Media') {
+        setMediaPlaying(true);
+      }
+    }
+  };
+
+
+
+  // Fetch slide lists from JSON string
+  const getSlidesArray = () => {
+    if (selectedSong && selectedSong.content_json) {
+      try {
+        return JSON.parse(selectedSong.content_json);
+      } catch (e) {
+        console.error('Failed parsing song JSON:', e);
+        return [];
+      }
+    }
+    return [];
+  };
+
+  const slides = getSlidesArray();
+  const isMediaItem = selectedSong && selectedSong.author === 'Media';
+
+  // Automatically push real-time stage & projector updates on any slide/countdown/message/projector state changes
+  useEffect(() => {
+    if (window.api) {
+      const countdownTimeStr = `${String(countdownMinutes).padStart(2, '0')}:${String(countdownSeconds).padStart(2, '0')}`;
+      const timerTimeStr = `${String(timerMinutes).padStart(2, '0')}:${String(timerSeconds).padStart(2, '0')}`;
+      
+      // 1. Send Stage updates - show countdown/timer only if enabled for stage display
+      const showOnStage = countdownActive && (countdownShowOn === 'both' || countdownShowOn === 'stage');
+      const showTimerOnStage = timerActive && (timerShowOn === 'both' || timerShowOn === 'stage');
+      if (window.api.sendStageUpdate) {
+        window.api.sendStageUpdate({
+          text: activeSlideText,
+          label: activeSlideLabel || `Slide ${activeSlideIndex + 1}`,
+          bgAsset: activeBgAsset,
+          style: activeSlideStyle,
+          blackout,
+          clearLyrics,
+          slides: slides || [],
+          activeSlideIndex: activeSlideIndex,
+          stageLayout: {
+            leftWidthPct: stageLeftWidthPct,
+            rightPanels: [
+              { id: 'message', visible: stagePanelVisibility.message, heightPct: stagePanelHeights.message },
+              { id: 'scripture', visible: stagePanelVisibility.scripture, heightPct: stagePanelHeights.scripture },
+              { id: 'presenterNotes', visible: stagePanelVisibility.presenterNotes, heightPct: stagePanelHeights.presenterNotes }
+            ]
+          },
+          showClock: stageShowClock,
+          showSlideIndex: stageShowSlideIndex,
+          showNextPreview: stageShowNextPreview,
+          stageTextStyle: stageTextStyle,
+          stageUpNextFontSize: stageUpNextFontSize,
+          message: stageMessage,
+          nextSlideText: slides && slides[activeSlideIndex + 1] ? slides[activeSlideIndex + 1].text : '',
+          nextSlideBg: slides && slides[activeSlideIndex + 1] ? formatBgPath(slides[activeSlideIndex + 1].bgAsset) : '',
+          nextSlideLabel: slides && slides[activeSlideIndex + 1] ? (slides[activeSlideIndex + 1].label || `Slide ${activeSlideIndex + 2}`) : '',
+          countdownTime: showOnStage ? countdownTimeStr : '',
+          countdownActive: countdownActive,
+          timerTime: showTimerOnStage ? timerTimeStr : '',
+          timerActive: timerActive,
+          topLineColor: stageTopLineColor,
+          middleLineColor: stageMiddleLineColor,
+          mainLineColor: stageMainLineColor,
+          upNextLineColor: stageUpNextLineColor
+        });
+      }
+
+      // 2. Send Projector updates - show countdown/timer only if enabled for main output display
+      if (window.api.sendSlideUpdate) {
+        const showOnProjector = countdownActive && (countdownShowOn === 'both' || countdownShowOn === 'main');
+        const showTimerOnProjector = timerActive && (timerShowOn === 'both' || timerShowOn === 'main');
+        
+        if (showOnProjector) {
+          window.api.sendSlideUpdate({
+            countdownActive: true,
+            countdownTime: countdownTimeStr,
+            countdownTitle,
+            countdownSubtext,
+            countdownBgColor,
+            countdownTitleSize,
+            countdownTimeSize,
+            countdownSubtextSize,
+            timerActive: false,
+            blackout
+          });
+        } else if (showTimerOnProjector) {
+          window.api.sendSlideUpdate({
+            timerActive: true,
+            timerTime: timerTimeStr,
+            timerTitle,
+            timerBgColor,
+            timerTitleSize,
+            timerTimeSize,
+            countdownActive: false,
+            blackout
+          });
+        } else {
+          // Send regular slide
+          window.api.sendSlideUpdate({
+            text: activeSlideText,
+            label: activeSlideLabel || `Slide ${activeSlideIndex + 1}`,
+            bgAsset: activeBgAsset,
+            style: activeSlideStyle,
+            isImportedSlide: !!(slides && slides[activeSlideIndex] && slides[activeSlideIndex].bgAsset),
+            countdownActive: false,
+            timerActive: false,
+            blackout,
+            clearLyrics,
+            mediaPlaying,
+            mediaLoop,
+            mediaVolume
+          });
+        }
+      }
+    }
+  }, [
+    activeSlideText, activeSlideLabel, activeBgAsset, activeSlideStyle, blackout, clearLyrics, stageMessage, slides, activeSlideIndex,
+    stageLeftWidthPct, stagePanelVisibility, stagePanelHeights, stageShowClock, stageShowSlideIndex, stageShowNextPreview, stageTextStyle, stageUpNextFontSize,
+    countdownActive, countdownMinutes, countdownSeconds, countdownTitle, countdownSubtext, countdownBgColor, countdownTitleSize, countdownTimeSize, countdownSubtextSize, countdownShowOn,
+    timerActive, timerMinutes, timerSeconds, timerTitle, timerBgColor, timerTitleSize, timerTimeSize, timerShowOn,
+    stageTopLineColor, stageMiddleLineColor, stageMainLineColor, stageUpNextLineColor,
+    mediaPlaying, mediaLoop, mediaVolume
+  ]);
+
+  // Sync operator volume element ref
+  useEffect(() => {
+    if (operatorMediaRef.current) {
+      operatorMediaRef.current.volume = mediaVolume / 100;
+    }
+  }, [mediaVolume]);
+
+  // Sync operator playback state on active loop changes
+  useEffect(() => {
+    if (operatorMediaRef.current) {
+      if (mediaPlaying) {
+        operatorMediaRef.current.play().catch(e => {});
+      } else {
+        operatorMediaRef.current.pause();
+      }
+      operatorMediaRef.current.loop = mediaLoop;
+      // Presentation video loops are muted for operator (so sound only comes from the main speakers)
+      if (selectedSong && selectedSong.author === 'Media' && selectedSong.key === 'video') {
+        operatorMediaRef.current.muted = true;
+      } else {
+        operatorMediaRef.current.muted = false;
+      }
+    }
+  }, [mediaPlaying, mediaLoop, activeBgAsset]);
+
+  // Reset selected slide index to 0 whenever song changes
+  useEffect(() => {
+    setActiveSlideIndex(0);
+    setSelectedSlideIndexes([0]);
+    
+    // Auto select slide 0 for media items to load immediately
+    const slidesArr = getSlidesArray();
+    if (selectedSong && selectedSong.author === 'Media' && slidesArr.length > 0) {
+      handleSelectSlide(0, slidesArr);
+      setMediaPlaying(true);
+    }
+  }, [selectedSong]);
+
+  // Sync active slide metadata when changing selection or backgrounds (or song)
+  useEffect(() => {
+    if (slides && slides.length > 0) {
+      const idx = Math.min(activeSlideIndex, slides.length - 1);
+      handleSelectSlide(idx, slides);
+    } else {
+      setLiveSlide('', '', selectedMedia ? selectedMedia.filepath : '', null);
+    }
+  }, [selectedSong, selectedMedia, activeSlideIndex]);
+
+  // Handle incoming mobile remote control WebSocket command events
+  useEffect(() => {
+    if (window.api && window.api.onRemoteCommand) {
+      window.api.onRemoteCommand(async (data) => {
+        if (!data || !data.command) return;
+        
+        switch (data.command) {
+          case 'next-slide': {
+            const nextIdx = Math.min(slides.length - 1, activeSlideIndex + 1);
+            if (nextIdx !== activeSlideIndex) {
+              setSelectedSlideIndexes([nextIdx]);
+              handleSelectSlide(nextIdx, slides);
+            }
+            break;
+          }
+          case 'prev-slide': {
+            const prevIdx = Math.max(0, activeSlideIndex - 1);
+            if (prevIdx !== activeSlideIndex) {
+              setSelectedSlideIndexes([prevIdx]);
+              handleSelectSlide(prevIdx, slides);
+            }
+            break;
+          }
+          case 'select-slide': {
+            const idx = data.index;
+            if (idx >= 0 && idx < slides.length) {
+              setSelectedSlideIndexes([idx]);
+              handleSelectSlide(idx, slides);
+            }
+            break;
+          }
+          case 'toggle-blackout': {
+            setBlackout(prev => !prev);
+            break;
+          }
+          case 'toggle-clear-lyrics': {
+            setClearLyrics(prev => !prev);
+            break;
+          }
+          case 'select-playlist-item': {
+            const songId = data.songId;
+            if (songId) {
+              selectSong(songId);
+            }
+            break;
+          }
+          case 'send-scripture': {
+            try {
+              const contentJson = JSON.stringify([{ 
+                label: 'SCRIPTURE', 
+                text: data.text.toUpperCase(),
+                style: {
+                  font: songFont,
+                  size: songSize,
+                  weight: songWeight,
+                  color: songColor,
+                  bgColor: songBgColor,
+                  bgOpacity: songBgOpacity,
+                  align: songAlign,
+                  vertical: songVertical,
+                  animation: songAnimation,
+                  speed: songSpeed
+                }
+              }]);
+              const addedSong = await window.api.createSong({
+                title: data.reference,
+                author: 'Scripture',
+                key: '',
+                tempo: '',
+                contentJson
+              });
+              await fetchSongs();
+              if (addedSong && addedSong.id) {
+                await addToPlaylist(addedSong.title, 'song', addedSong.id);
+                await fetchPlaylist();
+                await selectSong(addedSong.id);
+              }
+            } catch (err) {
+              console.error('Failed to create/send scripture from remote command:', err);
+            }
+            break;
+          }
+        }
+      });
+    }
+  }, [slides, activeSlideIndex, selectedSong, playlist, songFont, songSize, songWeight, songColor, songBgColor, songBgOpacity, songAlign, songVertical, songAnimation, songSpeed]);
+
+  // Keyboard arrow keys slide navigation controller
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Ignore key events if the user is typing in form inputs or editing textareas
+      if (
+        document.activeElement &&
+        (document.activeElement.tagName === 'INPUT' ||
+         document.activeElement.tagName === 'TEXTAREA' ||
+         document.activeElement.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (activeHeaderTab !== 'presentation' || !selectedSong || slides.length === 0) {
+        return;
+      }
+
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        const nextIdx = Math.min(slides.length - 1, activeSlideIndex + 1);
+        if (nextIdx !== activeSlideIndex) {
+          setSelectedSlideIndexes([nextIdx]);
+          handleSelectSlide(nextIdx, slides);
+        }
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const prevIdx = Math.max(0, activeSlideIndex - 1);
+        if (prevIdx !== activeSlideIndex) {
+          setSelectedSlideIndexes([prevIdx]);
+          handleSelectSlide(prevIdx, slides);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeSlideIndex, slides, selectedSong, activeHeaderTab]);
+
+  // Helper functions for matching styling in Live Output preview
+  const getLivePreviewTextStyle = () => {
+    if (!activeSlideStyle) return { color: '#ffffff', fontWeight: 'bold', fontSize: '4.68cqw', textAlign: 'center' };
+    
+    const fontVal = activeSlideStyle.font || 'Inter';
+    const colorVal = activeSlideStyle.color || '#ffffff';
+    
+    const weightMap = {
+      'normal': 400,
+      'semibold': 600,
+      'bold': 700,
+      'extrabold': 800
+    };
+    const weightVal = weightMap[activeSlideStyle.weight] || activeSlideStyle.weight || 700;
+    const baseSize = activeSlideStyle.size || 90;
+    
+    return {
+      fontFamily: `'${fontVal}', sans-serif`,
+      fontSize: `${(baseSize / 19.2).toFixed(3)}cqw`,
+      fontWeight: weightVal,
+      color: colorVal,
+      textAlign: activeSlideStyle.align || 'center',
+      lineHeight: '1.4',
+      whiteSpace: 'pre-wrap'
+    };
+  };
+
+  const getLivePreviewOverlayStyle = () => {
+    if (!activeSlideStyle) return {};
+    
+    const hex = activeSlideStyle.bgColor || '#000000';
+    const opacityStr = activeSlideStyle.bgOpacity || '0%';
+    const opacity = parseInt(opacityStr) || 0;
+    
+    if (opacity === 0) return { backgroundColor: 'transparent' };
+    
+    const r = parseInt(hex.slice(1, 3), 16) || 0;
+    const g = parseInt(hex.slice(3, 5), 16) || 0;
+    const b = parseInt(hex.slice(5, 7), 16) || 0;
+    
+    return {
+      backgroundColor: `rgba(${r}, ${g}, ${b}, ${opacity / 100})`,
+      borderRadius: '4px',
+      padding: '0.2rem 0.4rem'
+    };
+  };
+
+  const getLivePreviewFlexAlignment = () => {
+    if (!activeSlideStyle) return 'justify-center items-center';
+    
+    const vertical = activeSlideStyle.vertical || 'center';
+    const align = activeSlideStyle.align || 'center';
+    
+    const vClass = vertical === 'top' ? 'justify-start' : vertical === 'bottom' ? 'justify-end' : 'justify-center';
+    const hClass = align === 'left' ? 'items-start' : align === 'right' ? 'items-end' : 'items-center';
+    
+    return `${vClass} ${hClass}`;
+  };
+
+  // Color-coded mapping for various slide categories
+  const getLabelBadgeStyle = (label = 'VERSE') => {
+    const clean = label ? label.toUpperCase().trim() : 'VERSE';
+    if (clean.startsWith('INTRO')) {
+      return { bg: 'bg-slate-500/25', text: 'text-slate-400', border: 'border-slate-500/40' };
+    }
+    if (clean.startsWith('VERSE')) {
+      return { bg: 'bg-blue-500/25', text: 'text-blue-400', border: 'border-blue-500/40' };
+    }
+    if (clean.startsWith('PRE-CHORUS')) {
+      return { bg: 'bg-amber-500/25', text: 'text-amber-400', border: 'border-amber-500/40' };
+    }
+    if (clean.startsWith('CHORUS')) {
+      return { bg: 'bg-emerald-500/25', text: 'text-emerald-400', border: 'border-emerald-500/40' };
+    }
+    if (clean.startsWith('POST-CHORUS')) {
+      return { bg: 'bg-teal-500/25', text: 'text-teal-400', border: 'border-teal-500/40' };
+    }
+    if (clean.startsWith('BRIDGE')) {
+      return { bg: 'bg-purple-500/25', text: 'text-purple-400', border: 'border-purple-500/40' };
+    }
+    if (clean.startsWith('REFRAIN')) {
+      return { bg: 'bg-rose-500/25', text: 'text-rose-400', border: 'border-rose-500/40' };
+    }
+    if (clean.startsWith('INTERLUDE')) {
+      return { bg: 'bg-zinc-500/25', text: 'text-zinc-400', border: 'border-zinc-500/40' };
+    }
+    if (clean.startsWith('TAG')) {
+      return { bg: 'bg-orange-500/25', text: 'text-orange-400', border: 'border-orange-500/40' };
+    }
+    if (clean.startsWith('OUTRO')) {
+      return { bg: 'bg-red-500/25', text: 'text-red-400', border: 'border-red-500/40' };
+    }
+    return { bg: 'bg-brand/25', text: 'text-brand', border: 'border-brand/40' };
+  };
+
+  const getSlideCardBorderClass = (label, isActive, isSelected, isModal = false) => {
+    const clean = label ? label.toUpperCase().trim() : 'VERSE';
+    if (isActive) {
+      const scale = isModal ? 'scale-[1.01]' : 'scale-[1.02]';
+      if (clean.startsWith('INTRO')) return `border-slate-500 shadow-[0_0_12px_rgba(100,116,139,0.45)] ${scale}`;
+      if (clean.startsWith('VERSE')) return `border-blue-500 shadow-[0_0_12px_rgba(59,130,246,0.45)] ${scale}`;
+      if (clean.startsWith('PRE-CHORUS')) return `border-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.45)] ${scale}`;
+      if (clean.startsWith('CHORUS')) return `border-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.45)] ${scale}`;
+      if (clean.startsWith('POST-CHORUS')) return `border-teal-500 shadow-[0_0_12px_rgba(20,184,166,0.45)] ${scale}`;
+      if (clean.startsWith('BRIDGE')) return `border-purple-500 shadow-[0_0_12px_rgba(168,85,247,0.45)] ${scale}`;
+      if (clean.startsWith('REFRAIN')) return `border-rose-500 shadow-[0_0_12px_rgba(244,63,94,0.45)] ${scale}`;
+      if (clean.startsWith('INTERLUDE')) return `border-zinc-500 shadow-[0_0_12px_rgba(113,113,122,0.45)] ${scale}`;
+      if (clean.startsWith('TAG')) return `border-orange-500 shadow-[0_0_12px_rgba(249,115,22,0.45)] ${scale}`;
+      if (clean.startsWith('OUTRO')) return `border-red-500 shadow-[0_0_12px_rgba(239,68,68,0.45)] ${scale}`;
+      return `border-brand shadow-[0_0_12px_rgba(99,102,241,0.45)] ${scale}`;
+    }
+    
+    if (isSelected) {
+      return 'border-brand bg-brand/10 scale-[1.01] shadow-[0_0_8px_rgba(99,102,241,0.25)]';
+    }
+    
+    // Inactive slide borders
+    if (clean.startsWith('INTRO')) return 'border-slate-500/25 hover:border-slate-500/80';
+    if (clean.startsWith('VERSE')) return 'border-blue-500/25 hover:border-blue-500/80';
+    if (clean.startsWith('PRE-CHORUS')) return 'border-amber-500/25 hover:border-amber-500/80';
+    if (clean.startsWith('CHORUS')) return 'border-emerald-500/25 hover:border-emerald-500/80';
+    if (clean.startsWith('POST-CHORUS')) return 'border-teal-500/25 hover:border-teal-500/80';
+    if (clean.startsWith('BRIDGE')) return 'border-purple-500/25 hover:border-purple-500/80';
+    if (clean.startsWith('REFRAIN')) return 'border-rose-500/25 hover:border-rose-500/80';
+    if (clean.startsWith('INTERLUDE')) return 'border-zinc-500/25 hover:border-zinc-500/80';
+    if (clean.startsWith('TAG')) return 'border-orange-500/25 hover:border-orange-500/80';
+    if (clean.startsWith('OUTRO')) return 'border-red-500/25 hover:border-red-500/80';
+    return 'border-[var(--border-app)] hover:border-brand/60';
+  };
+
+  // Fuzzy Search trigger
+  const handleSearchChange = (e) => {
+    const val = e.target.value;
+    setSearchQuery(val);
+    searchSongs(val);
+  };
+
+  const parseSlidesFromRaw = (rawText, customStyle, existingSlides = []) => {
+    if (!rawText.trim()) return [];
+    const blocks = rawText.split(/\n\n+/);
+    return blocks.map((block, idx) => {
+      const lines = block.split('\n');
+      const firstLine = lines[0].trim();
+      const isHeader = /^(VERSE|CHORUS|BRIDGE|INTRO|OUTRO|TAG|PRE-CHORUS)/i.test(firstLine);
+      
+      const label = isHeader ? firstLine.toUpperCase() : 'VERSE';
+      const text = (isHeader ? lines.slice(1) : lines).join('\n').trim();
+      
+      const existing = existingSlides[idx];
+      const mergedStyle = { 
+        ...customStyle,
+        background: existing?.style?.background || ''
+      };
+      
+      return { 
+        label, 
+        text,
+        bgAsset: existing?.bgAsset || '',
+        style: mergedStyle
+      };
+    });
+  };
+
+  const formatSlidesToRaw = (slidesList) => {
+    if (!slidesList) return '';
+    return slidesList.map(s => `${s.label}\n${s.text}`).join('\n\n');
+  };
+
+  const handleAddSong = async (e) => {
+    e.preventDefault();
+    if (!newSongTitle.trim()) return;
+
+    const activeStyle = {
+      font: songFont,
+      size: songSize,
+      weight: songWeight,
+      color: songColor,
+      bgColor: songBgColor,
+      bgOpacity: songBgOpacity,
+      align: songAlign,
+      vertical: songVertical,
+      animation: songAnimation,
+      speed: songSpeed
+    };
+
+    const parsedSlides = parseSlidesFromRaw(newSongSlidesRaw, activeStyle);
+    const contentJson = JSON.stringify(parsedSlides);
+
+    try {
+      const saved = await saveSong({
+        title: newSongTitle,
+        author: 'WorshipFlow',
+        key: '',
+        tempo: '',
+        contentJson
+      });
+      // Refresh library and also add to current presentation lineup immediately
+      await fetchSongs();
+      if (saved && saved.id) {
+        await addToPlaylist(saved.title, 'song', saved.id);
+        await fetchPlaylist();
+        await selectSong(saved.id);
+      }
+
+      setNewSongTitle('');
+      setNewSongSlidesRaw('');
+      setIsAddSongOpen(false);
+    } catch (err) {
+      console.error('Failed to save song:', err);
+      alert('Error: Could not save song to database.');
+    }
+  };
+
+  const handleOpenEdit = () => {
+    if (!selectedSong) return;
+    setEditSongTitle(selectedSong.title);
+    setEditSongSlidesRaw(formatSlidesToRaw(slides));
+
+    if (slides && slides[0] && slides[0].style) {
+      const s = slides[0].style;
+      setSongFont(s.font || 'Inter');
+      setSongSize(s.size || 90);
+      setSongWeight(s.weight || 'bold');
+      setSongColor(s.color || '#ffffff');
+      setSongBgColor(s.bgColor || '#000000');
+      setSongBgOpacity(s.bgOpacity || '0%');
+      setSongAlign(s.align || 'center');
+      setSongVertical(s.vertical || 'center');
+      setSongAnimation(s.animation || 'Zoom In/Out');
+      setSongSpeed(s.speed || 'Medium (0.6s)');
+    }
+    
+    setIsEditSongOpen(true);
+  };
+
+  const handleSaveEditSong = async (e) => {
+    e.preventDefault();
+    if (!selectedSong) return;
+
+    const activeStyle = {
+      font: songFont,
+      size: songSize,
+      weight: songWeight,
+      color: songColor,
+      bgColor: songBgColor,
+      bgOpacity: songBgOpacity,
+      align: songAlign,
+      vertical: songVertical,
+      animation: songAnimation,
+      speed: songSpeed
+    };
+
+    const existingSlides = selectedSong.content_json ? JSON.parse(selectedSong.content_json) : [];
+    const parsedSlides = parseSlidesFromRaw(editSongSlidesRaw, activeStyle, existingSlides);
+    const contentJson = JSON.stringify(parsedSlides);
+
+    try {
+      await saveSong({
+        id: selectedSong.id,
+        title: editSongTitle,
+        author: 'WorshipFlow',
+        key: '',
+        tempo: '',
+        contentJson
+      });
+      setIsEditSongOpen(false);
+    } catch (err) {
+      console.error('Failed to save edited details:', err);
+      alert('Error: Could not save changes to database.');
+    }
+  };
+
+  const handleDeleteSongClick = async (songId) => {
+    if (confirm("Are you sure you want to delete this song from the database?")) {
+      await deleteSong(songId);
+    }
+  };
+
+  const handleBibleSearch = async (e) => {
+    e.preventDefault();
+    if (window.api) {
+      try {
+        const results = await window.api.queryBible(
+          bibleTranslation,
+          bibleBook,
+          bibleChapter,
+          bibleStartVerse,
+          bibleEndVerse
+        );
+        setScriptureResults(results || []);
+      } catch (err) {
+        console.error('Failed to lookup Bible verses:', err);
+      }
+    }
+  };
+
+  const handleAddScriptureToPlaylist = async (vs) => {
+    if (window.api) {
+      try {
+        const contentJson = JSON.stringify([{ 
+          label: 'SCRIPTURE', 
+          text: vs.text.toUpperCase(),
+          style: {
+            font: songFont,
+            size: songSize,
+            weight: songWeight,
+            color: songColor,
+            bgColor: songBgColor,
+            bgOpacity: songBgOpacity,
+            align: songAlign,
+            vertical: songVertical,
+            animation: songAnimation,
+            speed: songSpeed
+          }
+        }]);
+        const addedSong = await window.api.createSong({
+          title: `${vs.book_name} ${vs.chapter}:${vs.verse} (${vs.translation})`,
+          author: 'Bible',
+          key: 'READ',
+          tempo: 'SLOW',
+          contentJson
+        });
+
+        await fetchSongs();
+        await addToPlaylist(addedSong.title, 'song', addedSong.id);
+      } catch (err) {
+        console.error('Failed to add scripture to flow:', err);
+      }
+    }
+  };
+
+
+
+  const handleAddBlankSlide = async () => {
+    if (window.api) {
+      try {
+        const contentJson = JSON.stringify([{ 
+          label: 'BLANK', 
+          text: '',
+          style: {
+            font: songFont,
+            size: songSize,
+            weight: songWeight,
+            color: songColor,
+            bgColor: songBgColor,
+            bgOpacity: songBgOpacity,
+            align: songAlign,
+            vertical: songVertical,
+            animation: songAnimation,
+            speed: songSpeed
+          }
+        }]);
+        const addedSong = await window.api.createSong({
+          title: 'Blank Slide',
+          author: 'System',
+          key: 'None',
+          tempo: 'None',
+          contentJson
+        });
+        await fetchSongs();
+        await addToPlaylist(addedSong.title, 'blank', addedSong.id);
+      } catch (err) {
+        console.error('Failed to add blank slide:', err);
+      }
+    }
+  };
+
+  const handleTextareaCursorChange = (e, isAddSong = false) => {
+    const selectionStart = e.target.selectionStart;
+    const textUpToCursor = e.target.value.substring(0, selectionStart);
+    const blocks = textUpToCursor.split(/\n\n+/);
+    const activeSlideIdx = blocks.length - 1;
+    
+    if (isAddSong) {
+      setActiveAddPreviewIdx(activeSlideIdx);
+    } else {
+      setActiveEditPreviewIdx(activeSlideIdx);
+    }
+  };
+
+  const getPreviewSlides = (rawText) => {
+    const activeStyle = {
+      font: songFont,
+      size: songSize,
+      weight: songWeight,
+      color: songColor,
+      bgColor: songBgColor,
+      bgOpacity: songBgOpacity,
+      align: songAlign,
+      vertical: songVertical,
+      animation: songAnimation,
+      speed: songSpeed
+    };
+    return parseSlidesFromRaw(rawText, activeStyle);
+  };
+
+  const addPreviewSlides = getPreviewSlides(newSongSlidesRaw);
+  const editPreviewSlides = getPreviewSlides(editSongSlidesRaw);
+
+  return (
+    <div className="h-screen w-screen overflow-hidden flex flex-col bg-appBg text-textMain font-sans select-none">
+      
+      {/* 1. Header Navigation Bar */}
+      <header className="flex flex-col bg-appPanel z-50 border-b border-b-[var(--border-app)]">
+        
+        {/* Row 1: Logo & Global Navigation Tabs */}
+        <div className="h-12 pl-4 pr-[150px] flex items-center justify-between" style={{ WebkitAppRegion: 'drag' }}>
+          <div className="flex items-center gap-6" style={{ WebkitAppRegion: 'no-drag' }}>
+            <span className="font-extrabold text-lg tracking-wide text-textMain">
+              WorshipFlow
+            </span>
+
+            {/* Premium File Dropdown menu */}
+            <div className="relative">
+              <button
+                onClick={() => setIsFileDropdownOpen(!isFileDropdownOpen)}
+                className="px-3 py-1 bg-appBg/50 hover:bg-appBg border border-[var(--border-app)] rounded text-xs font-bold text-textMain transition flex items-center gap-1.5"
+              >
+                <span>File</span>
+                <ChevronDown className="h-3 w-3 text-textMuted" />
+              </button>
+              {isFileDropdownOpen && (
+                <div className="absolute left-0 mt-1.5 w-48 bg-appPanel border border-[var(--border-app)] rounded-lg shadow-xl py-1 z-50 text-xs text-textMain animate-in fade-in slide-in-from-top-2 duration-100">
+                    <button
+                      onClick={() => {
+                        setIsFileDropdownOpen(false);
+                        handleNewPresentation();
+                      }}
+                      className="w-full text-left px-4 py-2 hover:bg-brand hover:text-white flex justify-between items-center transition"
+                    >
+                      <span>New Presentation</span>
+                      <span className="text-[10px] text-textMuted font-mono">Ctrl+N</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsFileDropdownOpen(false);
+                        handleOpenPresentation();
+                      }}
+                      className="w-full text-left px-4 py-2 hover:bg-brand hover:text-white flex justify-between items-center transition"
+                    >
+                      <span>Open Presentation...</span>
+                      <span className="text-[10px] text-textMuted font-mono">Ctrl+O</span>
+                    </button>
+                    <div className="border-t border-[var(--border-app)] my-1" />
+                    <button
+                      onClick={() => {
+                        setIsFileDropdownOpen(false);
+                        handleSavePresentation();
+                      }}
+                      className="w-full text-left px-4 py-2 hover:bg-brand hover:text-white flex justify-between items-center transition"
+                    >
+                      <span>Save Presentation</span>
+                      <span className="text-[10px] text-textMuted font-mono">Ctrl+S</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsFileDropdownOpen(false);
+                        handleSavePresentationAs();
+                      }}
+                      className="w-full text-left px-4 py-2 hover:bg-brand hover:text-white flex justify-between items-center transition"
+                    >
+                      <span>Save As...</span>
+                      <span className="text-[10px] text-textMuted font-mono">Ctrl+Shift+S</span>
+                    </button>
+                  </div>
+              )}
+            </div>
+
+            {/* Global Top Tabs */}
+            <nav className="flex items-center gap-1 h-12">
+              <button 
+                onClick={() => setActiveHeaderTab('presentation')}
+                className={`h-12 px-4 text-xs font-bold tracking-wide flex items-center gap-1.5 transition-all ${
+                  activeHeaderTab === 'presentation' 
+                  ? 'bg-brand text-white border-b-2 border-brand' 
+                  : 'text-textMuted hover:text-textMain hover:bg-appBg/30'
+                }`}
+              >
+                <Monitor className="h-3.5 w-3.5" />
+                Presentation
+              </button>
+              <button 
+                onClick={() => setActiveHeaderTab('songs')}
+                className={`h-12 px-4 text-xs font-bold tracking-wide flex items-center gap-1.5 transition-all ${
+                  activeHeaderTab === 'songs' 
+                  ? 'bg-brand text-white border-b-2 border-brand' 
+                  : 'text-textMuted hover:text-textMain hover:bg-appBg/30'
+                }`}
+              >
+                <Music className="h-3.5 w-3.5" />
+                Song Library
+              </button>
+
+              <button 
+                onClick={() => setActiveHeaderTab('scripture')}
+                className={`h-12 px-4 text-xs font-bold tracking-wide flex items-center gap-1.5 transition-all ${
+                  activeHeaderTab === 'scripture' 
+                  ? 'bg-brand text-white border-b-2 border-brand' 
+                  : 'text-textMuted hover:text-textMain hover:bg-appBg/30'
+                }`}
+              >
+                <BookOpen className="h-3.5 w-3.5" />
+                Scripture
+              </button>
+
+              <button 
+                onClick={() => setActiveHeaderTab('countdown')}
+                className={`h-12 px-4 text-xs font-bold tracking-wide flex items-center gap-1.5 transition-all ${
+                  activeHeaderTab === 'countdown' 
+                  ? 'bg-brand text-white border-b-2 border-brand' 
+                  : 'text-textMuted hover:text-textMain hover:bg-appBg/30'
+                }`}
+              >
+                <Clock className="h-3.5 w-3.5" />
+                Countdown
+              </button>
+              <button 
+                onClick={() => setActiveHeaderTab('stage')}
+                className={`h-12 px-4 text-xs font-bold tracking-wide flex items-center gap-1.5 transition-all ${
+                  activeHeaderTab === 'stage' 
+                  ? 'bg-brand text-white border-b-2 border-brand' 
+                  : 'text-textMuted hover:text-textMain hover:bg-appBg/30'
+                }`}
+              >
+                <Layout className="h-3.5 w-3.5" />
+                Stage Display
+              </button>
+            </nav>
+          </div>
+
+          <div className="flex items-center gap-4" style={{ WebkitAppRegion: 'no-drag' }}>
+            {/* Go Live Toggle button in header */}
+            <button 
+              onClick={handleToggleProjector}
+              className={`px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition ${
+                isLiveActive 
+                ? 'bg-liveDanger text-white border border-liveDanger shadow-[0_0_10px_rgba(239,68,68,0.4)] font-mono' 
+                : 'bg-appBg border border-[var(--border-app)] text-textMuted hover:text-textMain font-mono'
+              }`}
+              title={isLiveActive ? "Click to Close Projector Screen" : "Click to Open Projector Screen"}
+            >
+              <span className={`h-2 w-2 rounded-full ${isLiveActive ? 'bg-white animate-pulse' : 'bg-textMuted'}`}></span>
+              {isLiveActive ? 'Live On' : 'Go Live'}
+            </button>
+
+            <button 
+              onClick={handleOpenRemoteSync}
+              className="p-1.5 rounded hover:bg-appBg text-textMuted hover:text-textMain transition"
+              title="Remote Control & Devices"
+            >
+              <Wifi className="h-4.5 w-4.5" />
+            </button>
+
+            <button 
+              onClick={() => setIsSettingsOpen(true)}
+              className="p-1.5 rounded hover:bg-appBg text-textMuted hover:text-textMain transition"
+              title="Settings"
+            >
+              <Settings className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Row 2: Sub-Action Bar */}
+        <div className="h-10 bg-appBg px-4 flex items-center gap-6 text-xs text-textMuted border-t border-[var(--border-app)]">
+          <button 
+            onClick={() => setIsAddSongOpen(true)}
+            className="hover:text-textMain flex items-center gap-1.5 font-medium transition"
+          >
+            <Music className="h-3.5 w-3.5 text-textMuted" />
+            Add Song
+          </button>
+
+          <button 
+            onClick={handleAddMediaClick}
+            className="hover:text-textMain flex items-center gap-1.5 font-medium transition"
+          >
+            <Film className="h-3.5 w-3.5 text-textMuted" />
+            Add Media
+          </button>
+
+          <button 
+            onClick={handleImportPowerPoint}
+            className="hover:text-textMain flex items-center gap-1.5 font-medium transition"
+          >
+            <FileText className="h-3.5 w-3.5 text-textMuted" />
+            PowerPoint
+          </button>
+
+          <button 
+            onClick={handleImportPDF}
+            className="hover:text-textMain flex items-center gap-1.5 font-medium transition"
+          >
+            <FolderOpen className="h-3.5 w-3.5 text-textMuted" />
+            PDF
+          </button>
+        </div>
+      </header>
+
+      {/* 2. Main Interface Panel */}
+      <div className="flex-1 w-full flex overflow-hidden">
+        
+        {/* PRESENTATION WORKSPACE */}
+        {activeHeaderTab === 'presentation' && (
+          <>
+            {/* Left Column: Presentation Flow Lineup */}
+            <aside className="w-[23%] flex flex-col bg-appPanel border-r border-[var(--border-app)]">
+              {/* Sidebar Header / Title */}
+              <div className="p-3 border-b border-[var(--border-app)] flex items-center justify-between">
+                <span className="font-bold text-xs uppercase text-textMain tracking-wider font-mono flex items-center gap-1.5">
+                  <Layers className="h-3.5 w-3.5 text-brand" />
+                  Presentation Flow
+                </span>
+                <span className="text-[10px] bg-brand/10 text-brand px-2 py-0.5 rounded font-mono font-bold">
+                  {playlist.length} Items
+                </span>
+              </div>
+
+              {/* Search Song Library bar inside sidebar */}
+              <div className="p-3 border-b border-[var(--border-app)] relative z-30">
+                <div className="relative flex items-center">
+                  <Search className="absolute left-3 text-textMuted h-4 w-4" />
+                  <input 
+                    type="text" 
+                    placeholder="Search song library to add..." 
+                    value={searchQuery}
+                    onChange={(e) => {
+                      handleSearchChange(e);
+                      setShowSearchSuggestions(true);
+                    }}
+                    onFocus={() => setShowSearchSuggestions(true)}
+                    className="w-full pl-9 pr-3 py-1.5 bg-appBg border border-[var(--border-app)] rounded text-xs text-textMain placeholder-textMuted focus:outline-none focus:border-brand transition"
+                  />
+                </div>
+                {showSearchSuggestions && searchQuery.trim() !== '' && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowSearchSuggestions(false)} />
+                    <div className="absolute left-3 right-3 mt-1 bg-appPanel border border-[var(--border-app)] rounded-lg shadow-2xl py-1.5 z-50 text-xs text-textMain max-h-48 overflow-y-auto scrollbar-thin">
+                      {songs.filter(s => s.title.toLowerCase().includes(searchQuery.toLowerCase())).map(song => (
+                        <button
+                          key={song.id}
+                          onClick={async () => {
+                            selectSong(song.id);
+                            setShowSearchSuggestions(false);
+                            setSearchQuery('');
+                            await addToPlaylist(song.title, 'song', song.id);
+                          }}
+                          className="w-full text-left px-3 py-1.5 hover:bg-brand hover:text-white transition truncate font-medium block"
+                        >
+                          {song.title}
+                        </button>
+                      ))}
+                      {songs.filter(s => s.title.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && (
+                        <div className="px-3 py-1.5 text-textMuted italic">No matches found</div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Sidebar Playlist (Presentation Flow) list */}
+              <div className="flex-1 overflow-y-auto p-2 space-y-1.5 scrollbar-thin">
+                {playlist.map((item, index) => {
+                  const isSelected = selectedSong && selectedSong.id === item.song_id;
+                  const detectedType = detectPlaylistItemType(item);
+
+                  return (
+                    <div 
+                      key={item.id}
+                      draggable
+                      onDragStart={() => setDraggedIndex(index)}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={() => handleDropPlaylist(index)}
+                      onClick={() => {
+                        if (item.song_id) {
+                          selectSong(item.song_id);
+                        }
+                      }}
+                      className={`p-2 rounded-lg cursor-grab active:cursor-grabbing group border transition flex items-center justify-between gap-2 ${
+                        isSelected 
+                          ? 'bg-brand/10 border-brand/40 text-textMain' 
+                          : 'hover:bg-appBg/45 border-transparent text-textMuted hover:text-textMain'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <GripVertical className="h-3 w-3 text-textMuted/60 cursor-grab group-hover:text-textMuted transition" />
+                        
+                        <div className="flex flex-col min-w-0 flex-1">
+                          <span className="font-semibold text-xs truncate leading-snug">{item.name}</span>
+                          <span className="text-[9px] text-textMuted uppercase font-mono tracking-wider font-bold">
+                            {detectedType}
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (confirm(`Are you sure you want to remove "${item.name}" from the Presentation Flow?`)) {
+                            await removeFromPlaylist(item.id);
+                            if (isSelected) {
+                              const remaining = playlist.filter(p => p.id !== item.id);
+                              if (remaining.length > 0) {
+                                selectSong(remaining[0].song_id);
+                              } else {
+                                selectSong(null);
+                              }
+                            }
+                          }
+                        }}
+                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-liveDanger/10 hover:text-liveDanger text-textMuted rounded transition-all"
+                        title="Remove from Flow"
+                      >
+                        <Trash className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+
+                {playlist.length === 0 && (
+                  <div className="text-center py-12 px-4 border border-dashed border-[var(--border-app)] rounded-lg text-textMuted text-xs mt-4">
+                    Presentation Flow is empty. Add songs from Search or import PowerPoint/PDF/Media.
+                  </div>
+                )}
+              </div>
+            </aside>
+
+            {/* Center Column: Slide Explorer */}
+            <section className="flex-1 flex flex-col bg-appBg">
+              {selectedSong ? (
+                <>
+                  <div className="h-14 border-b border-[var(--border-app)] bg-appPanel/60 px-5 flex items-center justify-between">
+                    <div>
+                      <h2 className="text-sm font-bold text-textMain tracking-wide">{selectedSong.title}</h2>
+                    </div>
+                    {selectedSong.author !== 'PowerPoint Import' && selectedSong.author !== 'PDF Import' && (
+                      <button 
+                        onClick={handleOpenEdit}
+                        className="flex items-center gap-1 px-2.5 py-1 bg-brand text-white hover:bg-brand/80 rounded text-[11px] font-semibold transition"
+                      >
+                        <Edit className="h-3 w-3" />
+                        Edit Song
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Slides Grid / Media Player */}
+                  {isMediaItem ? (
+                    /* High-fidelity premium media player interface */
+                    <div className="flex-1 flex flex-col items-center justify-center p-6 bg-appBg/50 overflow-y-auto">
+                      <div className="flex flex-col items-center justify-center max-w-xl w-full space-y-6">
+                        {/* Media Header with Badge */}
+                        <div className="flex justify-between items-center w-full pb-3 border-b border-[var(--border-app)]/30">
+                          <h3 className="text-sm font-bold text-textMain tracking-wide truncate max-w-[70%]">{selectedSong.title}</h3>
+                          <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase tracking-wider bg-brand/20 text-brand`}>
+                            {getMediaType(slides[0]?.bgAsset).toUpperCase()}
+                          </span>
+                        </div>
+
+                        {/* Player Preview Canvas */}
+                        <div className="aspect-video w-full max-w-lg bg-black rounded-xl border border-[var(--border-app)] relative overflow-hidden flex items-center justify-center shadow-inner">
+                          {getMediaType(slides[0]?.bgAsset) === 'video' && (
+                            <video 
+                              ref={operatorMediaRef}
+                              src={slides[0]?.bgAsset ? formatBgPath(slides[0].bgAsset) : ''}
+                              className="w-full h-full object-contain"
+                              playsInline
+                            />
+                          )}
+                          {getMediaType(slides[0]?.bgAsset) === 'image' && (
+                            <img 
+                              src={slides[0]?.bgAsset ? formatBgPath(slides[0].bgAsset) : ''} 
+                              className="w-full h-full object-contain" 
+                              alt="Media Preview" 
+                            />
+                          )}
+                          {getMediaType(slides[0]?.bgAsset) === 'audio' && (
+                            <div className="flex flex-col items-center justify-center space-y-3">
+                              <div className="h-16 w-16 rounded-full bg-brand/10 border border-brand/30 flex items-center justify-center shadow-lg relative">
+                                <Music className={`h-8 w-8 text-brand ${mediaPlaying ? 'animate-bounce' : ''}`} />
+                                {mediaPlaying && (
+                                  <div className="absolute inset-0 rounded-full border border-brand animate-ping opacity-60" />
+                                )}
+                              </div>
+                              <span className="text-[10px] text-textMuted uppercase font-mono tracking-widest font-bold">Audio Track Active</span>
+                              <audio 
+                                ref={operatorMediaRef}
+                                src={slides[0]?.bgAsset ? formatBgPath(slides[0].bgAsset) : ''}
+                                style={{ display: 'none' }}
+                              />
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Player Custom Professional Controller Bar */}
+                        <div className="w-full bg-[#1e293b]/30 border border-[var(--border-app)] rounded-xl px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                          {/* Playback Controls Group */}
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => setMediaPlaying(true)}
+                              className={`p-2.5 rounded-lg transition-all ${
+                                mediaPlaying 
+                                  ? 'bg-brand text-white shadow-lg shadow-brand/20' 
+                                  : 'bg-[#10141D] text-textMuted hover:text-textMain hover:bg-[#10141D]/80'
+                              }`}
+                              title="Play"
+                            >
+                              <Play className="h-4 w-4 fill-current" />
+                            </button>
+                            
+                            <button
+                              onClick={() => setMediaPlaying(false)}
+                              className={`p-2.5 rounded-lg transition-all ${
+                                !mediaPlaying 
+                                  ? 'bg-[#E2E8F0] text-slate-900 shadow-lg' 
+                                  : 'bg-[#10141D] text-textMuted hover:text-textMain hover:bg-[#10141D]/80'
+                              }`}
+                              title="Pause"
+                            >
+                              <Pause className="h-4 w-4 fill-current" />
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                setMediaPlaying(false);
+                                if (operatorMediaRef.current) {
+                                  operatorMediaRef.current.currentTime = 0;
+                                }
+                              }}
+                              className="p-2.5 rounded-lg bg-[#10141D] text-textMuted hover:text-textMain hover:bg-[#10141D]/80 transition-all"
+                              title="Stop & Reset"
+                            >
+                              <Square className="h-4 w-4 fill-current" />
+                            </button>
+                            
+                            {/* Loop Video/Audio Toggle */}
+                            <button
+                              onClick={() => setMediaLoop(!mediaLoop)}
+                              className={`p-2.5 rounded-lg transition-all ${
+                                mediaLoop 
+                                  ? 'bg-emerald-500/20 border border-emerald-500 text-emerald-400 font-bold' 
+                                  : 'bg-[#10141D] border border-transparent text-textMuted hover:text-textMain'
+                              }`}
+                              title="Toggle Loop"
+                            >
+                              <Sliders className="h-4 w-4" />
+                            </button>
+                          </div>
+
+                          {/* Volume Slider Group */}
+                          <div className="flex items-center gap-3 flex-1 max-w-[200px]">
+                            <Volume2 className="h-4 w-4 text-textMuted" />
+                            <input 
+                              type="range"
+                              min="0"
+                              max="100"
+                              value={mediaVolume}
+                              onChange={(e) => setMediaVolume(parseInt(e.target.value))}
+                              className="w-full h-1.5 bg-[#10141D] rounded-lg appearance-none cursor-pointer accent-brand"
+                            />
+                            <span className="text-[10px] font-mono text-textMuted w-8 text-right">{mediaVolume}%</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex-1 overflow-y-auto p-4">
+                      {slides.length > 0 ? (
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                          {slides.map((slide, index) => {
+                            const isActive = index === activeSlideIndex;
+                            const isSelected = selectedSlideIndexes.includes(index);
+                            return (
+                              <div 
+                                key={index}
+                                onClick={(e) => {
+                                  if (e.ctrlKey || e.metaKey || e.shiftKey) {
+                                    if (selectedSlideIndexes.includes(index)) {
+                                      if (selectedSlideIndexes.length > 1) {
+                                        setSelectedSlideIndexes(selectedSlideIndexes.filter(i => i !== index));
+                                      }
+                                    } else {
+                                      setSelectedSlideIndexes([...selectedSlideIndexes, index]);
+                                    }
+                                  } else {
+                                    setSelectedSlideIndexes([index]);
+                                    handleSelectSlide(index, slides);
+                                  }
+                                }}
+                                onDoubleClick={() => {
+                                  setSelectedSlideIndexes([index]);
+                                  handleSelectSlide(index, slides);
+                                  handleShowPendingSlide();
+                                }}
+                                className={`aspect-video rounded-lg relative overflow-hidden flex flex-col justify-between p-3 cursor-pointer group transition-all duration-200 border-2 bg-black ${getSlideCardBorderClass(slide.label, isActive, isSelected)}`}
+                                style={{
+                                  containerType: 'inline-size',
+                                  ...(slide.style?.background && isBgColor(slide.style.background) ? { backgroundColor: slide.style.background } : {})
+                                }}
+                              >
+                                {/* bgAsset: full-cover slide image (PowerPoint/PDF imports) */}
+                                {slide.bgAsset && (
+                                  <div className="absolute inset-0 z-0 w-full h-full">
+                                    <img 
+                                      src={`file:///${slide.bgAsset.replace(/\\/g, '/')}`}
+                                      className="w-full h-full object-cover" 
+                                      alt=""
+                                    />
+                                  </div>
+                                )}
+                                {/* style.background overlay: shared video/image background for songs */}
+                                {!slide.bgAsset && ((slide.style && slide.style.background) || (selectedMedia && selectedMedia.filepath)) && !isBgColor(slide.style?.background || (selectedMedia && selectedMedia.filepath)) && (
+                                  <div className="absolute inset-0 z-0 w-full h-full">
+                                    {/\.(mp4|webm|mov|avi)($|\?)/i.test((slide.style && slide.style.background) || (selectedMedia && selectedMedia.filepath)) ? (
+                                      <video 
+                                        src={(slide.style && slide.style.background) || selectedMedia.filepath} 
+                                        muted 
+                                        loop 
+                                        autoPlay 
+                                        playsInline 
+                                        className="w-full h-full object-cover opacity-40 group-hover:opacity-50 transition-opacity" 
+                                      />
+                                    ) : (
+                                      <img 
+                                        src={(slide.style && slide.style.background) || selectedMedia.filepath} 
+                                        className="w-full h-full object-cover opacity-40 group-hover:opacity-50 transition-opacity" 
+                                        alt="" 
+                                      />
+                                    )}
+                                  </div>
+                                )}
+                                <div className="z-10 flex justify-between">
+                                  <span className="bg-black/70 px-1.5 py-0.5 rounded text-[8px] font-mono text-textMuted">{index + 1}</span>
+                                  {!slide.bgAsset && <span className={`px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase tracking-wider ${getLabelBadgeStyle(slide.label).bg} ${getLabelBadgeStyle(slide.label).text}`}>{slide.label}</span>}
+                                </div>
+                                <div 
+                                  style={{
+                                    fontFamily: `'${slide.style?.font || 'Inter'}', sans-serif`,
+                                    fontSize: `${((slide.style?.size || 90) / 19.2).toFixed(3)}cqw`,
+                                    fontWeight: { 'normal': 400, 'semibold': 600, 'bold': 700, 'extrabold': 800 }[slide.style?.weight] || slide.style?.weight || 700,
+                                    color: slide.style?.color || '#ffffff',
+                                    textAlign: slide.style?.align || 'center',
+                                    justifyContent: slide.style?.vertical === 'top' ? 'flex-start' : slide.style?.vertical === 'bottom' ? 'flex-end' : 'center',
+                                    whiteSpace: 'pre-wrap',
+                                    lineHeight: '1.4'
+                                  }}
+                                  className="z-10 flex-1 flex flex-col my-1 text-center whitespace-pre-line leading-tight projector-text-shadow"
+                                >
+                                  {!slide.bgAsset && slide.text}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="h-full flex flex-col items-center justify-center text-textMuted">
+                          <Grid3X3 className="h-8 w-8 mb-2" />
+                          <p className="text-xs">No slides found. Click 'Edit Song' to add content.</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Dynamic Background Loop Explorer & Settings Form */}
+                  <div
+                    className="bg-[#10141D] border-t border-[var(--border-app)] flex flex-col relative select-none text-textMain transition-all duration-200 overflow-hidden"
+                  >
+                    {/* Draggable resize handle */}
+                    {!isBgPanelCollapsed && (
+                      <div 
+                        onMouseDown={() => setIsResizingBgPanel(true)}
+                        className="absolute -top-1.5 left-0 right-0 h-3 cursor-ns-resize hover:bg-brand/50 transition-colors z-30"
+                        title="Drag to resize background panel"
+                      />
+                    )}
+
+                    {/* Blue Header Bar */}
+                    <div 
+                      onClick={() => {
+                        const nextState = !isBgPanelCollapsed;
+                        setIsBgPanelCollapsed(nextState);
+                        localStorage.setItem('isBgPanelCollapsed', String(nextState));
+                      }}
+                      className="h-7 bg-[#1E4E79] flex items-center justify-between px-3 text-white text-xs font-semibold shadow-sm cursor-pointer hover:bg-[#1E4E79]/90 transition"
+                    >
+                      <span className="flex-1 text-center font-sans">Set Slide Background</span>
+                      {isBgPanelCollapsed ? (
+                        <ChevronUp className="h-4 w-4 opacity-80" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 opacity-80" />
+                      )}
+                    </div>
+
+                    {!isBgPanelCollapsed && (
+                      <div className="flex-1 flex overflow-hidden">
+                      
+                      {/* Left Column: Background Configuration Form (35% width) */}
+                      <div className="w-[35%] min-w-[280px] max-w-[360px] border-r border-[var(--border-app)] bg-appPanel p-3 flex flex-col justify-between overflow-y-auto scrollbar-thin">
+                        <div className="space-y-2.5">
+                          {/* Background Type Dropdown */}
+                          <div>
+                            <label className="text-[10px] text-textMuted uppercase font-mono font-bold block mb-1">Background Type</label>
+                            <select 
+                              value={bgType}
+                              onChange={(e) => {
+                                setBgType(e.target.value);
+                                if (e.target.value === 'color') setStagedBgAsset(null);
+                              }}
+                              className="w-full bg-appBg border border-[var(--border-app)] rounded px-2 py-1 text-xs text-textMain focus:outline-none focus:border-brand font-sans"
+                            >
+                              <option value="color">Solid Color</option>
+                              <option value="image">Image</option>
+                              <option value="video">Video (MP4)</option>
+                            </select>
+                          </div>
+
+                          {/* Conditional Inputs */}
+                          {bgType === 'color' && (
+                            <div>
+                              <label className="text-[10px] text-textMuted uppercase font-mono font-bold block mb-1">Color</label>
+                              <div className="flex gap-2 items-center bg-appBg border border-[var(--border-app)] rounded p-1.5">
+                                <input 
+                                  type="color" 
+                                  value={bgColorInput} 
+                                  onChange={(e) => setBgColorInput(e.target.value)}
+                                  className="w-7 h-7 bg-transparent border-0 cursor-pointer p-0 rounded-md"
+                                />
+                                <input 
+                                  type="text" 
+                                  value={bgColorInput} 
+                                  onChange={(e) => setBgColorInput(e.target.value)}
+                                  className="flex-1 bg-transparent text-xs text-textMain focus:outline-none font-mono"
+                                  placeholder="#000000"
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Apply To Segmented Controls */}
+                          <div>
+                            <label className="text-[10px] text-textMuted uppercase font-mono font-bold block mb-1">Apply To</label>
+                            <div className="flex bg-appBg/50 p-0.5 rounded border border-[var(--border-app)] text-[10px] font-semibold text-center">
+                              <button
+                                type="button"
+                                onClick={() => setApplyToTarget('active')}
+                                className={`flex-1 py-1 rounded transition-all ${
+                                  applyToTarget === 'active' 
+                                    ? 'bg-[#1E4E79] text-white shadow-sm' 
+                                    : 'text-textMuted hover:text-textMain'
+                                }`}
+                              >
+                                This Slide
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setApplyToTarget('selected')}
+                                className={`flex-1 py-1 rounded transition-all ${
+                                  applyToTarget === 'selected' 
+                                    ? 'bg-[#1E4E79] text-white shadow-sm' 
+                                    : 'text-textMuted hover:text-textMain'
+                                }`}
+                              >
+                                Selected Slides
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setApplyToTarget('all')}
+                                className={`flex-1 py-1 rounded transition-all ${
+                                  applyToTarget === 'all' 
+                                    ? 'bg-[#1E4E79] text-white shadow-sm' 
+                                    : 'text-textMuted hover:text-textMain'
+                                }`}
+                              >
+                                All Slides
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Selected Slides Checklist Grid */}
+                          {applyToTarget === 'selected' && (
+                            <div className="space-y-1">
+                              <div className="flex justify-between items-center text-[9px] text-textMuted font-mono">
+                                <span>Select Slides Checklist:</span>
+                                <div className="flex gap-2">
+                                  <button 
+                                    type="button" 
+                                    onClick={() => setChecklistSlideIndexes(slides.map((_, i) => i))}
+                                    className="hover:text-textMain"
+                                  >
+                                    Select All
+                                  </button>
+                                  <span>|</span>
+                                  <button 
+                                    type="button" 
+                                    onClick={() => setChecklistSlideIndexes([])}
+                                    className="hover:text-textMain"
+                                  >
+                                    Clear
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-1.5 bg-appBg border border-[var(--border-app)] p-2 rounded max-h-[100px] overflow-y-auto scrollbar-thin">
+                                {slides.map((slide, index) => (
+                                  <label key={index} className="flex items-center gap-1.5 p-1 rounded bg-appPanel border border-[var(--border-app)] text-[9px] text-textMain cursor-pointer select-none truncate hover:bg-slate-900 transition">
+                                    <input 
+                                      type="checkbox" 
+                                      checked={checklistSlideIndexes.includes(index)}
+                                      onChange={() => {
+                                        if (checklistSlideIndexes.includes(index)) {
+                                          setChecklistSlideIndexes(checklistSlideIndexes.filter(i => i !== index));
+                                        } else {
+                                          setChecklistSlideIndexes([...checklistSlideIndexes, index]);
+                                        }
+                                      }}
+                                      className="rounded text-brand accent-brand h-3 w-3"
+                                    />
+                                    <span className="font-mono text-textMuted font-bold">{index + 1}</span>
+                                    <span className="font-semibold uppercase truncate">{slide.label}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Commit Action Button */}
+                        <div className="pt-2">
+                          <button
+                            type="button"
+                            disabled={bgType !== 'color' && stagedBgAsset === null}
+                            onClick={handleApplyBackground}
+                            className={`w-full py-2.5 rounded font-bold text-xs flex items-center justify-center gap-1.5 transition-all duration-200 border ${
+                              bgType !== 'color' && stagedBgAsset === null 
+                                ? 'bg-appBg border-[var(--border-app)] text-slate-500 cursor-not-allowed opacity-50' 
+                                : bgActionStatus === 'success'
+                                  ? 'bg-[#10B981] border-[#10B981] text-white shadow-sm'
+                                  : 'bg-[#1E4E79] border-[#1E4E79] text-white hover:bg-[#1E4E79]/95 shadow-md'
+                            }`}
+                          >
+                            {bgActionStatus === 'success' ? (
+                              '✔ Applied Background'
+                            ) : (
+                              <>
+                                <span>✔</span>
+                                <span>
+                                  {applyToTarget === 'active' 
+                                    ? 'Apply to Active Slide' 
+                                    : applyToTarget === 'selected'
+                                      ? `Apply to Selected Slides (${checklistSlideIndexes.length})`
+                                      : 'Apply to All Slides'}
+                                </span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Right Column: Local Directory Explorer OR Color presets (65% width) */}
+                      <div className="flex-1 flex flex-col bg-[#F0F2F5] overflow-hidden">
+                        {bgType === 'color' ? (
+                          /* Color Presets Picker Area */
+                          <div className="flex-1 flex flex-col bg-white p-4 overflow-y-auto">
+                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider font-mono mb-3">Color Palette Presets</span>
+                            <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-8 gap-3">
+                              {[
+                                '#000000', '#1E293B', '#475569', '#94A3B8', '#F1F5F9', '#FFFFFF',
+                                '#EF4444', '#F97316', '#F59E0B', '#10B981', '#06B6D4', '#3B82F6', 
+                                '#6366F1', '#8B5CF6', '#EC4899', '#14B8A6'
+                              ].map((col) => (
+                                <div 
+                                  key={col}
+                                  onClick={() => setBgColorInput(col)}
+                                  style={{ backgroundColor: col }}
+                                  className={`aspect-square rounded-md border-2 cursor-pointer transition hover:scale-105 ${
+                                    bgColorInput.toLowerCase() === col.toLowerCase() 
+                                      ? 'border-[#1E4E79] shadow-md scale-105' 
+                                      : 'border-slate-300'
+                                  }`}
+                                  title={col}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          /* Standard replica Local Directory Explorer */
+                          <>
+                            {/* Address Bar Toolbar */}
+                            <div className="h-9 bg-[#E3E6EB] border-b border-slate-300 flex items-center gap-2 px-3">
+                              <button 
+                                type="button"
+                                disabled={!mediaList.some(item => item.id === '..')}
+                                onClick={() => {
+                                  const parentItem = mediaList.find(item => item.id === '..');
+                                  if (parentItem) loadLocalBackgrounds(parentItem.filepath);
+                                }}
+                                className="p-1 hover:bg-slate-200 disabled:opacity-40 rounded transition"
+                                title="Go Up one folder level"
+                              >
+                                <ArrowUp className="h-4 w-4 text-slate-700" />
+                              </button>
+                              
+                              <input 
+                                type="text" 
+                                value={pathInputVal}
+                                onChange={(e) => setPathInputVal(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    loadLocalBackgrounds(pathInputVal);
+                                  }
+                                }}
+                                placeholder="Type folder path and press Enter..."
+                                className="flex-1 h-6 bg-white border border-slate-300 px-2 py-0.5 text-xs text-slate-800 focus:outline-none rounded font-mono font-medium shadow-inner"
+                              />
+                              
+                              <input 
+                                type="range" 
+                                min="0" 
+                                max="100" 
+                                value={thumbnailScale}
+                                onChange={(e) => setThumbnailScale(parseInt(e.target.value))}
+                                className="w-20 cursor-pointer accent-[#1E4E79] h-1.5 bg-slate-300 rounded-lg appearance-none" 
+                                title="Adjust Thumbnail Size"
+                              />
+                            </div>
+
+                            {/* White Explorer Content Grid */}
+                            <div className="flex-1 bg-white overflow-y-auto p-4 scrollbar-thin">
+                              <div 
+                                className="grid gap-3 pb-2"
+                                style={{
+                                  gridTemplateColumns: `repeat(auto-fill, minmax(${60 + (thumbnailScale / 100) * 140}px, 1fr))`
+                                }}
+                              >
+                                
+                                {/* "No Background" Clear Card */}
+                                <div 
+                                  onClick={() => {
+                                    setStagedBgAsset("");
+                                    setSelectedMedia(null);
+                                  }}
+                                  className={`flex flex-col items-center justify-center p-2 rounded cursor-pointer border-2 transition-all aspect-square ${
+                                    stagedBgAsset === ""
+                                      ? 'border-[#1E4E79] bg-slate-50 shadow-md' 
+                                      : 'border-transparent hover:bg-slate-100'
+                                  }`}
+                                >
+                                  <Square className="h-8 w-8 text-slate-400 stroke-[1.25] mb-1" />
+                                  <span className="text-[9px] font-sans text-slate-800 text-center font-semibold truncate w-full px-1">
+                                    No Background
+                                  </span>
+                                </div>
+
+                                {/* Directories & Media Files (Filtered by Selected bgType) */}
+                                {mediaList.map((item) => {
+                                  if (item.id === '..') return null;
+
+                                  // Filter explorer files by active select type
+                                  if (item.type !== 'directory') {
+                                    if (bgType === 'image' && item.type !== 'image') return null;
+                                    if (bgType === 'video' && item.type !== 'video') return null;
+                                  }
+
+                                  if (item.type === 'directory') {
+                                    return (
+                                      <div 
+                                        key={item.id}
+                                        onClick={() => loadLocalBackgrounds(item.filepath)}
+                                        className="flex flex-col items-center justify-center p-2 rounded hover:bg-slate-100 cursor-pointer aspect-square transition"
+                                      >
+                                        <Folder className="h-8 w-8 text-[#FFD24C] fill-[#FFD24C] stroke-amber-600 stroke-[1.25] mb-1" />
+                                        <span className="text-[9px] font-sans text-slate-800 text-center font-medium truncate w-full px-1">
+                                          {item.name}
+                                        </span>
+                                      </div>
+                                    );
+                                  }
+
+                                  const isStaged = stagedBgAsset === item.filepath;
+                                  return (
+                                    <div 
+                                      key={item.id}
+                                      onClick={() => {
+                                        setStagedBgAsset(item.filepath);
+                                        setSelectedMedia(item);
+                                      }}
+                                      className={`flex flex-col items-center justify-center p-1 rounded cursor-pointer border-2 aspect-square relative overflow-hidden transition-all ${
+                                        isStaged 
+                                          ? 'border-[#1E4E79] bg-slate-50 shadow-md scale-105' 
+                                          : 'border-transparent hover:bg-slate-100'
+                                      }`}
+                                    >
+                                      <div className="w-full flex-1 relative rounded overflow-hidden bg-black flex items-center justify-center">
+                                        {item.type === 'video' ? (
+                                          <div className="w-full h-full bg-slate-950 relative">
+                                            <video 
+                                              src={item.filepath} 
+                                              preload="metadata" 
+                                              className="w-full h-full object-cover opacity-80" 
+                                            />
+                                            <span className="absolute top-1 right-1 bg-black/75 px-1 py-0.5 rounded text-[5px] text-[#E2E8F0] font-mono font-bold uppercase tracking-wider leading-none">
+                                              VIDEO
+                                            </span>
+                                          </div>
+                                        ) : (
+                                          <img 
+                                            src={item.filepath} 
+                                            className="w-full h-full object-cover opacity-80" 
+                                            alt="" 
+                                          />
+                                        )}
+                                      </div>
+                                      <span className="text-[8px] font-mono text-slate-800 text-center truncate w-full px-1 mt-1 leading-none">
+                                        {item.name}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Right Layout size explorer sidebar tools */}
+                      <div className="w-10 bg-[#E3E6EB] border-l border-slate-300 flex flex-col items-center py-3 gap-2">
+                        <button 
+                          onClick={async () => {
+                            if (!window.api || !window.api.selectDirectory) return;
+                            const dirPath = await window.api.selectDirectory();
+                            if (dirPath) loadLocalBackgrounds(dirPath);
+                          }}
+                          className="p-1 hover:bg-slate-200 rounded transition" 
+                          title="Open Directory Picker..."
+                        >
+                          <FolderOpen className="h-4 w-4 text-slate-600" />
+                        </button>
+                        <button className="p-1 hover:bg-slate-200 rounded transition" title="Aspect Ratio Adjust"><Monitor className="h-4 w-4 text-slate-600" /></button>
+                        <button className="p-1 hover:bg-slate-200 rounded transition" title="Zoom View"><Maximize2 className="h-4 w-4 text-slate-600" /></button>
+                      </div>
+
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center text-textMuted">
+                  <FolderOpen className="h-10 w-10 text-slate-700 mb-2 stroke-1 animate-pulse" />
+                  <p className="text-xs font-semibold">No Active Song Selected</p>
+                  <p className="text-[10px] text-textMuted mt-1">Select a song from the library panel to display slides.</p>
+                </div>
+              )}
+            </section>
+
+            
+          </>
+        )}
+
+        {/* SONG LIBRARY EXPLORER VIEW */}
+        {activeHeaderTab === 'songs' && (
+          <section className="flex-1 flex flex-col p-6 bg-appBg overflow-y-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-lg font-bold text-textMain flex items-center gap-2">
+                <Music className="text-brand h-5 w-5" />
+                Song Library Manager
+              </h2>
+              <button 
+                onClick={() => setIsAddSongOpen(true)}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-slate-900 font-bold rounded text-xs flex items-center gap-2 transition"
+              >
+                <Plus className="h-4 w-4" />
+                Add New Song
+              </button>
+            </div>
+
+            {songs.length > 0 ? (
+              <div className="bg-appPanel/40 border border-[var(--border-app)] rounded-lg overflow-hidden text-xs">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-[var(--border-app)] bg-appPanel/50 text-textMuted font-bold uppercase tracking-wider text-[10px] font-mono">
+                      <th className="p-4">Title</th>
+                      <th className="p-4 text-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {songs.map((song) => (
+                      <tr key={song.id} className="border-b border-[var(--border-app)]/60 hover:bg-appPanel/20 text-textMain">
+                        <td className="p-4 font-bold text-textMain">{song.title}</td>
+                        <td className="p-4 text-center">
+                          <div className="flex items-center justify-center gap-2">
+                            <button 
+                              onClick={async () => {
+                                selectSong(song.id);
+                                await addToPlaylist(song.title, 'song', song.id);
+                                setActiveHeaderTab('presentation');
+                              }}
+                              className="px-2.5 py-1 bg-brand/10 text-brand hover:bg-brand/20 rounded border border-brand/40 text-[10px] font-semibold font-mono"
+                            >
+                              Load Presentation
+                            </button>
+                            <button 
+                              onClick={() => { selectSong(song.id); handleOpenEdit(); }}
+                              className="p-1.5 hover:bg-appBg rounded text-textMuted hover:text-textMain"
+                            >
+                              <Edit className="h-3.5 w-3.5" />
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteSongClick(song.id)}
+                              className="p-1.5 hover:bg-liveDanger/20 rounded text-liveDanger hover:text-red-300"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center border border-[var(--border-app)] rounded-lg p-12 text-textMuted">
+                <Music className="h-12 w-12 text-slate-700 mb-2 stroke-1" />
+                <p className="text-sm font-semibold">No Songs In Library Database</p>
+                <p className="text-xs text-textMuted mt-1">Import a song using the Add Song button to get started.</p>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* SLIDES EDITOR VIEW */}
+        {false && (
+          <section className="flex-1 flex flex-col p-6 bg-appBg overflow-y-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-lg font-bold text-textMain flex items-center gap-2">
+                <Layers className="text-brand h-5 w-5" />
+                Slide Editor
+              </h2>
+            </div>
+            {selectedSong ? (
+              <div className="bg-appPanel/40 border border-[var(--border-app)] p-6 rounded-lg text-xs space-y-4 max-w-3xl">
+                <div>
+                  <h3 className="font-bold text-textMain text-sm mb-1">{selectedSong.title}</h3>
+                </div>
+                
+                {/* Horizontal styling toolbar on top of text area */}
+                <div className="bg-appBg border border-[var(--border-app)] rounded-t-lg p-3 grid grid-cols-3 md:grid-cols-5 gap-3 items-end">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Font</label>
+                    <select 
+                      value={songFont} 
+                      onChange={e => setSongFont(e.target.value)}
+                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                    >
+                      <option value="Inter">Inter</option>
+                      <option value="Poppins">Poppins</option>
+                      <option value="Montserrat">Montserrat</option>
+                      <option value="Roboto">Roboto</option>
+                      <option value="Open Sans">Open Sans</option>
+                      <option value="Lato">Lato</option>
+                      <option value="Oswald">Oswald</option>
+                      <option value="Raleway">Raleway</option>
+                      <option value="Nunito">Nunito</option>
+                      <option value="Playfair Display">Playfair Display</option>
+                      <option value="Bebas Neue">Bebas Neue</option>
+                      <option value="Anton">Anton</option>
+                      <option value="Fjalla One">Fjalla One</option>
+                      <option value="Archivo Black">Archivo Black</option>
+                      <option value="Cinzel">Cinzel</option>
+                      <option value="Outfit">Outfit</option>
+                      <option value="Syne">Syne</option>
+                      <option value="League Spartan">League Spartan</option>
+                      <option value="Unbounded">Unbounded</option>
+                      <option value="Instrument Serif">Instrument Serif</option>
+                      <option value="Arial">Arial</option>
+                    </select>
+                  </div>
+                  
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Size (px)</label>
+                    <input 
+                      type="number" 
+                      value={songSize} 
+                      onChange={e => setSongSize(parseInt(e.target.value) || 60)}
+                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Weight</label>
+                    <select 
+                      value={songWeight} 
+                      onChange={e => setSongWeight(e.target.value)}
+                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                    >
+                      <option value="normal">Normal</option>
+                      <option value="semibold">Semibold</option>
+                      <option value="bold">Bold</option>
+                      <option value="extrabold">Extra Bold</option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Color</label>
+                    <div className="flex gap-1 items-center">
+                      <input 
+                        type="color" 
+                        value={songColor} 
+                        onChange={e => setSongColor(e.target.value)}
+                        className="w-6 h-5 bg-transparent border-0 cursor-pointer p-0"
+                      />
+                      <span className="text-[8px] font-mono text-textMuted uppercase">{songColor}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Bg Color</label>
+                    <div className="flex gap-1 items-center">
+                      <input 
+                        type="color" 
+                        value={songBgColor} 
+                        onChange={e => setSongBgColor(e.target.value)}
+                        className="w-6 h-5 bg-transparent border-0 cursor-pointer p-0"
+                      />
+                      <span className="text-[8px] font-mono text-textMuted uppercase">{songBgColor}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Bg Opacity</label>
+                    <select 
+                      value={songBgOpacity} 
+                      onChange={e => setSongBgOpacity(e.target.value)}
+                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                    >
+                      <option value="0%">0%</option>
+                      <option value="20%">20%</option>
+                      <option value="40%">40%</option>
+                      <option value="60%">60%</option>
+                      <option value="80%">80%</option>
+                      <option value="100%">100%</option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Align</label>
+                    <select 
+                      value={songAlign} 
+                      onChange={e => setSongAlign(e.target.value)}
+                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                    >
+                      <option value="left">Left</option>
+                      <option value="center">Center</option>
+                      <option value="right">Right</option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Vertical</label>
+                    <select 
+                      value={songVertical} 
+                      onChange={e => setSongVertical(e.target.value)}
+                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                    >
+                      <option value="top">Top</option>
+                      <option value="center">Center</option>
+                      <option value="bottom">Bottom</option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1 col-span-2">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Anim & Speed</label>
+                    <div className="flex gap-2">
+                      <select 
+                        value={songAnimation} 
+                        onChange={e => setSongAnimation(e.target.value)}
+                        className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none flex-1"
+                      >
+                        <option value="None">None</option>
+                        <option value="Fade">Fade</option>
+                        <option value="Zoom In/Out">Zoom In/Out</option>
+                      </select>
+                      <select 
+                        value={songSpeed} 
+                        onChange={e => setSongSpeed(e.target.value)}
+                        className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none flex-1"
+                      >
+                        <option value="Fast (0.3s)">Fast (0.3s)</option>
+                        <option value="Medium (0.6s)">Medium (0.6s)</option>
+                        <option value="Slow (1.0s)">Slow (1.0s)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+
+
+                <div className="flex flex-col gap-2">
+                  <textarea 
+                    rows="18"
+                    value={editSongSlidesRaw}
+                    onChange={e => setEditSongSlidesRaw(e.target.value)}
+                    className="p-3 bg-appBg border border-t-0 border-[var(--border-app)] rounded-b-lg text-textMain focus:border-brand focus:outline-none font-mono leading-relaxed"
+                  ></textarea>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button 
+                    onClick={handleOpenEdit}
+                    className="px-4 py-2 border border-[var(--border-app)] text-textMuted hover:text-textMain rounded font-mono"
+                  >
+                    Reset
+                  </button>
+                  <button 
+                    onClick={handleSaveEditSong}
+                    className="px-4 py-2 bg-brand hover:bg-brand/80 text-white font-bold rounded flex items-center gap-1.5 font-mono"
+                  >
+                    <Save className="h-4 w-4" />
+                    Save Slide Settings
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center border border-[var(--border-app)] rounded-lg p-12 text-textMuted">
+                <Layers className="h-10 w-10 text-slate-700 mb-2 stroke-1 animate-pulse" />
+                <p className="text-xs">No Active Song Loaded in Editor. Go to Presentation Tab and select a song.</p>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* SCRIPTURE EXPLORER VIEW */}
+        {activeHeaderTab === 'scripture' && (
+          <section className="flex-1 flex flex-col p-6 bg-appBg overflow-y-auto">
+            <h2 className="text-lg font-bold text-textMain flex items-center gap-2 mb-6">
+              <BookOpen className="text-brand h-5 w-5" />
+              Indexed Bible Scripture Lookup
+            </h2>
+
+            <form onSubmit={handleBibleSearch} className="grid grid-cols-4 gap-4 bg-appPanel/30 p-4 rounded-lg border border-[var(--border-app)] mb-6 text-xs">
+              <div className="flex flex-col gap-1.5 col-span-2">
+                <label className="text-[10px] text-textMuted font-bold uppercase font-mono">Translation Version</label>
+                <select 
+                  value={bibleTranslation}
+                  onChange={e => setBibleTranslation(e.target.value)}
+                  className="p-2 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain focus:outline-none"
+                >
+                  <option value="KJV">King James Version (KJV)</option>
+                  <option value="ASV">American Standard Version (ASV)</option>
+                  <option value="Tagalog">Ang Biblia (Tagalog)</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] text-textMuted font-bold uppercase font-mono">Book Name</label>
+                <input 
+                  type="text" 
+                  value={bibleBook}
+                  onChange={e => setBibleBook(e.target.value)}
+                  className="p-2 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain focus:outline-none"
+                  placeholder=""
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] text-textMuted font-bold uppercase font-mono">Chapter</label>
+                <input 
+                  type="number" 
+                  value={bibleChapter}
+                  onChange={e => setBibleChapter(parseInt(e.target.value) || 1)}
+                  className="p-2 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain focus:outline-none text-center font-mono"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] text-textMuted font-bold uppercase font-mono">Start Verse</label>
+                <input 
+                  type="number" 
+                  value={bibleStartVerse}
+                  onChange={e => setBibleStartVerse(parseInt(e.target.value) || 1)}
+                  className="p-2 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain focus:outline-none text-center font-mono"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] text-textMuted font-bold uppercase font-mono">End Verse</label>
+                <input 
+                  type="number" 
+                  value={bibleEndVerse}
+                  onChange={e => setBibleEndVerse(parseInt(e.target.value) || 1)}
+                  className="p-2 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain focus:outline-none text-center font-mono"
+                />
+              </div>
+              <div className="col-span-2 flex items-end">
+                <button 
+                  type="submit"
+                  className="w-full py-2 bg-brand hover:bg-brand/80 text-white rounded font-bold transition shadow-lg font-mono"
+                >
+                  Search Database (Psalms 23:1-3 Seeded)
+                </button>
+              </div>
+            </form>
+
+            <div className="space-y-2">
+              {scriptureResults.length > 0 ? (
+                scriptureResults.map((vs, idx) => (
+                  <div key={idx} className="p-4 bg-appPanel/30 border border-[var(--border-app)] rounded-lg flex justify-between items-start text-xs hover:border-brand transition">
+                    <div className="flex-1 pr-6">
+                      <div className="font-bold text-xs text-brand flex items-center gap-2 font-mono">
+                        <BookOpen className="h-3.5 w-3.5" />
+                        {vs.book_name} {vs.chapter}:{vs.verse} ({vs.translation})
+                      </div>
+                      <p className="text-textMain text-sm mt-2 leading-relaxed font-sans">{vs.text}</p>
+                    </div>
+                    <button 
+                      onClick={() => handleAddScriptureToPlaylist(vs)}
+                      className="px-3 py-1.5 bg-brand/10 hover:bg-brand/20 border border-brand/60 rounded text-[11px] text-brand font-semibold flex items-center gap-1 font-mono"
+                    >
+                      <Plus className="h-3 w-3" />
+                      Add to Flow
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-16 border border-[var(--border-app)] rounded-lg text-textMuted text-xs">
+                  No Bible verses loaded. Query Book: "Psalms", Chapter: "23", Translation: "KJV" to pull seeded values.
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
+
+
+        {/* COUNTDOWN MANAGER VIEW */}
+        {activeHeaderTab === 'countdown' && (
+          <section className="flex-1 flex flex-col p-6 bg-appBg overflow-y-auto text-xs relative pb-10">
+            <h2 className="text-lg font-bold text-textMain flex items-center gap-2 mb-6">
+              <Clock className="text-brand h-5 w-5" />
+              Service Countdown Timer
+            </h2>
+
+            {/* Bottom redline running indicator */}
+            {/* Countdown / Timer Mode Sub Navigation Tabs */}
+            <div className="flex border-b border-[var(--border-app)] mb-6 gap-2" style={{ WebkitAppRegion: 'no-drag' }}>
+              <button 
+                onClick={() => setCountdownSubTab('countdown')}
+                className={`py-2.5 px-4 font-bold text-xs uppercase tracking-wider border-b-2 transition-all ${
+                  countdownSubTab === 'countdown'
+                    ? 'border-brand text-brand font-bold'
+                    : 'border-transparent text-textMuted hover:text-textMain'
+                }`}
+              >
+                Countdown Timer
+              </button>
+              <button 
+                onClick={() => setCountdownSubTab('timer')}
+                className={`py-2.5 px-4 font-bold text-xs uppercase tracking-wider border-b-2 transition-all ${
+                  countdownSubTab === 'timer'
+                    ? 'border-brand text-brand font-bold'
+                    : 'border-transparent text-textMuted hover:text-textMain'
+                }`}
+              >
+                Count-up Timer
+              </button>
+            </div>
+
+            {/* Bottom redline running indicators */}
+            {(isCountdownRunning || isTimerRunning) && (
+              <div 
+                className="fixed bottom-0 left-0 right-0 h-1.5 bg-red-500 z-50 animate-pulse"
+                style={{ height: '6px', backgroundColor: '#ef4444', filter: 'drop-shadow(0 -2px 4px rgba(239, 68, 68, 0.5))' }}
+              />
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+              {countdownSubTab === 'countdown' ? (
+                <>
+                  {/* Left Column: Countdown Configs */}
+                  <div className="lg:col-span-2 space-y-4">
+                    {/* General Text inputs */}
+                    <div className="bg-appPanel/40 border border-[var(--border-app)] p-5 rounded-xl space-y-4">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[10px] text-textMuted font-bold uppercase font-mono">TITLE</label>
+                        <input 
+                          type="text" 
+                          value={countdownTitle}
+                          onChange={e => setCountdownTitle(e.target.value)}
+                          placeholder="e.g. The service is about to start"
+                          className="p-2.5 bg-appBg border border-[var(--border-app)] rounded-lg text-textMain text-sm focus:outline-none focus:border-brand/60"
+                        />
+                      </div>
+                      
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[10px] text-textMuted font-bold uppercase font-mono">SUBTEXT OPTIONAL</label>
+                        <input 
+                          type="text" 
+                          value={countdownSubtext}
+                          onChange={e => setCountdownSubtext(e.target.value)}
+                          placeholder="e.g. Please take your seats"
+                          className="p-2.5 bg-appBg border border-[var(--border-app)] rounded-lg text-textMain text-sm focus:outline-none focus:border-brand/60"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Modes, Targets, and Show On */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Timer Modes & Options */}
+                      <div className="bg-appPanel/40 border border-[var(--border-app)] p-5 rounded-xl space-y-4">
+                        <div>
+                          <label className="text-[10px] text-textMuted font-bold uppercase font-mono mb-2 block">TIMER MODE</label>
+                          <div className="flex gap-2">
+                            {['duration', 'target', 'current'].map((mode) => (
+                              <button
+                                key={mode}
+                                onClick={() => setCountdownMode(mode)}
+                                className={`flex-1 py-2 px-3 rounded-lg text-[10px] font-bold uppercase tracking-wider transition ${
+                                  countdownMode === mode 
+                                    ? 'bg-brand text-white shadow-md' 
+                                    : 'bg-appBg border border-[var(--border-app)] text-textMuted hover:text-textMain'
+                                }`}
+                              >
+                                {mode === 'duration' ? 'Duration' : mode === 'target' ? 'Target Time' : 'Current Time'}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] text-textMuted font-bold uppercase font-mono mb-2 block">SHOW ON</label>
+                          <div className="flex gap-2">
+                            {['both', 'main', 'stage'].map((on) => (
+                              <button
+                                key={on}
+                                onClick={() => setCountdownShowOn(on)}
+                                className={`flex-1 py-2 px-3 rounded-lg text-[10px] font-bold uppercase tracking-wider transition ${
+                                  countdownShowOn === on 
+                                    ? 'bg-brand text-white shadow-md' 
+                                    : 'bg-appBg border border-[var(--border-app)] text-textMuted hover:text-textMain'
+                                }`}
+                              >
+                                {on.toUpperCase()}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Duration Inputs & Quick Presets */}
+                      <div className="bg-appPanel/40 border border-[var(--border-app)] p-5 rounded-xl space-y-3.5">
+                        {countdownMode === 'duration' && (
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[9px] text-textMuted font-bold uppercase font-mono">Minutes</label>
+                              <input 
+                                type="number" 
+                                min="0" 
+                                max="180"
+                                value={countdownMinutes}
+                                onChange={e => setCountdownMinutes(Math.max(0, parseInt(e.target.value) || 0))}
+                                disabled={isCountdownRunning}
+                                className="p-2 bg-appBg border border-[var(--border-app)] rounded text-textMain text-center text-xs font-mono focus:outline-none focus:border-brand/50 disabled:opacity-50"
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[9px] text-textMuted font-bold uppercase font-mono">Seconds</label>
+                              <input 
+                                type="number" 
+                                min="0" 
+                                max="59"
+                                value={countdownSeconds}
+                                onChange={e => setCountdownSeconds(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
+                                disabled={isCountdownRunning}
+                                className="p-2 bg-appBg border border-[var(--border-app)] rounded text-textMain text-center text-xs font-mono focus:outline-none focus:border-brand/50 disabled:opacity-50"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {countdownMode === 'target' && (
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[9px] text-textMuted font-bold uppercase font-mono">Target Clock Time (24h)</label>
+                            <input 
+                              type="time" 
+                              value={countdownTargetTime}
+                              onChange={e => setCountdownTargetTime(e.target.value)}
+                              disabled={isCountdownRunning}
+                              className="p-2 bg-appBg border border-[var(--border-app)] rounded text-textMain text-center text-xs font-mono focus:outline-none focus:border-brand/50 disabled:opacity-50"
+                            />
+                          </div>
+                        )}
+
+                        {countdownMode === 'current' && (
+                          <div className="text-[11px] text-textMuted italic pt-2">
+                            Displays your system clock time (hours and minutes) on the projector display.
+                          </div>
+                        )}
+
+                        {countdownMode === 'duration' && (
+                          <div className="grid grid-cols-4 gap-1.5 pt-1.5">
+                            {[1, 2, 5, 10].map((preset) => (
+                              <button
+                                key={preset}
+                                disabled={isCountdownRunning}
+                                onClick={() => {
+                                  setCountdownMinutes(preset);
+                                  setCountdownSeconds(0);
+                                }}
+                                className="py-1 bg-appBg hover:bg-appBg/80 border border-[var(--border-app)] rounded text-[9px] font-bold text-textMuted hover:text-textMain font-mono transition disabled:opacity-40"
+                              >
+                                {preset}m
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Overtime Options */}
+                        <div className="flex items-center justify-between py-2 border-t border-[var(--border-app)]/30 text-xs">
+                          <span className="text-textMain font-medium">Enable Count-up Overtime</span>
+                          <input 
+                            type="checkbox" 
+                            checked={countdownOvertime} 
+                            onChange={() => setCountdownOvertime(!countdownOvertime)} 
+                            disabled={isCountdownRunning}
+                            className="accent-brand h-4 w-4 cursor-pointer disabled:opacity-50" 
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Font sizes sliders */}
+                    <div className="bg-appPanel/40 border border-[var(--border-app)] p-5 rounded-xl space-y-4">
+                      <div className="flex flex-col gap-2">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-textMuted font-mono uppercase">Title Size</span>
+                          <span className="font-bold text-brand">{countdownTitleSize}px</span>
+                        </div>
+                        <input 
+                          type="range" 
+                          min="24" 
+                          max="96" 
+                          value={countdownTitleSize}
+                          onChange={e => setCountdownTitleSize(parseInt(e.target.value))}
+                          className="w-full h-1 bg-appBg rounded appearance-none cursor-pointer accent-brand"
+                        />
+                      </div>
+                      
+                      <div className="flex flex-col gap-2">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-textMuted font-mono uppercase">Timer Size</span>
+                          <span className="font-bold text-brand">{countdownTimeSize}px</span>
+                        </div>
+                        <input 
+                          type="range" 
+                          min="72" 
+                          max="280" 
+                          value={countdownTimeSize}
+                          onChange={e => setCountdownTimeSize(parseInt(e.target.value))}
+                          className="w-full h-1 bg-appBg rounded appearance-none cursor-pointer accent-brand"
+                        />
+                      </div>
+                      
+                      <div className="flex flex-col gap-2">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-textMuted font-mono uppercase">Subtext Size</span>
+                          <span className="font-bold text-brand">{countdownSubtextSize}px</span>
+                        </div>
+                        <input 
+                          type="range" 
+                          min="16" 
+                          max="64" 
+                          value={countdownSubtextSize}
+                          onChange={e => setCountdownSubtextSize(parseInt(e.target.value))}
+                          className="w-full h-1 bg-appBg rounded appearance-none cursor-pointer accent-brand"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Background Colors */}
+                    <div className="bg-appPanel/40 border border-[var(--border-app)] p-5 rounded-xl flex items-center justify-between text-xs">
+                      <span className="text-textMain font-medium font-mono uppercase">Countdown Overlay Color</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[11px] text-textMuted">{countdownBgColor}</span>
+                        <input 
+                          type="color" 
+                          value={countdownBgColor} 
+                          onChange={e => setCountdownBgColor(e.target.value)} 
+                          className="h-6 w-9 bg-transparent cursor-pointer rounded border border-[var(--border-app)]" 
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Timer Preview & Action */}
+                  <div className="space-y-4">
+                    {/* Add/Subtract Time Controls */}
+                    <div className="bg-appPanel/40 border border-[var(--border-app)] p-4 rounded-xl flex gap-1.5">
+                      <button 
+                        disabled={!isCountdownRunning || countdownMode !== 'duration'}
+                        onClick={() => {
+                          if (countdownMinutes > 0) {
+                            setCountdownMinutes(countdownMinutes - 1);
+                          }
+                        }}
+                        className="flex-1 py-1.5 bg-appBg hover:bg-appBg/80 text-textMuted hover:text-textMain border border-[var(--border-app)] rounded-lg text-[10px] font-bold font-mono transition disabled:opacity-40"
+                      >
+                        - 1:00
+                      </button>
+                      <button 
+                        disabled={!isCountdownRunning || countdownMode !== 'duration'}
+                        onClick={() => setCountdownMinutes(countdownMinutes + 1)}
+                        className="flex-1 py-1.5 bg-appBg hover:bg-appBg/80 text-textMuted hover:text-textMain border border-[var(--border-app)] rounded-lg text-[10px] font-bold font-mono transition disabled:opacity-40"
+                      >
+                        + 1:00
+                      </button>
+                      <button 
+                        disabled={!isCountdownRunning || countdownMode !== 'duration'}
+                        onClick={() => setCountdownMinutes(countdownMinutes + 5)}
+                        className="flex-1 py-1.5 bg-appBg hover:bg-appBg/80 text-textMuted hover:text-textMain border border-[var(--border-app)] rounded-lg text-[10px] font-bold font-mono transition disabled:opacity-40"
+                      >
+                        + 5:00
+                      </button>
+                    </div>
+
+                    {/* Aspect-Video 16:9 monitor frame */}
+                    <div 
+                      style={{ backgroundColor: countdownBgColor }}
+                      className="w-full aspect-video rounded-xl border border-[var(--border-app)] p-6 relative overflow-hidden flex flex-col justify-center items-center text-center select-none shadow-2xl transition-colors duration-500"
+                    >
+                      <div className="space-y-1">
+                        <p style={{ fontSize: `${countdownTitleSize * 0.22}px`, color: 'rgba(255,255,255,0.75)' }} className="font-sans font-medium uppercase tracking-widest leading-tight">
+                          {countdownTitle || 'Countdown'}
+                        </p>
+                        <p style={{ fontSize: `${countdownTimeSize * 0.22}px`, color: '#ffffff' }} className="font-mono font-bold leading-none py-1">
+                          {String(countdownMinutes).padStart(2, '0')}:{String(countdownSeconds).padStart(2, '0')}
+                        </p>
+                        {countdownSubtext && (
+                          <p style={{ fontSize: `${countdownSubtextSize * 0.22}px`, color: 'rgba(255,255,255,0.5)' }} className="font-sans italic leading-tight">
+                            {countdownSubtext}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Trigger Control Panel */}
+                    <div className="bg-appPanel/40 border border-[var(--border-app)] p-4 rounded-xl space-y-3">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            const nextState = !isCountdownRunning;
+                            setIsCountdownRunning(nextState);
+                            setCountdownActive(nextState);
+                            if (nextState) {
+                              setIsTimerRunning(false);
+                              setTimerActive(false);
+                            }
+                          }}
+                          className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold uppercase tracking-wider shadow-lg transition active:scale-95 flex items-center justify-center gap-1.5 ${
+                            isCountdownRunning 
+                              ? 'bg-liveDanger hover:bg-liveDanger/90 text-white' 
+                              : 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                          }`}
+                        >
+                          {isCountdownRunning ? (
+                            <>
+                              <Square className="h-3.5 w-3.5 fill-white" /> Stop Countdown
+                            </>
+                          ) : (
+                            <>
+                              <Play className="h-3.5 w-3.5 fill-white" /> Go Live
+                            </>
+                          )}
+                        </button>
+                        
+                        <button
+                          onClick={() => {
+                            setIsCountdownRunning(false);
+                            setCountdownActive(false);
+                            setCountdownMinutes(5);
+                            setCountdownSeconds(0);
+                          }}
+                          className="px-4 py-3 bg-appBg hover:bg-appBg/80 border border-[var(--border-app)] text-textMuted hover:text-textMain rounded-xl text-xs font-bold uppercase transition"
+                        >
+                          Reset
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                /* Count-up Timer Sub-tab View */
+                <>
+                  {/* Left Column: Count-up Timer Configs */}
+                  <div className="lg:col-span-2 space-y-4">
+                    {/* General Text inputs */}
+                    <div className="bg-appPanel/40 border border-[var(--border-app)] p-5 rounded-xl space-y-4">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[10px] text-textMuted font-bold uppercase font-mono">TIMER TITLE</label>
+                        <input 
+                          type="text" 
+                          value={timerTitle}
+                          onChange={e => setTimerTitle(e.target.value)}
+                          placeholder="e.g. Service Timer"
+                          className="p-2.5 bg-appBg border border-[var(--border-app)] rounded-lg text-textMain text-sm focus:outline-none focus:border-brand/60"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Show On settings */}
+                    <div className="bg-appPanel/40 border border-[var(--border-app)] p-5 rounded-xl space-y-4">
+                      <div>
+                        <label className="text-[10px] text-textMuted font-bold uppercase font-mono mb-2 block">SHOW ON</label>
+                        <div className="flex gap-2">
+                          {['both', 'main', 'stage'].map((on) => (
+                            <button
+                              key={on}
+                              onClick={() => setTimerShowOn(on)}
+                              className={`flex-1 py-2 px-3 rounded-lg text-[10px] font-bold uppercase tracking-wider transition ${
+                                timerShowOn === on 
+                                  ? 'bg-brand text-white shadow-md' 
+                                  : 'bg-appBg border border-[var(--border-app)] text-textMuted hover:text-textMain'
+                              }`}
+                            >
+                              {on.toUpperCase()}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Font sizes sliders */}
+                    <div className="bg-appPanel/40 border border-[var(--border-app)] p-5 rounded-xl space-y-4">
+                      <div className="flex flex-col gap-2">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-textMuted font-mono uppercase">Title Size</span>
+                          <span className="font-bold text-brand">{timerTitleSize}px</span>
+                        </div>
+                        <input 
+                          type="range" 
+                          min="24" 
+                          max="96" 
+                          value={timerTitleSize}
+                          onChange={e => setTimerTitleSize(parseInt(e.target.value))}
+                          className="w-full h-1 bg-appBg rounded appearance-none cursor-pointer accent-brand"
+                        />
+                      </div>
+                      
+                      <div className="flex flex-col gap-2">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-textMuted font-mono uppercase">Timer Size</span>
+                          <span className="font-bold text-brand">{timerTimeSize}px</span>
+                        </div>
+                        <input 
+                          type="range" 
+                          min="72" 
+                          max="280" 
+                          value={timerTimeSize}
+                          onChange={e => setTimerTimeSize(parseInt(e.target.value))}
+                          className="w-full h-1 bg-appBg rounded appearance-none cursor-pointer accent-brand"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Background Color */}
+                    <div className="bg-appPanel/40 border border-[var(--border-app)] p-5 rounded-xl flex items-center justify-between text-xs">
+                      <span className="text-textMain font-medium font-mono uppercase">Timer Overlay Color</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[11px] text-textMuted">{timerBgColor}</span>
+                        <input 
+                          type="color" 
+                          value={timerBgColor} 
+                          onChange={e => setTimerBgColor(e.target.value)} 
+                          className="h-6 w-9 bg-transparent cursor-pointer rounded border border-[var(--border-app)]" 
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Timer Preview & Action */}
+                  <div className="space-y-4">
+                    {/* Aspect-Video 16:9 monitor frame */}
+                    <div 
+                      style={{ backgroundColor: timerBgColor }}
+                      className="w-full aspect-video rounded-xl border border-[var(--border-app)] p-6 relative overflow-hidden flex flex-col justify-center items-center text-center select-none shadow-2xl transition-colors duration-500"
+                    >
+                      <div className="space-y-1">
+                        <p style={{ fontSize: `${timerTitleSize * 0.22}px`, color: 'rgba(255,255,255,0.75)' }} className="font-sans font-medium uppercase tracking-widest leading-tight">
+                          {timerTitle || 'Timer'}
+                        </p>
+                        <p style={{ fontSize: `${timerTimeSize * 0.22}px`, color: '#ffffff' }} className="font-mono font-bold leading-none py-1">
+                          {String(timerMinutes).padStart(2, '0')}:{String(timerSeconds).padStart(2, '0')}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Trigger Control Panel */}
+                    <div className="bg-appPanel/40 border border-[var(--border-app)] p-4 rounded-xl space-y-3">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            const nextState = !isTimerRunning;
+                            setIsTimerRunning(nextState);
+                            setTimerActive(nextState);
+                            if (nextState) {
+                              setIsCountdownRunning(false);
+                              setCountdownActive(false);
+                            }
+                          }}
+                          className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold uppercase tracking-wider shadow-lg transition active:scale-95 flex items-center justify-center gap-1.5 ${
+                            isTimerRunning 
+                              ? 'bg-liveDanger hover:bg-liveDanger/90 text-white' 
+                              : 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                          }`}
+                        >
+                          {isTimerRunning ? (
+                            <>
+                              <Square className="h-3.5 w-3.5 fill-white" /> Stop Timer
+                            </>
+                          ) : (
+                            <>
+                              <Play className="h-3.5 w-3.5 fill-white" /> Start Timer
+                            </>
+                          )}
+                        </button>
+                        
+                        <button
+                          onClick={() => {
+                            setIsTimerRunning(false);
+                            setTimerActive(false);
+                            setTimerMinutes(0);
+                            setTimerSeconds(0);
+                          }}
+                          className="px-4 py-3 bg-appBg hover:bg-appBg/80 border border-[var(--border-app)] text-textMuted hover:text-textMain rounded-xl text-xs font-bold uppercase transition"
+                        >
+                          Reset
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </section>
+        )}
+
+        {/* STAGE DISPLAY VIEW */}
+        {activeHeaderTab === 'stage' && (
+          <section className="flex-1 flex flex-col p-6 bg-appBg overflow-y-auto text-xs">
+            <h2 className="text-lg font-bold text-textMain flex items-center gap-2 mb-6">
+              <Layout className="text-brand h-5 w-5" />
+              Stage Display Monitor & Controller
+            </h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+              {/* Column 1: Settings & Layout */}
+              <div className="bg-appPanel/45 border border-[var(--border-app)] p-6 rounded-2xl text-sm space-y-6">
+                <h4 className="font-bold text-textMain text-sm uppercase tracking-wider font-mono">Stage General Settings</h4>
+                
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center py-2 border-b border-[var(--border-app)]/30 text-sm">
+                    <span className="text-textMain font-medium">Show Clock Time</span>
+                    <input type="checkbox" checked={stageShowClock} onChange={() => setStageShowClock(!stageShowClock)} className="accent-brand h-4 w-4 cursor-pointer" />
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-[var(--border-app)]/30 text-sm">
+                    <span className="text-textMain font-medium">Show Slide Index Label</span>
+                    <input type="checkbox" checked={stageShowSlideIndex} onChange={() => setStageShowSlideIndex(!stageShowSlideIndex)} className="accent-brand h-4 w-4 cursor-pointer" />
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-[var(--border-app)]/30 text-sm">
+                    <span className="text-textMain font-medium">Show Up Next Lyrics</span>
+                    <input type="checkbox" checked={stageShowNextPreview} onChange={() => setStageShowNextPreview(!stageShowNextPreview)} className="accent-brand h-4 w-4 cursor-pointer" />
+                  </div>
+                  <div className="flex flex-col gap-2 py-2 border-b border-[var(--border-app)]/30 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-textMain font-medium">Up Next Font Size</span>
+                      <span className="font-mono text-brand font-bold text-sm">{stageUpNextFontSize}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="14"
+                      max="48"
+                      value={stageUpNextFontSize}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value);
+                        setStageUpNextFontSize(v);
+                        localStorage.setItem('stageUpNextFontSize', v.toString());
+                      }}
+                      className="w-full h-1.5 bg-appBg rounded-lg appearance-none cursor-pointer accent-brand"
+                    />
+                  </div>
+
+                  <div className="flex justify-between items-center py-2 text-sm">
+                    <span className="text-textMain font-medium">Text Transform</span>
+                    <select value={stageTextStyle} onChange={(e) => setStageTextStyle(e.target.value)} className="p-1.5 bg-appBg border border-[var(--border-app)] rounded-lg text-textMain focus:outline-none text-xs font-semibold">
+                      <option>Upper-case Bold</option>
+                      <option>Standard Mixed-case</option>
+                    </select>
+                  </div>
+
+                  <div className="pt-4 border-t border-[var(--border-app)]/30 space-y-3">
+                    <h5 className="font-bold text-textMain text-xs uppercase tracking-wider font-mono">Custom Layout Line Colors</h5>
+                    
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-textMuted">Top Dividing Line</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[10px] text-textMuted">{stageTopLineColor}</span>
+                        <input type="color" value={stageTopLineColor} onChange={(e) => setStageTopLineColor(e.target.value)} className="h-6 w-8 bg-transparent cursor-pointer rounded border border-[var(--border-app)]" />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-textMuted">Middle Dividing Line</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[10px] text-textMuted">{stageMiddleLineColor}</span>
+                        <input type="color" value={stageMiddleLineColor} onChange={(e) => setStageMiddleLineColor(e.target.value)} className="h-6 w-8 bg-transparent cursor-pointer rounded border border-[var(--border-app)]" />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-textMuted">Main Label Line</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[10px] text-textMuted">{stageMainLineColor}</span>
+                        <input type="color" value={stageMainLineColor} onChange={(e) => setStageMainLineColor(e.target.value)} className="h-6 w-8 bg-transparent cursor-pointer rounded border border-[var(--border-app)]" />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-textMuted">Up Next Label Line</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[10px] text-textMuted">{stageUpNextLineColor}</span>
+                        <input type="color" value={stageUpNextLineColor} onChange={(e) => setStageUpNextLineColor(e.target.value)} className="h-6 w-8 bg-transparent cursor-pointer rounded border border-[var(--border-app)]" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Column 2: Stage Window Launcher Controls */}
+              <div className="bg-appPanel/45 border border-[var(--border-app)] p-6 rounded-2xl text-sm space-y-5">
+                <h4 className="font-bold text-textMain text-sm uppercase tracking-wider font-mono">Stage Window Controls</h4>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={async () => {
+                      const selectEl = document.getElementById('stage-target-display');
+                      const val = selectEl ? selectEl.value : 'auto';
+                      await window.api.openStage(val === 'auto' ? undefined : parseInt(val, 10));
+                      await refreshWindowStatuses();
+                    }}
+                    className="py-3 rounded-xl bg-brand/10 border border-brand text-brand hover:bg-brand/20 transition-all font-bold text-xs uppercase tracking-wider active:scale-95"
+                  >
+                    Open Window
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await window.api.closeStage();
+                      await refreshWindowStatuses();
+                    }}
+                    className="py-3 rounded-xl bg-liveDanger/10 border border-liveDanger text-liveDanger hover:bg-liveDanger/20 transition-all font-bold text-xs uppercase tracking-wider active:scale-95"
+                  >
+                    Close Window
+                  </button>
+                </div>
+
+                <div className="flex flex-col gap-2 pt-2">
+                  <label className="text-[10px] text-textMuted uppercase font-mono font-bold">Stage Window Target Display</label>
+                  <select
+                    id="stage-target-display"
+                    value={selectedStageDisplay}
+                    onChange={(e) => setSelectedStageDisplay(e.target.value === 'auto' ? 'auto' : parseInt(e.target.value))}
+                    className="w-full p-2.5 bg-appBg border border-[var(--border-app)] rounded-lg text-textMain text-xs focus:outline-none focus:border-brand/40 font-sans font-semibold"
+                  >
+                    {displays.length === 0 && (
+                      <>
+                        <option value="auto">Auto (Non-Primary)</option>
+                        <option value="0">Primary Screen</option>
+                        <option value="1">Secondary Screen</option>
+                        <option value="2">Tertiary Screen</option>
+                      </>
+                    )}
+                    {displays.map((d) => (
+                      <option key={d.id} value={d.index}>
+                        {d.index + 1}: {d.label} {d.isPrimary ? '(Primary)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+      <aside className="w-[23%] flex flex-col bg-appPanel border-l border-[var(--border-app)]">
+        {/* Live Output */}
+        <div className="p-4 border-b border-[var(--border-app)] bg-appBg">
+          <h3 className="text-[11px] font-bold text-textMuted uppercase tracking-wider mb-2 font-mono flex items-center gap-1.5">
+            Live Output
+            {countdownActive && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-500 text-white font-mono animate-pulse">COUNTDOWN</span>
+            )}
+            {timerActive && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-brand text-white font-mono animate-pulse">TIMER</span>
+            )}
+          </h3>
+          <div 
+            className={`w-full bg-black rounded-lg border ${(countdownActive || timerActive) ? 'border-red-500/60' : 'border-[var(--border-app)]'} relative overflow-hidden flex flex-col p-3 transition-all duration-300 ${
+              aspectRatio === 'video' ? 'aspect-video' : 'aspect-[4/3]'
+            } ${!(countdownActive || timerActive) ? getLivePreviewFlexAlignment() : 'items-center justify-center'}`}
+            style={{
+              containerType: 'inline-size',
+              ...(countdownActive 
+                ? { backgroundColor: countdownBgColor || '#000000' } 
+                : timerActive 
+                  ? { backgroundColor: timerBgColor || '#000000' }
+                  : (!blackout && activeBgAsset && isBgColor(activeBgAsset) ? { backgroundColor: activeBgAsset } : {}))
+            }}
+          >
+            {/* Background media (only when not in overlay mode) */}
+            {!(countdownActive || timerActive) && !blackout && activeBgAsset && !isBgColor(activeBgAsset) && (
+              <div className="absolute inset-0 z-0 w-full h-full">
+                {/\.(mp4|webm|mov|avi)($|\?)/i.test(activeBgAsset) ? (
+                  <video 
+                    src={activeBgAsset} 
+                    autoPlay 
+                    muted 
+                    loop 
+                    playsInline 
+                    className="w-full h-full object-cover" 
+                    style={{ opacity: (slides[activeSlideIndex]?.bgAsset || selectedSong?.author === 'Media') ? 1.0 : 0.6 }} 
+                  />
+                ) : (
+                  <img 
+                    src={activeBgAsset} 
+                    className="w-full h-full object-cover" 
+                    style={{ opacity: (slides[activeSlideIndex]?.bgAsset || selectedSong?.author === 'Media') ? 1.0 : 0.6 }} 
+                    alt="" 
+                  />
+                )}
+              </div>
+            )}
+            
+            {/* Countdown overlay content */}
+            {countdownActive && !blackout ? (
+              <div className="z-10 flex flex-col items-center justify-center text-center w-full px-2">
+                {countdownTitle && (
+                  <div style={{ fontSize: `${Math.max(6, (countdownTitleSize || 56) * 0.065)}px`, fontWeight: 'bold', textTransform: 'uppercase', opacity: 0.85, color: '#fff', marginBottom: '4px', lineHeight: 1.2 }}>
+                    {countdownTitle}
+                  </div>
+                )}
+                <div style={{ fontSize: `${Math.max(14, (countdownTimeSize || 160) * 0.1)}px`, fontWeight: 'bold', fontFamily: 'monospace', color: '#fff', lineHeight: 1 }}>
+                  {`${String(countdownMinutes).padStart(2, '0')}:${String(countdownSeconds).padStart(2, '0')}`}
+                </div>
+                {countdownSubtext && (
+                  <div style={{ fontSize: `${Math.max(5, (countdownSubtextSize || 36) * 0.065)}px`, opacity: 0.6, color: '#fff', fontStyle: 'italic', marginTop: '4px' }}>
+                    {countdownSubtext}
+                  </div>
+                )}
+              </div>
+            ) : timerActive && !blackout ? (
+              /* Count-up Timer overlay content */
+              <div className="z-10 flex flex-col items-center justify-center text-center w-full px-2">
+                {timerTitle && (
+                  <div style={{ fontSize: `${Math.max(6, (timerTitleSize || 56) * 0.065)}px`, fontWeight: 'bold', textTransform: 'uppercase', opacity: 0.85, color: '#fff', marginBottom: '4px', lineHeight: 1.2 }}>
+                    {timerTitle}
+                  </div>
+                )}
+                <div style={{ fontSize: `${Math.max(14, (timerTimeSize || 160) * 0.1)}px`, fontWeight: 'bold', fontFamily: 'monospace', color: '#fff', lineHeight: 1 }}>
+                  {`${String(timerMinutes).padStart(2, '0')}:${String(timerSeconds).padStart(2, '0')}`}
+                </div>
+              </div>
+            ) : (
+              <div className="z-10" style={getLivePreviewOverlayStyle()}>
+                {!blackout && !clearLyrics && activeSlideText ? (
+                  <p style={getLivePreviewTextStyle()} className="whitespace-pre-line uppercase projector-text-shadow">
+                    {activeSlideText}
+                  </p>
+                ) : blackout ? (
+                  <div className="absolute inset-0 bg-black z-20 flex items-center justify-center text-liveDanger font-bold text-[10px] font-mono">BLACKOUT</div>
+                ) : (
+                  null
+                )}
+              </div>
+            )}
+          </div>
+          
+          <div className="flex items-center justify-between text-[9px] text-textMuted mt-2">
+            <span>Aspect: {aspectRatio === 'video' ? '16:9' : '4:3'}</span>
+            <button onClick={() => setAspectRatio(aspectRatio === 'video' ? '4/3' : 'video')} className="text-brand hover:underline font-mono text-[9px]">Toggle Ratio</button>
+          </div>
+
+          {/* Output Monitor Selector */}
+          <div className="mt-2.5 flex flex-col gap-1">
+            <label className="text-[9px] text-textMuted uppercase font-mono tracking-wider">Output Monitor</label>
+            <select
+              value={selectedProjectorDisplay}
+              onChange={(e) => setSelectedProjectorDisplay(parseInt(e.target.value))}
+              className="w-full p-1.5 bg-appBg border border-[var(--border-app)] rounded text-textMain text-[10px] focus:outline-none"
+            >
+              {displays.length === 0 && <option value={1}>Auto (Secondary Screen)</option>}
+              {displays.map((d) => (
+                <option key={d.id} value={d.index}>
+                  {d.label} {d.isPrimary ? '(Primary)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Preview Panel */}
+        <div className="p-4 border-b border-[var(--border-app)] bg-appBg/50">
+          <h3 className="text-[11px] font-bold text-textMuted uppercase tracking-wider mb-2 font-mono">
+            {countdownActive ? 'Countdown Preview' : 'Next Slide Preview'}
+          </h3>
+          {countdownActive ? (
+            /* Show countdown info when countdown is active */
+            <div 
+              className="w-full aspect-video rounded-lg border border-red-500/40 relative overflow-hidden flex flex-col items-center justify-center text-center p-3"
+              style={{ backgroundColor: countdownBgColor || '#000000' }}
+            >
+              {countdownTitle && (
+                <div style={{ fontSize: `${Math.max(7, (countdownTitleSize || 56) * 0.065)}px`, fontWeight: 'bold', textTransform: 'uppercase', opacity: 0.85, color: '#fff', marginBottom: '4px', lineHeight: 1.2 }}>
+                  {countdownTitle}
+                </div>
+              )}
+              <div style={{ fontSize: `${Math.max(16, (countdownTimeSize || 160) * 0.1)}px`, fontWeight: 'bold', fontFamily: 'monospace', color: '#fff', lineHeight: 1 }}>
+                {`${String(countdownMinutes).padStart(2, '0')}:${String(countdownSeconds).padStart(2, '0')}`}
+              </div>
+              {countdownSubtext && (
+                <div style={{ fontSize: `${Math.max(6, (countdownSubtextSize || 36) * 0.065)}px`, opacity: 0.6, color: '#fff', fontStyle: 'italic', marginTop: '4px' }}>
+                  {countdownSubtext}
+                </div>
+              )}
+            </div>
+          ) : (
+            /* Otherwise show next slide */
+            (() => {
+              const nextSlideIndex = activeSlideIndex + 1;
+              const currentSlide = slides && slides[nextSlideIndex];
+              const previewBg = currentSlide 
+                ? (currentSlide.bgAsset 
+                    ? `file:///${currentSlide.bgAsset.replace(/\\/g, '/')}` 
+                    : (currentSlide.style && currentSlide.style.background) || (selectedMedia ? selectedMedia.filepath : ''))
+                : '';
+              
+              return (
+                <div 
+                  className="w-full aspect-video bg-black rounded-lg border border-[var(--border-app)] relative overflow-hidden flex flex-col p-3"
+                  style={{
+                    containerType: 'inline-size',
+                    ...(previewBg && isBgColor(previewBg) ? { backgroundColor: previewBg } : {})
+                  }}
+                >
+                  {previewBg && !isBgColor(previewBg) && (
+                    <div className="absolute inset-0 z-0 w-full h-full">
+                      {/\.(mp4|webm|mov|avi)($|\?)/i.test(previewBg) ? (
+                        <video 
+                          src={previewBg} 
+                          autoPlay 
+                          muted 
+                          loop 
+                          playsInline 
+                          className="w-full h-full object-cover" 
+                          style={{ opacity: (currentSlide?.bgAsset || selectedSong?.author === 'Media') ? 1.0 : 0.6 }} 
+                        />
+                      ) : (
+                        <img 
+                          src={previewBg} 
+                          className="w-full h-full object-cover" 
+                          style={{ opacity: (currentSlide?.bgAsset || selectedSong?.author === 'Media') ? 1.0 : 0.6 }} 
+                          alt="" 
+                        />
+                      )}
+                    </div>
+                  )}
+                  
+                  <div className="z-10 flex-1 flex flex-col justify-center items-center text-center">
+                    {currentSlide ? (
+                      <p 
+                        style={{
+                          fontFamily: `'${currentSlide.style?.font || 'Inter'}', sans-serif`,
+                          fontSize: `${((currentSlide.style?.size || 90) / 19.2).toFixed(3)}cqw`,
+                          fontWeight: { 'normal': 400, 'semibold': 600, 'bold': 700, 'extrabold': 800 }[currentSlide.style?.weight] || currentSlide.style?.weight || 700,
+                          color: currentSlide.style?.color || '#ffffff',
+                          textAlign: currentSlide.style?.align || 'center',
+                          lineHeight: '1.4',
+                          whiteSpace: 'pre-wrap'
+                        }}
+                        className="whitespace-pre-line uppercase projector-text-shadow"
+                      >
+                        {currentSlide.bgAsset ? '' : currentSlide.text}
+                      </p>
+                    ) : (
+                      <p className="text-textMuted text-[10px] font-mono tracking-wider uppercase">END OF SONG</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })()
+          )}
+        </div>
+
+        {/* Emergency Controls */}
+        <div className="flex-1 p-4 bg-appBg flex flex-col justify-start gap-3">
+          <div className="grid grid-cols-2 gap-2">
+            <button 
+              onClick={() => setBlackout(!blackout)}
+              className={`py-3 rounded font-bold text-[10px] tracking-wider uppercase border transition-all flex flex-col items-center gap-1.5 justify-center ${
+                blackout ? 'bg-liveDanger text-white border-liveDanger' : 'bg-appPanel border-[var(--border-app)] text-textMain hover:bg-appBg'
+              }`}
+            >
+              <EyeOff className="h-4 w-4" />
+              Blackout
+            </button>
+            <button 
+              onClick={() => setClearLyrics(!clearLyrics)}
+              className={`py-3 rounded font-bold text-[10px] tracking-wider uppercase border transition-all flex flex-col items-center gap-1.5 justify-center ${
+                clearLyrics ? 'bg-amber-600 text-white border-amber-500' : 'bg-appPanel border-[var(--border-app)] text-textMain hover:bg-appBg'
+              }`}
+            >
+              <EyeOff className="h-4 w-4" />
+              Hide Lyrics
+            </button>
+          </div>
+        </div>
+      </aside>
+      </div>
+
+      {/* --- ADD SONG MODAL --- */}
+      {isAddSongOpen && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-appPanel border border-[var(--border-app)] w-full max-w-5xl rounded-lg shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="p-4 border-b border-[var(--border-app)] flex justify-between items-center bg-appPanel">
+              <h3 className="font-bold text-sm text-textMain">Import / Add New WorshipFlow Song</h3>
+              <button onClick={() => setIsAddSongOpen(false)} className="text-textMuted hover:text-textMain transition">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 flex-1 overflow-hidden p-4">
+              
+              {/* Left Column: Form inputs (7 cols) */}
+              <form 
+                onSubmit={handleAddSong} 
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
+                    e.preventDefault();
+                  }
+                }}
+                className="lg:col-span-7 flex flex-col gap-4 overflow-y-auto pr-1 text-xs"
+              >
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-textMuted font-semibold font-mono text-[11px]">Song Title</label>
+                  <input 
+                    type="text" 
+                    required 
+                    placeholder="" 
+                    value={newSongTitle}
+                    onChange={e => setNewSongTitle(e.target.value)}
+                    className="p-2.5 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain focus:outline-none"
+                  />
+                </div>
+
+                {/* Text Styling toolbar */}
+                <div className="bg-appBg border border-[var(--border-app)] rounded-t-lg p-3 grid grid-cols-3 md:grid-cols-5 gap-3 items-end">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Font</label>
+                    <select 
+                      value={songFont} 
+                      onChange={e => setSongFont(e.target.value)}
+                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                    >
+                      <option value="Inter">Inter</option>
+                      <option value="Poppins">Poppins</option>
+                      <option value="Montserrat">Montserrat</option>
+                      <option value="Roboto">Roboto</option>
+                      <option value="Open Sans">Open Sans</option>
+                      <option value="Lato">Lato</option>
+                      <option value="Oswald">Oswald</option>
+                      <option value="Raleway">Raleway</option>
+                      <option value="Nunito">Nunito</option>
+                      <option value="Playfair Display">Playfair Display</option>
+                      <option value="Bebas Neue">Bebas Neue</option>
+                      <option value="Anton">Anton</option>
+                      <option value="Fjalla One">Fjalla One</option>
+                      <option value="Archivo Black">Archivo Black</option>
+                      <option value="Cinzel">Cinzel</option>
+                      <option value="Outfit">Outfit</option>
+                      <option value="Syne">Syne</option>
+                      <option value="League Spartan">League Spartan</option>
+                      <option value="Unbounded">Unbounded</option>
+                      <option value="Instrument Serif">Instrument Serif</option>
+                      <option value="Arial">Arial</option>
+                    </select>
+                  </div>
+                  
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Size (px)</label>
+                    <input 
+                      type="number" 
+                      value={songSize} 
+                      onChange={e => setSongSize(parseInt(e.target.value) || 60)}
+                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Weight</label>
+                    <select 
+                      value={songWeight} 
+                      onChange={e => setSongWeight(e.target.value)}
+                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                    >
+                      <option value="normal">Normal</option>
+                      <option value="semibold">Semibold</option>
+                      <option value="bold">Bold</option>
+                      <option value="extrabold">Extra Bold</option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Color</label>
+                    <div className="flex gap-1 items-center">
+                      <input 
+                        type="color" 
+                        value={songColor} 
+                        onChange={e => setSongColor(e.target.value)}
+                        className="w-6 h-5 bg-transparent border-0 cursor-pointer p-0"
+                      />
+                      <span className="text-[8px] font-mono text-textMuted uppercase">{songColor}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Bg Color</label>
+                    <div className="flex gap-1 items-center">
+                      <input 
+                        type="color" 
+                        value={songBgColor} 
+                        onChange={e => setSongBgColor(e.target.value)}
+                        className="w-6 h-5 bg-transparent border-0 cursor-pointer p-0"
+                      />
+                      <span className="text-[8px] font-mono text-textMuted uppercase">{songBgColor}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Bg Opacity</label>
+                    <select 
+                      value={songBgOpacity} 
+                      onChange={e => setSongBgOpacity(e.target.value)}
+                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                    >
+                      <option value="0%">0%</option>
+                      <option value="20%">20%</option>
+                      <option value="40%">40%</option>
+                      <option value="60%">60%</option>
+                      <option value="80%">80%</option>
+                      <option value="100%">100%</option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Align</label>
+                    <select 
+                      value={songAlign} 
+                      onChange={e => setSongAlign(e.target.value)}
+                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                    >
+                      <option value="left">Left</option>
+                      <option value="center">Center</option>
+                      <option value="right">Right</option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Vertical</label>
+                    <select 
+                      value={songVertical} 
+                      onChange={e => setSongVertical(e.target.value)}
+                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                    >
+                      <option value="top">Top</option>
+                      <option value="center">Center</option>
+                      <option value="bottom">Bottom</option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1 col-span-2">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Anim & Speed</label>
+                    <div className="flex gap-2">
+                      <select 
+                        value={songAnimation} 
+                        onChange={e => setSongAnimation(e.target.value)}
+                        className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none flex-1"
+                      >
+                        <option value="None">None</option>
+                        <option value="Fade">Fade</option>
+                        <option value="Zoom In/Out">Zoom In/Out</option>
+                      </select>
+                      <select 
+                        value={songSpeed} 
+                        onChange={e => setSongSpeed(e.target.value)}
+                        className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none flex-1"
+                      >
+                        <option value="Fast (0.3s)">Fast (0.3s)</option>
+                        <option value="Medium (0.6s)">Medium (0.6s)</option>
+                        <option value="Slow (1.0s)">Slow (1.0s)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+
+
+                <div className="flex flex-col gap-1">
+                  <div className="flex justify-between items-center">
+                    <label className="text-textMuted font-semibold font-mono text-xs">Lyrics & Slides Layout</label>
+                    <span className="text-[9px] text-textMuted font-mono">Separate slide sections with a blank line.</span>
+                  </div>
+                  <textarea 
+                    rows="18"
+                    required
+                    placeholder="" 
+                    value={newSongSlidesRaw}
+                    onSelect={(e) => handleTextareaCursorChange(e, true)}
+                    onChange={(e) => { setNewSongSlidesRaw(e.target.value); handleTextareaCursorChange(e, true); }}
+                    className="p-2.5 bg-appBg border border-t-0 border-[var(--border-app)] rounded-b-lg focus:border-brand focus:outline-none font-mono leading-relaxed"
+                  ></textarea>
+                </div>
+
+                <div className="pt-2 flex justify-end gap-2 border-t border-[var(--border-app)]">
+                  <button 
+                    type="button" 
+                    onClick={() => setIsAddSongOpen(false)}
+                    className="px-4 py-2 border border-[var(--border-app)] text-textMuted hover:text-textMain hover:bg-appBg rounded transition font-mono"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit" 
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-slate-900 font-bold rounded flex items-center gap-1.5 transition font-mono"
+                  >
+                    <Save className="h-4 w-4" />
+                    Save Song
+                  </button>
+                </div>
+              </form>
+
+              {/* Right Column: Live Slide Previewer (5 cols) */}
+              <div className="lg:col-span-5 flex flex-col bg-appBg/50 border border-[var(--border-app)] rounded-lg p-3 overflow-y-auto max-h-[70vh] space-y-4">
+                <span className="text-[10px] text-textMuted uppercase font-mono tracking-wider font-bold block border-b border-[var(--border-app)] pb-2">
+                  Live View Preview (Double Newlines divide slides)
+                </span>
+                
+                {addPreviewSlides.length > 0 ? (
+                  addPreviewSlides.map((slide, idx) => {
+                    const isCurrent = idx === activeAddPreviewIdx;
+                    const hex = slide.style.bgColor || '#000000';
+                    const opacityStr = slide.style.bgOpacity || '0%';
+                    const opacity = parseInt(opacityStr) || 0;
+                    const rgbaBg = opacity === 0 
+                      ? 'transparent' 
+                      : (() => {
+                          const r = parseInt(hex.slice(1, 3), 16) || 0;
+                          const g = parseInt(hex.slice(3, 5), 16) || 0;
+                          const b = parseInt(hex.slice(5, 7), 16) || 0;
+                          return `rgba(${r}, ${g}, ${b}, ${opacity / 100})`;
+                        })();
+
+                    const flexAlignClass = slide.style.align === 'left' ? 'items-start' : slide.style.align === 'right' ? 'items-end' : 'items-center';
+                    const verticalClass = slide.style.vertical === 'top' ? 'justify-start' : slide.style.vertical === 'bottom' ? 'justify-end' : 'justify-center';
+
+                    return (
+                      <div 
+                        key={idx} 
+                        id={`add-preview-card-${idx}`}
+                        className={`space-y-1 bg-appPanel/30 p-2 rounded border transition-all duration-200 ${getSlideCardBorderClass(slide.label, isCurrent, false, true)}`}
+                      >
+                        <div className="flex justify-between items-center text-[9px] font-mono text-textMuted uppercase font-semibold">
+                          <span className={`px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase tracking-wider ${getLabelBadgeStyle(slide.label).bg} ${getLabelBadgeStyle(slide.label).text}`}>
+                            {slide.label || `SLIDE ${idx + 1}`} {isCurrent && '• Editing'}
+                          </span>
+                          <span className="font-mono">{idx + 1}</span>
+                        </div>
+                        <div 
+                          className={`aspect-video w-full bg-black rounded relative overflow-hidden flex flex-col p-3 ${verticalClass} ${flexAlignClass}`}
+                          style={{ containerType: 'inline-size' }}
+                        >
+                          {selectedMedia && selectedMedia.filepath && (
+                            <img src={selectedMedia.filepath} className="absolute inset-0 w-full h-full object-cover opacity-35 z-0" alt="" />
+                          )}
+                          <div 
+                            className="z-10"
+                            style={{
+                              backgroundColor: rgbaBg,
+                              borderRadius: '4px',
+                              padding: opacity > 0 ? '0.25rem 0.5rem' : '0'
+                            }}
+                          >
+                            <p 
+                              style={{
+                                fontFamily: `'${slide.style.font || 'Inter'}', sans-serif`,
+                                fontSize: `${((slide.style.size || 90) / 19.2).toFixed(3)}cqw`,
+                                fontWeight: { 'normal': 400, 'semibold': 600, 'bold': 700, 'extrabold': 800 }[slide.style.weight] || slide.style.weight || 700,
+                                color: slide.style.color || '#ffffff',
+                                textAlign: slide.style.align || 'center',
+                                lineHeight: '1.4',
+                                whiteSpace: 'pre-wrap'
+                              }}
+                              className="whitespace-pre-line uppercase projector-text-shadow"
+                            >
+                              {slide.text || '[EMPTY]'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="text-center py-20 text-textMuted text-xs">
+                    Start typing below to see live previews...
+                  </div>
+                )}
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- EDIT WORSHIPFLOW SONG MODAL --- */}
+      {isEditSongOpen && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-appPanel border border-[var(--border-app)] w-full max-w-5xl rounded-lg shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="p-4 border-b border-[var(--border-app)] flex justify-between items-center bg-appPanel">
+              <h3 className="font-bold text-sm text-textMain">Edit WorshipFlow Song</h3>
+              <button onClick={() => setIsEditSongOpen(false)} className="text-textMuted hover:text-textMain transition">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 flex-1 overflow-hidden p-4">
+              
+              {/* Left Column: Form inputs (7 cols) */}
+              <form 
+                onSubmit={handleSaveEditSong} 
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
+                    e.preventDefault();
+                  }
+                }}
+                className="lg:col-span-7 flex flex-col gap-4 overflow-y-auto pr-1 text-xs"
+              >
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-textMuted font-semibold font-mono text-[11px]">Song Title</label>
+                  <input 
+                    type="text" 
+                    required 
+                    placeholder=""
+                    value={editSongTitle}
+                    onChange={e => setEditSongTitle(e.target.value)}
+                    className="p-2.5 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain focus:outline-none"
+                  />
+                </div>
+
+                {/* Text Styling toolbar */}
+                <div className="bg-appBg border border-[var(--border-app)] rounded-t-lg p-3 grid grid-cols-3 md:grid-cols-5 gap-3 items-end">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Font</label>
+                    <select 
+                      value={songFont} 
+                      onChange={e => setSongFont(e.target.value)}
+                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                    >
+                      <option value="Inter">Inter</option>
+                      <option value="Poppins">Poppins</option>
+                      <option value="Montserrat">Montserrat</option>
+                      <option value="Roboto">Roboto</option>
+                      <option value="Open Sans">Open Sans</option>
+                      <option value="Lato">Lato</option>
+                      <option value="Oswald">Oswald</option>
+                      <option value="Raleway">Raleway</option>
+                      <option value="Nunito">Nunito</option>
+                      <option value="Playfair Display">Playfair Display</option>
+                      <option value="Bebas Neue">Bebas Neue</option>
+                      <option value="Anton">Anton</option>
+                      <option value="Fjalla One">Fjalla One</option>
+                      <option value="Archivo Black">Archivo Black</option>
+                      <option value="Cinzel">Cinzel</option>
+                      <option value="Outfit">Outfit</option>
+                      <option value="Syne">Syne</option>
+                      <option value="League Spartan">League Spartan</option>
+                      <option value="Unbounded">Unbounded</option>
+                      <option value="Instrument Serif">Instrument Serif</option>
+                      <option value="Arial">Arial</option>
+                    </select>
+                  </div>
+                  
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Size (px)</label>
+                    <input 
+                      type="number" 
+                      value={songSize} 
+                      onChange={e => setSongSize(parseInt(e.target.value) || 60)}
+                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Weight</label>
+                    <select 
+                      value={songWeight} 
+                      onChange={e => setSongWeight(e.target.value)}
+                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                    >
+                      <option value="normal">Normal</option>
+                      <option value="semibold">Semibold</option>
+                      <option value="bold">Bold</option>
+                      <option value="extrabold">Extra Bold</option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Color</label>
+                    <div className="flex gap-1 items-center">
+                      <input 
+                        type="color" 
+                        value={songColor} 
+                        onChange={e => setSongColor(e.target.value)}
+                        className="w-6 h-5 bg-transparent border-0 cursor-pointer p-0"
+                      />
+                      <span className="text-[8px] font-mono text-textMuted uppercase">{songColor}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Bg Color</label>
+                    <div className="flex gap-1 items-center">
+                      <input 
+                        type="color" 
+                        value={songBgColor} 
+                        onChange={e => setSongBgColor(e.target.value)}
+                        className="w-6 h-5 bg-transparent border-0 cursor-pointer p-0"
+                      />
+                      <span className="text-[8px] font-mono text-textMuted uppercase">{songBgColor}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Bg Opacity</label>
+                    <select 
+                      value={songBgOpacity} 
+                      onChange={e => setSongBgOpacity(e.target.value)}
+                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                    >
+                      <option value="0%">0%</option>
+                      <option value="20%">20%</option>
+                      <option value="40%">40%</option>
+                      <option value="60%">60%</option>
+                      <option value="80%">80%</option>
+                      <option value="100%">100%</option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Align</label>
+                    <select 
+                      value={songAlign} 
+                      onChange={e => setSongAlign(e.target.value)}
+                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                    >
+                      <option value="left">Left</option>
+                      <option value="center">Center</option>
+                      <option value="right">Right</option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Vertical</label>
+                    <select 
+                      value={songVertical} 
+                      onChange={e => setSongVertical(e.target.value)}
+                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                    >
+                      <option value="top">Top</option>
+                      <option value="center">Center</option>
+                      <option value="bottom">Bottom</option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1 col-span-2">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Anim & Speed</label>
+                    <div className="flex gap-2">
+                      <select 
+                        value={songAnimation} 
+                        onChange={e => setSongAnimation(e.target.value)}
+                        className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none flex-1"
+                      >
+                        <option value="None">None</option>
+                        <option value="Fade">Fade</option>
+                        <option value="Zoom In/Out">Zoom In/Out</option>
+                      </select>
+                      <select 
+                        value={songSpeed} 
+                        onChange={e => setSongSpeed(e.target.value)}
+                        className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none flex-1"
+                      >
+                        <option value="Fast (0.3s)">Fast (0.3s)</option>
+                        <option value="Medium (0.6s)">Medium (0.6s)</option>
+                        <option value="Slow (1.0s)">Slow (1.0s)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+
+
+                <div className="flex flex-col gap-1">
+                  <textarea 
+                    rows="18"
+                    value={editSongSlidesRaw}
+                    onSelect={(e) => handleTextareaCursorChange(e, false)}
+                    onChange={(e) => { setEditSongSlidesRaw(e.target.value); handleTextareaCursorChange(e, false); }}
+                    className="p-2.5 bg-appBg border border-t-0 border-[var(--border-app)] rounded-b-lg focus:border-brand focus:outline-none font-mono leading-relaxed text-textMain"
+                  ></textarea>
+                </div>
+
+                <div className="pt-2 flex justify-end gap-2 border-t border-[var(--border-app)]">
+                  <button 
+                    type="button" 
+                    onClick={() => setIsEditSongOpen(false)}
+                    className="px-4 py-2 border border-[var(--border-app)] text-textMuted hover:text-textMain hover:bg-appBg rounded transition font-mono"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit" 
+                    className="px-4 py-2 bg-brand hover:bg-brand/80 text-white font-semibold rounded flex items-center gap-1.5 transition font-mono"
+                  >
+                    <Save className="h-4 w-4" />
+                    Save Changes
+                  </button>
+                </div>
+              </form>
+
+              {/* Right Column: Live Slide Previewer (5 cols) */}
+              <div className="lg:col-span-5 flex flex-col bg-appBg/50 border border-[var(--border-app)] rounded-lg p-3 overflow-y-auto max-h-[70vh] space-y-4">
+                <span className="text-[10px] text-textMuted uppercase font-mono tracking-wider font-bold block border-b border-[var(--border-app)] pb-2">
+                  Live View Preview (Double Newlines divide slides)
+                </span>
+                
+                {editPreviewSlides.length > 0 ? (
+                  editPreviewSlides.map((slide, idx) => {
+                    const isCurrent = idx === activeEditPreviewIdx;
+                    const hex = slide.style.bgColor || '#000000';
+                    const opacityStr = slide.style.bgOpacity || '0%';
+                    const opacity = parseInt(opacityStr) || 0;
+                    const rgbaBg = opacity === 0 
+                      ? 'transparent' 
+                      : (() => {
+                          const r = parseInt(hex.slice(1, 3), 16) || 0;
+                          const g = parseInt(hex.slice(3, 5), 16) || 0;
+                          const b = parseInt(hex.slice(5, 7), 16) || 0;
+                          return `rgba(${r}, ${g}, ${b}, ${opacity / 100})`;
+                        })();
+
+                    const flexAlignClass = slide.style.align === 'left' ? 'items-start' : slide.style.align === 'right' ? 'items-end' : 'items-center';
+                    const verticalClass = slide.style.vertical === 'top' ? 'justify-start' : slide.style.vertical === 'bottom' ? 'justify-end' : 'justify-center';
+
+                    return (
+                      <div 
+                        key={idx} 
+                        id={`edit-preview-card-${idx}`}
+                        className={`space-y-1 bg-appPanel/30 p-2 rounded border transition-all duration-200 ${getSlideCardBorderClass(slide.label, isCurrent, false, true)}`}
+                      >
+                        <div className="flex justify-between items-center text-[9px] font-mono text-textMuted uppercase font-semibold">
+                          <span className={`px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase tracking-wider ${getLabelBadgeStyle(slide.label).bg} ${getLabelBadgeStyle(slide.label).text}`}>
+                            {slide.label || `SLIDE ${idx + 1}`} {isCurrent && '• Editing'}
+                          </span>
+                          <span className="font-mono">{idx + 1}</span>
+                        </div>
+                        <div 
+                          className={`aspect-video w-full bg-black rounded relative overflow-hidden flex flex-col p-3 ${verticalClass} ${flexAlignClass}`}
+                          style={{ containerType: 'inline-size' }}
+                        >
+                          {selectedMedia && selectedMedia.filepath && (
+                            <img src={selectedMedia.filepath} className="absolute inset-0 w-full h-full object-cover opacity-35 z-0" alt="" />
+                          )}
+                          <div 
+                            className="z-10"
+                            style={{
+                              backgroundColor: rgbaBg,
+                              borderRadius: '4px',
+                              padding: opacity > 0 ? '0.25rem 0.5rem' : '0'
+                            }}
+                          >
+                            <p 
+                              style={{
+                                fontFamily: `'${slide.style.font || 'Inter'}', sans-serif`,
+                                fontSize: `${((slide.style.size || 90) / 19.2).toFixed(3)}cqw`,
+                                fontWeight: { 'normal': 400, 'semibold': 600, 'bold': 700, 'extrabold': 800 }[slide.style.weight] || slide.style.weight || 700,
+                                color: slide.style.color || '#ffffff',
+                                textAlign: slide.style.align || 'center',
+                                lineHeight: '1.4',
+                                whiteSpace: 'pre-wrap'
+                              }}
+                              className="whitespace-pre-line uppercase projector-text-shadow"
+                            >
+                              {slide.text || '[EMPTY]'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="text-center py-20 text-textMuted text-xs">
+                    Start typing below to see live previews...
+                  </div>
+                )}
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- REMOTE SYNC MODAL --- */}
+      {isRemoteSyncOpen && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-appPanel border border-[var(--border-app)] w-full max-w-sm rounded-xl shadow-2xl flex flex-col p-6 space-y-4">
+            <div className="flex justify-between items-center pb-2 border-b border-[var(--border-app)]">
+              <h3 className="font-bold text-sm text-textMain flex items-center gap-2">
+                <Smartphone className="h-4.5 w-4.5 text-brand" />
+                Mobile Remote Control
+              </h3>
+              <button onClick={() => setIsRemoteSyncOpen(false)} className="text-textMuted hover:text-textMain transition">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex flex-col items-center justify-center text-center p-4 bg-appBg/50 rounded-xl border border-[var(--border-app)] space-y-4">
+              <p className="text-[11px] text-textMuted leading-relaxed">
+                Scan this QR code with your phone or tablet on the <strong>same Wi-Fi network</strong> to control slides, search Bibles, and trigger blackout overrides.
+              </p>
+
+              {remoteQrData ? (
+                <div className="p-3 bg-white rounded-lg shadow-inner">
+                  <img src={remoteQrData} alt="Remote Sync QR Code" className="h-44 w-44 object-contain" />
+                </div>
+              ) : (
+                <div className="h-44 w-44 rounded-lg bg-slate-800 animate-pulse flex items-center justify-center text-[10px] text-textMuted">Generating...</div>
+              )}
+
+              <div className="w-full space-y-1.5">
+                <span className="text-[9px] uppercase font-mono tracking-wider text-textMuted font-bold block">Local Network URL</span>
+                <input 
+                  type="text" 
+                  readOnly 
+                  value={remoteUrl} 
+                  onClick={(e) => { e.target.select(); }}
+                  className="w-full p-2 text-center bg-appBg border border-[var(--border-app)] rounded-lg text-xs font-mono text-brand font-bold focus:outline-none cursor-pointer"
+                  title="Click to select all"
+                />
+              </div>
+            </div>
+
+            <button 
+              onClick={() => setIsRemoteSyncOpen(false)}
+              className="w-full py-2.5 bg-brand hover:bg-brand/90 text-white font-bold rounded-lg text-xs transition active:scale-95 flex items-center justify-center gap-1.5"
+            >
+              Close Remote Sync
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* --- SETTINGS TABBED DIALOG MODAL (With Appearance customizer) --- */}
+      {isSettingsOpen && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-appPanel border border-[var(--border-app)] w-full max-w-2xl rounded-lg shadow-2xl flex flex-col max-h-[85vh]">
+            
+            <div className="p-4 border-b border-[var(--border-app)] flex justify-between items-center bg-appPanel">
+              <h3 className="font-bold text-sm text-textMain flex items-center gap-2">
+                <Settings className="h-4 w-4 text-brand" />
+                System Settings
+              </h3>
+              <button onClick={() => setIsSettingsOpen(false)} className="text-textMuted hover:text-textMain transition">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex flex-1 overflow-hidden">
+              
+              {/* Tab selector menu */}
+              <div className="w-1/4 bg-appBg border-r border-[var(--border-app)] p-2.5 flex flex-col gap-1 text-[11px] font-mono">
+                <button 
+                  onClick={() => setActiveSettingsTab('appearance')}
+                  className={`w-full p-2.5 rounded text-left font-bold transition flex items-center gap-2 ${
+                    activeSettingsTab === 'appearance' 
+                    ? 'bg-brand/10 text-brand border border-brand/40' 
+                    : 'text-textMuted hover:text-textMain hover:bg-appPanel/30 border border-transparent'
+                  }`}
+                >
+                  Appearance Theme
+                </button>
+                <button 
+                  onClick={() => setActiveSettingsTab('projector')}
+                  className={`w-full p-2.5 rounded text-left font-bold transition flex items-center gap-2 ${
+                    activeSettingsTab === 'projector' 
+                    ? 'bg-brand/10 text-brand border border-brand/40' 
+                    : 'text-textMuted hover:text-textMain hover:bg-appPanel/30 border border-transparent'
+                  }`}
+                >
+                  Projector Output
+                </button>
+              </div>
+
+              {/* Settings content pane */}
+              <div className="flex-1 p-5 overflow-y-auto text-xs space-y-5">
+                
+                {/* 1. APPEARANCE TAB */}
+                {activeSettingsTab === 'appearance' && (
+                  <div className="space-y-4 font-sans">
+                    <div>
+                      <h4 className="text-xs font-bold text-textMain mb-1">Appearance</h4>
+                    </div>
+
+                    {/* Section 1: Appearance Mode */}
+                    <div className="bg-appBg border border-[var(--border-app)] rounded p-4 flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <span className="font-bold text-textMain block">Appearance</span>
+                        <span className="text-[10px] text-textMuted block">Select light, dark, or inherit system settings.</span>
+                      </div>
+                      <select 
+                        value={appearanceMode}
+                        onChange={e => setAppearanceMode(e.target.value)}
+                        className="p-1.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none min-w-[120px] font-mono"
+                      >
+                        <option value="System">System</option>
+                        <option value="Light">Light</option>
+                        <option value="Dark">Dark</option>
+                      </select>
+                    </div>
+
+                    {/* Section 2: Light Theme customizer */}
+                    <div>
+                      <h4 className="text-[10px] font-bold text-textMuted uppercase font-mono tracking-wider mb-2">Light Theme</h4>
+                      <div className="bg-appBg border border-[var(--border-app)] rounded p-4 space-y-3">
+                        <div className="flex items-center justify-between border-b border-[var(--border-app)]/40 pb-2.5">
+                          <span className="font-semibold text-textMuted">Preset</span>
+                          <select 
+                            value={lightPreset}
+                            onChange={e => handleLightPresetChange(e.target.value)}
+                            className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none font-mono text-[10px]"
+                          >
+                            <option value="Default Light">Default Light</option>
+                            <option value="Custom">Custom</option>
+                          </select>
+                        </div>
+                        <div className="flex items-center justify-between border-b border-[var(--border-app)]/40 pb-2.5">
+                          <span className="font-semibold text-textMuted">Background</span>
+                          <div className="flex gap-2 items-center">
+                            <input 
+                              type="color" 
+                              value={lightBg}
+                              onChange={e => { setLightBg(e.target.value); setLightPreset('Custom'); }}
+                              className="w-5 h-5 bg-transparent border-0 cursor-pointer p-0 rounded-full"
+                            />
+                            <span className="text-[10px] font-mono text-textMuted uppercase">{lightBg}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between border-b border-[var(--border-app)]/40 pb-2.5">
+                          <span className="font-semibold text-textMuted">Foreground</span>
+                          <div className="flex gap-2 items-center">
+                            <input 
+                              type="color" 
+                              value={lightFg}
+                              onChange={e => { setLightFg(e.target.value); setLightPreset('Custom'); }}
+                              className="w-5 h-5 bg-transparent border-0 cursor-pointer p-0 rounded-full"
+                            />
+                            <span className="text-[10px] font-mono text-textMuted uppercase">{lightFg}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-textMuted">Accent</span>
+                          <div className="flex gap-2 items-center">
+                            <input 
+                              type="color" 
+                              value={lightAccent}
+                              onChange={e => { setLightAccent(e.target.value); setLightPreset('Custom'); }}
+                              className="w-5 h-5 bg-transparent border-0 cursor-pointer p-0 rounded-full"
+                            />
+                            <span className="text-[10px] font-mono text-textMuted uppercase">{lightAccent}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Section 3: Dark Theme customizer */}
+                    <div>
+                      <h4 className="text-[10px] font-bold text-textMuted uppercase font-mono tracking-wider mb-2">Dark Theme</h4>
+                      <div className="bg-appBg border border-[var(--border-app)] rounded p-4 space-y-3">
+                        <div className="flex items-center justify-between border-b border-[var(--border-app)]/40 pb-2.5">
+                          <span className="font-semibold text-textMuted">Preset</span>
+                          <select 
+                            value={darkPreset}
+                            onChange={e => handleDarkPresetChange(e.target.value)}
+                            className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none font-mono text-[10px]"
+                          >
+                            <option value="Default Dark">Default Dark</option>
+                            <option value="Custom">Custom</option>
+                          </select>
+                        </div>
+                        <div className="flex items-center justify-between border-b border-[var(--border-app)]/40 pb-2.5">
+                          <span className="font-semibold text-textMuted">Background</span>
+                          <div className="flex gap-2 items-center">
+                            <input 
+                              type="color" 
+                              value={darkBg}
+                              onChange={e => { setDarkBg(e.target.value); setDarkPreset('Custom'); }}
+                              className="w-5 h-5 bg-transparent border-0 cursor-pointer p-0 rounded-full"
+                            />
+                            <span className="text-[10px] font-mono text-textMuted uppercase">{darkBg}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between border-b border-[var(--border-app)]/40 pb-2.5">
+                          <span className="font-semibold text-textMuted">Foreground</span>
+                          <div className="flex gap-2 items-center">
+                            <input 
+                              type="color" 
+                              value={darkFg}
+                              onChange={e => { setDarkFg(e.target.value); setDarkPreset('Custom'); }}
+                              className="w-5 h-5 bg-transparent border-0 cursor-pointer p-0 rounded-full"
+                            />
+                            <span className="text-[10px] font-mono text-textMuted uppercase">{darkFg}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-textMuted">Accent</span>
+                          <div className="flex gap-2 items-center">
+                            <input 
+                              type="color" 
+                              value={darkAccent}
+                              onChange={e => { setDarkAccent(e.target.value); setDarkPreset('Custom'); }}
+                              className="w-5 h-5 bg-transparent border-0 cursor-pointer p-0 rounded-full"
+                            />
+                            <span className="text-[10px] font-mono text-textMuted uppercase">{darkAccent}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+                )}
+
+                {/* 2. PROJECTOR TAB */}
+                {activeSettingsTab === 'projector' && (
+                  <div className="space-y-4">
+                    <div>
+                      <h4 className="text-xs font-bold text-textMain mb-1">Projector Display Aspect Ratio</h4>
+                      <p className="text-[10px] text-textMuted">Select layout aspect constraints to match church projector screen grids.</p>
+                    </div>
+
+                    <div className="flex gap-2 mt-1">
+                      <button 
+                        type="button"
+                        onClick={() => setAspectRatio('video')}
+                        className={`flex-1 py-3 text-center rounded font-semibold border transition font-mono ${
+                          aspectRatio === 'video' 
+                          ? 'bg-brand text-white border-brand' 
+                          : 'bg-appBg border border-[var(--border-app)] text-textMuted hover:text-textMain'
+                        }`}
+                      >
+                        16:9 (Widescreen Presentation)
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => setAspectRatio('[4/3]')}
+                        className={`flex-1 py-3 text-center rounded font-semibold border transition font-mono ${
+                          aspectRatio === '[4/3]' 
+                          ? 'bg-brand text-white border-brand' 
+                          : 'bg-appBg border border-[var(--border-app)] text-textMuted hover:text-textMain'
+                        }`}
+                      >
+                        4:3 (Standard Monitor Preset)
+                      </button>
+                    </div>
+
+                    {/* Stage Display Controls */}
+                    <div className="mt-4 bg-appBg border border-[var(--border-app)] rounded p-4">
+                      <h4 className="text-[10px] font-bold text-textMuted uppercase font-mono tracking-wider mb-2">Stage Display</h4>
+                      <div className="flex gap-2 items-center mb-2">
+                        <label className="text-[10px] text-textMuted w-36">Display target</label>
+                        <select id="stage-display-index" className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-[12px]" defaultValue="auto">
+                          <option value="auto">Auto (any non-primary)</option>
+                          <option value="0">Primary</option>
+                          <option value="1">Secondary</option>
+                          <option value="2">Tertiary</option>
+                        </select>
+                      </div>
+
+                      <div className="flex gap-2 mb-3">
+                        <button onClick={async () => { const idx = document.getElementById('stage-display-index').value; await window.api.openStage(idx === 'auto' ? undefined : parseInt(idx)); }} className="flex-1 py-2 bg-brand text-white rounded text-xs">Open Stage Window</button>
+                        <button onClick={async () => { await window.api.closeStage(); }} className="flex-1 py-2 bg-appPanel border border-[var(--border-app)] rounded text-xs">Close Stage Window</button>
+                      </div>
+
+                      <div className="flex items-center gap-2 mb-2">
+                        <label className="text-[10px] text-textMuted w-36">Left column width</label>
+                        <input type="range" min="20" max="80" defaultValue={useStageLayoutStore.getState().stageLayout.leftWidthPct || 60} onChange={(e) => { const v = parseFloat(e.target.value); useStageLayoutStore.getState().setLeftWidthPct(v); }} />
+                        <span className="text-[11px] font-mono ml-2">{useStageLayoutStore.getState().stageLayout.leftWidthPct}%</span>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button onClick={async () => { const res = await window.stageServer.start(5174); if (res && res.url) { alert('Stage server running: ' + res.url); } }} className="flex-1 py-2 bg-emerald-600 text-white rounded text-xs">Start Stage Server</button>
+                        <button onClick={async () => { await window.stageServer.stop(); alert('Stage server stopped'); }} className="flex-1 py-2 bg-appPanel border border-[var(--border-app)] rounded text-xs">Stop Server</button>
+                      </div>
+
+                      <div className="text-[10px] text-textMuted mt-2">Note: Stage window will render exact slide text & styling. Use the left width slider to tune default layout.</div>
+                    </div>
+                  </div>
+                )}
+
+              </div>
+            </div>
+
+            <div className="p-3 border-t border-[var(--border-app)] flex justify-end bg-appPanel">
+              <button 
+                onClick={() => setIsSettingsOpen(false)}
+                className="px-5 py-2 bg-brand text-white font-bold rounded hover:bg-brand/80 transition text-xs font-mono"
+              >
+                Apply & Close
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* Context Menu for deleting songs */}
+      {contextMenu && (
+        <div 
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          className="fixed bg-appPanel border border-[var(--border-app)] rounded-md shadow-2xl py-1.5 z-[999] min-w-[120px] font-sans"
+        >
+          <button
+            onClick={() => {
+              if (confirm('Are you sure you want to delete this song?')) {
+                deleteSong(contextMenu.songId);
+              }
+              setContextMenu(null);
+            }}
+            className="w-full text-left px-3 py-2 text-xs text-red-500 hover:bg-liveDanger/10 hover:text-red-400 font-medium transition flex items-center gap-2"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete Song
+          </button>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(
+  <React.StrictMode>
+    <OperatorDashboard />
+  </React.StrictMode>
+);
