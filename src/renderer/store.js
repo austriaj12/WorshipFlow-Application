@@ -177,11 +177,18 @@ export const useLiveOutputStore = create((set, get) => ({
   activeSlideLabel: '',
   activeBgAsset: '',
   activeSlideStyle: null,
+  isBible: false,
   blackout: false,
   clearLyrics: false,
 
-  setLiveSlide: (text, label, bgAsset, style) => {
-    set({ activeSlideText: text, activeSlideLabel: label, activeBgAsset: bgAsset, activeSlideStyle: style });
+  setLiveSlide: (text, label, bgAsset, style, isBible = false) => {
+    set({ 
+      activeSlideText: text, 
+      activeSlideLabel: label, 
+      activeBgAsset: bgAsset, 
+      activeSlideStyle: style,
+      isBible: isBible
+    });
   },
 
   setBlackout: (val) => {

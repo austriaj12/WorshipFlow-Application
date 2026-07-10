@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
+import BibleMenu from './BibleMenu';
 import { 
   useLibraryStore, 
   usePresentationStore, 
@@ -43,7 +44,8 @@ import {
   Trash,
   Square,
   Wifi,
-  Smartphone
+  Smartphone,
+  Tv
 } from 'lucide-react';
 import QRCode from 'qrcode';
 
@@ -151,6 +153,7 @@ function OperatorDashboard() {
   // Strict double-action confirmation lifecycle states & background form states
   const [bgType, setBgType] = useState('color'); // 'color' | 'image' | 'video'
   const [bgColorInput, setBgColorInput] = useState('#000000');
+  const [bgHeight, setBgHeight] = useState(100);
   const [applyToTarget, setApplyToTarget] = useState('active'); // 'active' | 'selected' | 'all'
   const [presentationFilePath, setPresentationFilePath] = useState(null);
   const [isFileDropdownOpen, setIsFileDropdownOpen] = useState(false);
@@ -159,14 +162,6 @@ function OperatorDashboard() {
   const [stagedBgAsset, setStagedBgAsset] = useState(null); // null = nothing selected, "" = no background, string = file path
   const [bgActionStatus, setBgActionStatus] = useState('idle'); // 'idle' | 'success'
   const [draggedIndex, setDraggedIndex] = useState(null);
-  
-  // Scripture lookup forms state
-  const [bibleTranslation, setBibleTranslation] = useState('KJV');
-  const [bibleBook, setBibleBook] = useState('Psalms');
-  const [bibleChapter, setBibleChapter] = useState(23);
-  const [bibleStartVerse, setBibleStartVerse] = useState(1);
-  const [bibleEndVerse, setBibleEndVerse] = useState(3);
-  const [scriptureResults, setScriptureResults] = useState([]);
 
   // Countdown State
   const [countdownMinutes, setCountdownMinutes] = useState(5);
@@ -175,6 +170,14 @@ function OperatorDashboard() {
   const [countdownTitle, setCountdownTitle] = useState("The service is about to start");
   const [countdownSubtext, setCountdownSubtext] = useState("Please take your seats");
   const [countdownMode, setCountdownMode] = useState("duration"); // "duration" | "target" | "current"
+  
+  // Live Screen State Trackers (Separate from current selectedSong dashboard view)
+  const [liveSong, setLiveSong] = useState(null);
+  const [liveSlides, setLiveSlides] = useState([]);
+  const [liveActiveIndex, setLiveActiveIndex] = useState(0);
+  const [bibleLiveSlides, setBibleLiveSlides] = useState(null);
+  const [savedPresentationState, setSavedPresentationState] = useState(null);
+  const [restoreSlideIndex, setRestoreSlideIndex] = useState(null);
   const [countdownTargetTime, setCountdownTargetTime] = useState("10:30");
   const [countdownShowOn, setCountdownShowOn] = useState("both"); // "both" | "main" | "stage"
   const [countdownOvertime, setCountdownOvertime] = useState(false);
@@ -424,7 +427,8 @@ function OperatorDashboard() {
             ...slide,
             style: {
               ...currentStyle,
-              background: targetBg
+              background: targetBg,
+              bgHeight: `${bgHeight}%`
             }
           };
         }
@@ -438,7 +442,8 @@ function OperatorDashboard() {
             ...slide,
             style: {
               ...currentStyle,
-              background: targetBg
+              background: targetBg,
+              bgHeight: `${bgHeight}%`
             }
           };
         }
@@ -451,7 +456,8 @@ function OperatorDashboard() {
           ...slide,
           style: {
             ...currentStyle,
-            background: targetBg
+            background: targetBg,
+            bgHeight: `${bgHeight}%`
           }
         };
       });
@@ -719,7 +725,7 @@ function OperatorDashboard() {
 
     const handleMouseMove = (e) => {
       const newHeight = window.innerHeight - e.clientY;
-      const clampedHeight = Math.min(450, Math.max(100, newHeight));
+      const clampedHeight = Math.min(window.innerHeight * 0.75, Math.max(120, newHeight));
       setBgPanelHeight(clampedHeight);
     };
 
@@ -986,21 +992,72 @@ function OperatorDashboard() {
   };
 
   // Sync state selection to trigger live preview text updates
-  const handleSelectSlide = (index, slidesList) => {
+  const handleSelectSlide = (index, slidesList, songObject = selectedSong) => {
     setActiveSlideIndex(index);
     const activeSlide = slidesList && slidesList[index];
     if (activeSlide) {
+      setLiveSong(songObject);
+      setLiveSlides(slidesList);
+      setLiveActiveIndex(index);
+
       const rawBg = activeSlide.bgAsset || (activeSlide.style && activeSlide.style.background) || (selectedMedia ? selectedMedia.filepath : '');
       const bgPath = formatBgPath(rawBg);
+      
+      // Determine if it is a Bible slide
+      const isBible = (songObject && (songObject.author === 'Bible' || songObject.author === 'Scripture'))
+                       || bibleLiveSlides !== null
+                       || activeSlide.label?.includes('Scripture')
+                       || activeSlide.isBible;
+
       setLiveSlide(
         activeSlide.bgAsset ? '' : activeSlide.text, 
         activeSlide.label, 
         bgPath,
-        activeSlide.style
+        activeSlide.style,
+        isBible
       );
-      if (selectedSong && selectedSong.author === 'Media') {
+      if (songObject && songObject.author === 'Media') {
         setMediaPlaying(true);
       }
+    }
+  };
+
+  const handleGoLiveBible = (slidesList) => {
+    if (!bibleLiveSlides) {
+      setSavedPresentationState({
+        songId: selectedSong ? selectedSong.id : null,
+        slideIndex: activeSlideIndex
+      });
+    }
+    setBibleLiveSlides(slidesList);
+    setActiveSlideIndex(0);
+    setSelectedSlideIndexes([0]);
+    handleSelectSlide(0, slidesList, null);
+  };
+
+  const handleExitLiveBible = async () => {
+    setBibleLiveSlides(null);
+    if (savedPresentationState) {
+      const { songId, slideIndex } = savedPresentationState;
+      if (songId) {
+        setRestoreSlideIndex(slideIndex);
+        await selectSong(songId);
+      } else {
+        setLiveSlide('', '', '', null, false);
+        setActiveSlideIndex(0);
+        setSelectedSlideIndexes([0]);
+        setLiveSong(null);
+        setLiveSlides([]);
+        setLiveActiveIndex(0);
+      }
+      setSavedPresentationState(null);
+    } else {
+      setLiveSlide('', '', '', null, false);
+      setActiveSlideIndex(0);
+      setSelectedSlideIndexes([0]);
+      setLiveSong(null);
+      setLiveSlides([]);
+      setLiveActiveIndex(0);
     }
   };
 
@@ -1008,6 +1065,9 @@ function OperatorDashboard() {
 
   // Fetch slide lists from JSON string
   const getSlidesArray = () => {
+    if (bibleLiveSlides) {
+      return bibleLiveSlides;
+    }
     if (selectedSong && selectedSong.content_json) {
       try {
         return JSON.parse(selectedSong.content_json);
@@ -1028,92 +1088,132 @@ function OperatorDashboard() {
       const countdownTimeStr = `${String(countdownMinutes).padStart(2, '0')}:${String(countdownSeconds).padStart(2, '0')}`;
       const timerTimeStr = `${String(timerMinutes).padStart(2, '0')}:${String(timerSeconds).padStart(2, '0')}`;
       
-      // 1. Send Stage updates - show countdown/timer only if enabled for stage display
-      const showOnStage = countdownActive && (countdownShowOn === 'both' || countdownShowOn === 'stage');
-      const showTimerOnStage = timerActive && (timerShowOn === 'both' || timerShowOn === 'stage');
+      // 1. Send Stage updates - show countdown/timer only if enabled for stage display and running
+      const showOnStage = countdownActive && isCountdownRunning && (countdownShowOn === 'both' || countdownShowOn === 'stage');
+      const showTimerOnStage = timerActive && isTimerRunning && (timerShowOn === 'both' || timerShowOn === 'stage');
       if (window.api.sendStageUpdate) {
-        window.api.sendStageUpdate({
-          text: activeSlideText,
-          label: activeSlideLabel || `Slide ${activeSlideIndex + 1}`,
-          bgAsset: activeBgAsset,
-          style: activeSlideStyle,
-          blackout,
-          clearLyrics,
-          slides: slides || [],
-          activeSlideIndex: activeSlideIndex,
-          stageLayout: {
-            leftWidthPct: stageLeftWidthPct,
-            rightPanels: [
-              { id: 'message', visible: stagePanelVisibility.message, heightPct: stagePanelHeights.message },
-              { id: 'scripture', visible: stagePanelVisibility.scripture, heightPct: stagePanelHeights.scripture },
-              { id: 'presenterNotes', visible: stagePanelVisibility.presenterNotes, heightPct: stagePanelHeights.presenterNotes }
-            ]
-          },
-          showClock: stageShowClock,
-          showSlideIndex: stageShowSlideIndex,
-          showNextPreview: stageShowNextPreview,
-          stageTextStyle: stageTextStyle,
-          stageUpNextFontSize: stageUpNextFontSize,
-          message: stageMessage,
-          nextSlideText: slides && slides[activeSlideIndex + 1] ? slides[activeSlideIndex + 1].text : '',
-          nextSlideBg: slides && slides[activeSlideIndex + 1] ? formatBgPath(slides[activeSlideIndex + 1].bgAsset) : '',
-          nextSlideLabel: slides && slides[activeSlideIndex + 1] ? (slides[activeSlideIndex + 1].label || `Slide ${activeSlideIndex + 2}`) : '',
-          countdownTime: showOnStage ? countdownTimeStr : '',
-          countdownActive: countdownActive,
-          timerTime: showTimerOnStage ? timerTimeStr : '',
-          timerActive: timerActive,
-          topLineColor: stageTopLineColor,
-          middleLineColor: stageMiddleLineColor,
-          mainLineColor: stageMainLineColor,
-          upNextLineColor: stageUpNextLineColor
-        });
-      }
-
-      // 2. Send Projector updates - show countdown/timer only if enabled for main output display
-      if (window.api.sendSlideUpdate) {
-        const showOnProjector = countdownActive && (countdownShowOn === 'both' || countdownShowOn === 'main');
-        const showTimerOnProjector = timerActive && (timerShowOn === 'both' || timerShowOn === 'main');
-        
-        if (showOnProjector) {
-          window.api.sendSlideUpdate({
-            countdownActive: true,
-            countdownTime: countdownTimeStr,
-            countdownTitle,
-            countdownSubtext,
-            countdownBgColor,
-            countdownTitleSize,
-            countdownTimeSize,
-            countdownSubtextSize,
-            timerActive: false,
-            blackout
-          });
-        } else if (showTimerOnProjector) {
-          window.api.sendSlideUpdate({
-            timerActive: true,
-            timerTime: timerTimeStr,
-            timerTitle,
-            timerBgColor,
-            timerTitleSize,
-            timerTimeSize,
-            countdownActive: false,
-            blackout
-          });
-        } else {
-          // Send regular slide
-          window.api.sendSlideUpdate({
+        try {
+          const payload = {
             text: activeSlideText,
             label: activeSlideLabel || `Slide ${activeSlideIndex + 1}`,
             bgAsset: activeBgAsset,
             style: activeSlideStyle,
-            isImportedSlide: !!(slides && slides[activeSlideIndex] && slides[activeSlideIndex].bgAsset),
-            countdownActive: false,
-            timerActive: false,
             blackout,
             clearLyrics,
-            mediaPlaying,
-            mediaLoop,
-            mediaVolume
-          });
+            slides: slides || [],
+            activeSlideIndex: activeSlideIndex,
+            stageLayout: {
+              leftWidthPct: stageLeftWidthPct,
+              rightPanels: [
+                { id: 'message', visible: stagePanelVisibility.message, heightPct: stagePanelHeights.message },
+                { id: 'scripture', visible: stagePanelVisibility.scripture, heightPct: stagePanelHeights.scripture },
+                { id: 'presenterNotes', visible: stagePanelVisibility.presenterNotes, heightPct: stagePanelHeights.presenterNotes }
+              ]
+            },
+            showClock: stageShowClock,
+            showSlideIndex: stageShowSlideIndex,
+            showNextPreview: stageShowNextPreview,
+            stageTextStyle: stageTextStyle,
+            stageUpNextFontSize: stageUpNextFontSize,
+            message: stageMessage,
+            nextSlideText: slides && slides[activeSlideIndex + 1] ? slides[activeSlideIndex + 1].text : '',
+            nextSlideBg: slides && slides[activeSlideIndex + 1] ? formatBgPath(slides[activeSlideIndex + 1].bgAsset) : '',
+            nextSlideLabel: slides && slides[activeSlideIndex + 1] ? (slides[activeSlideIndex + 1].label || `Slide ${activeSlideIndex + 2}`) : '',
+            countdownTime: showOnStage ? countdownTimeStr : '',
+            countdownActive: countdownActive,
+            timerTime: showTimerOnStage ? timerTimeStr : '',
+            timerActive: timerActive,
+            topLineColor: stageTopLineColor,
+            middleLineColor: stageMiddleLineColor,
+            mainLineColor: stageMainLineColor,
+            upNextLineColor: stageUpNextLineColor
+          };
+          window.api.sendStageUpdate(JSON.parse(JSON.stringify(payload)));
+        } catch (err) {
+          console.error('Failed to clone stage update payload, trying selective serialize:', err);
+          try {
+            window.api.sendStageUpdate({
+              text: activeSlideText,
+              label: activeSlideLabel || `Slide ${activeSlideIndex + 1}`,
+              bgAsset: activeBgAsset,
+              blackout,
+              clearLyrics,
+              activeSlideIndex,
+              countdownTime: showOnStage ? countdownTimeStr : '',
+              countdownActive: countdownActive,
+              timerTime: showTimerOnStage ? timerTimeStr : '',
+              timerActive: timerActive
+            });
+          } catch (e) {
+            console.error('Critical stage update fallback failure:', e);
+          }
+        }
+      }
+
+      // 2. Send Projector updates - show countdown/timer only if enabled for main output display
+      if (window.api.sendSlideUpdate) {
+        const showOnProjector = countdownActive && isCountdownRunning && (countdownShowOn === 'both' || countdownShowOn === 'main');
+        const showTimerOnProjector = timerActive && isTimerRunning && (timerShowOn === 'both' || timerShowOn === 'main');
+        
+        try {
+          let slidePayload = {};
+          if (showOnProjector) {
+            slidePayload = {
+              countdownActive: true,
+              countdownTime: countdownTimeStr,
+              countdownTitle,
+              countdownSubtext,
+              countdownBgColor,
+              countdownTitleSize,
+              countdownTimeSize,
+              countdownSubtextSize,
+              timerActive: false,
+              blackout
+            };
+          } else if (showTimerOnProjector) {
+            slidePayload = {
+              timerActive: true,
+              timerTime: timerTimeStr,
+              timerTitle,
+              timerBgColor,
+              timerTitleSize,
+              timerTimeSize,
+              countdownActive: false,
+              blackout
+            };
+          } else {
+            // Send regular slide
+            slidePayload = {
+              text: activeSlideText,
+              label: activeSlideLabel || `Slide ${activeSlideIndex + 1}`,
+              bgAsset: activeBgAsset,
+              style: activeSlideStyle,
+              isImportedSlide: !!(slides && slides[activeSlideIndex] && slides[activeSlideIndex].bgAsset),
+              countdownActive: false,
+              timerActive: false,
+              blackout,
+              clearLyrics,
+              mediaPlaying: isMediaItem ? mediaPlaying : true,
+              mediaLoop: isMediaItem ? mediaLoop : true,
+              mediaVolume: isMediaItem ? mediaVolume : 0
+            };
+          }
+          window.api.sendSlideUpdate(JSON.parse(JSON.stringify(slidePayload)));
+        } catch (err) {
+          console.error('Failed to clone slide update payload, trying selective serialize:', err);
+          try {
+            window.api.sendSlideUpdate({
+              text: activeSlideText,
+              label: activeSlideLabel || `Slide ${activeSlideIndex + 1}`,
+              bgAsset: activeBgAsset,
+              countdownActive: false,
+              timerActive: false,
+              blackout,
+              clearLyrics
+            });
+          } catch (e) {
+            console.error('Critical slide update fallback failure:', e);
+          }
         }
       }
     }
@@ -1123,7 +1223,7 @@ function OperatorDashboard() {
     countdownActive, countdownMinutes, countdownSeconds, countdownTitle, countdownSubtext, countdownBgColor, countdownTitleSize, countdownTimeSize, countdownSubtextSize, countdownShowOn,
     timerActive, timerMinutes, timerSeconds, timerTitle, timerBgColor, timerTitleSize, timerTimeSize, timerShowOn,
     stageTopLineColor, stageMiddleLineColor, stageMainLineColor, stageUpNextLineColor,
-    mediaPlaying, mediaLoop, mediaVolume
+    mediaPlaying, mediaLoop, mediaVolume, isLiveActive
   ]);
 
   // Sync operator volume element ref
@@ -1151,28 +1251,25 @@ function OperatorDashboard() {
     }
   }, [mediaPlaying, mediaLoop, activeBgAsset]);
 
-  // Reset selected slide index to 0 whenever song changes
+  // Reset selected slide index to 0 or restore saved index when song changes (no auto go-live)
   useEffect(() => {
-    setActiveSlideIndex(0);
-    setSelectedSlideIndexes([0]);
-    
-    // Auto select slide 0 for media items to load immediately
     const slidesArr = getSlidesArray();
-    if (selectedSong && selectedSong.author === 'Media' && slidesArr.length > 0) {
-      handleSelectSlide(0, slidesArr);
-      setMediaPlaying(true);
+    if (restoreSlideIndex !== null) {
+      const idx = Math.min(restoreSlideIndex, slidesArr.length - 1);
+      setActiveSlideIndex(idx);
+      setSelectedSlideIndexes([idx]);
+      handleSelectSlide(idx, slidesArr, selectedSong);
+      setRestoreSlideIndex(null);
+    } else {
+      setActiveSlideIndex(0);
+      setSelectedSlideIndexes([0]);
+      
+      // Auto-play local media player only (do not push to projector)
+      if (selectedSong && selectedSong.author === 'Media') {
+        setMediaPlaying(true);
+      }
     }
   }, [selectedSong]);
-
-  // Sync active slide metadata when changing selection or backgrounds (or song)
-  useEffect(() => {
-    if (slides && slides.length > 0) {
-      const idx = Math.min(activeSlideIndex, slides.length - 1);
-      handleSelectSlide(idx, slides);
-    } else {
-      setLiveSlide('', '', selectedMedia ? selectedMedia.filepath : '', null);
-    }
-  }, [selectedSong, selectedMedia, activeSlideIndex]);
 
   // Handle incoming mobile remote control WebSocket command events
   useEffect(() => {
@@ -1182,26 +1279,29 @@ function OperatorDashboard() {
         
         switch (data.command) {
           case 'next-slide': {
-            const nextIdx = Math.min(slides.length - 1, activeSlideIndex + 1);
+            const targetSlides = bibleLiveSlides || slides;
+            const nextIdx = Math.min(targetSlides.length - 1, activeSlideIndex + 1);
             if (nextIdx !== activeSlideIndex) {
               setSelectedSlideIndexes([nextIdx]);
-              handleSelectSlide(nextIdx, slides);
+              handleSelectSlide(nextIdx, targetSlides, bibleLiveSlides ? null : liveSong || selectedSong);
             }
             break;
           }
           case 'prev-slide': {
+            const targetSlides = bibleLiveSlides || slides;
             const prevIdx = Math.max(0, activeSlideIndex - 1);
             if (prevIdx !== activeSlideIndex) {
               setSelectedSlideIndexes([prevIdx]);
-              handleSelectSlide(prevIdx, slides);
+              handleSelectSlide(prevIdx, targetSlides, bibleLiveSlides ? null : liveSong || selectedSong);
             }
             break;
           }
           case 'select-slide': {
             const idx = data.index;
-            if (idx >= 0 && idx < slides.length) {
+            const targetSlides = bibleLiveSlides || slides;
+            if (idx >= 0 && idx < targetSlides.length) {
               setSelectedSlideIndexes([idx]);
-              handleSelectSlide(idx, slides);
+              handleSelectSlide(idx, targetSlides, bibleLiveSlides ? null : liveSong || selectedSong);
             }
             break;
           }
@@ -1217,6 +1317,90 @@ function OperatorDashboard() {
             const songId = data.songId;
             if (songId) {
               selectSong(songId);
+              
+              if (window.api && window.api.getSongs) {
+                try {
+                  const songsList = await window.api.getSongs();
+                  const targetSong = songsList.find(s => s.id === songId);
+                  if (targetSong && targetSong.author === 'Media') {
+                    const mediaSlides = [{
+                      text: '',
+                      label: targetSong.title,
+                      bgAsset: targetSong.filepath,
+                      style: null
+                    }];
+                    setSelectedSlideIndexes([0]);
+                    handleSelectSlide(0, mediaSlides, targetSong);
+                  }
+                } catch (e) {
+                  console.error('Failed to auto-live media item from remote:', e);
+                }
+              }
+            }
+            break;
+          }
+          case 'add-song-to-playlist': {
+            if (data.songId && data.songTitle) {
+              await addToPlaylist(data.songTitle, 'song', data.songId);
+              await fetchPlaylist();
+            }
+            break;
+          }
+          case 'go-live-bible-raw': {
+            try {
+              const { bookName, chapter, startVerse, endVerse, translation } = data;
+              if (window.api && window.api.queryBible) {
+                const results = await window.api.queryBible(translation, bookName, chapter, startVerse, endVerse);
+                if (results && results.length > 0) {
+                  const chunkVerses = (arr, size = 3) => {
+                    const chunks = [];
+                    for (let i = 0; i < arr.length; i += size) {
+                      chunks.push(arr.slice(i, i + size));
+                    }
+                    return chunks;
+                  };
+
+                  const style = {
+                    font: songFont, size: songSize, weight: songWeight,
+                    color: songColor, bgColor: songBgColor, bgOpacity: songBgOpacity,
+                    align: songAlign, vertical: songVertical, animation: songAnimation, speed: songSpeed
+                  };
+
+                  const chunks = chunkVerses(results, 3);
+                  const bibleSlides = chunks.map(chunk => {
+                    const startV = chunk[0].verse;
+                    const endV = chunk[chunk.length - 1].verse;
+                    const label = `${bookName} ${chapter}:${startV === endV ? startV : `${startV}-${endV}`}`;
+                    const text = chunk.map(v => `${v.verse} ${v.text}`).join('\n');
+                    return { label, text, style, isBible: true };
+                  });
+
+                  handleGoLiveBible(bibleSlides);
+                }
+              }
+            } catch (err) {
+              console.error('Failed to go live with Bible verses from remote:', err);
+            }
+            break;
+          }
+          case 'control-countdown': {
+            const { action } = data;
+            if (action === 'start-countdown') {
+              setIsCountdownRunning(true);
+              setCountdownActive(true);
+            } else if (action === 'stop-countdown') {
+              setIsCountdownRunning(false);
+            } else if (action === 'start-timer') {
+              setIsTimerRunning(true);
+              setTimerActive(true);
+            } else if (action === 'stop-timer') {
+              setIsTimerRunning(false);
+            } else if (action === 'set-countdown') {
+              setCountdownMinutes(data.minutes || 5);
+              setCountdownSeconds(data.seconds || 0);
+              setCountdownActive(true);
+            } else if (action === 'exit-bible') {
+              handleExitLiveBible();
             }
             break;
           }
@@ -1259,7 +1443,7 @@ function OperatorDashboard() {
         }
       });
     }
-  }, [slides, activeSlideIndex, selectedSong, playlist, songFont, songSize, songWeight, songColor, songBgColor, songBgOpacity, songAlign, songVertical, songAnimation, songSpeed]);
+  }, [slides, activeSlideIndex, selectedSong, playlist, songFont, songSize, songWeight, songColor, songBgColor, songBgOpacity, songAlign, songVertical, songAnimation, songSpeed, bibleLiveSlides, liveSong, liveSlides, liveActiveIndex, countdownMinutes, countdownSeconds, countdownActive, timerMinutes, timerSeconds, timerActive]);
 
   // Keyboard arrow keys slide navigation controller
   useEffect(() => {
@@ -1274,30 +1458,43 @@ function OperatorDashboard() {
         return;
       }
 
-      if (activeHeaderTab !== 'presentation' || !selectedSong || slides.length === 0) {
-        return;
-      }
+      // Allow navigation if we have live slides or selected slides
+      const targetSlides = bibleLiveSlides || slides;
+      if (targetSlides.length === 0) return;
 
       if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
         e.preventDefault();
-        const nextIdx = Math.min(slides.length - 1, activeSlideIndex + 1);
+        
+        // If we are viewing a different song in the dashboard than the live song,
+        // and there is no active live Bible override,
+        // pressing Next should trigger live output for the selected song's first slide!
+        if (!bibleLiveSlides && selectedSong && (!liveSong || liveSong.id !== selectedSong.id)) {
+          const newSlides = getSlidesArray();
+          if (newSlides.length > 0) {
+            handleSelectSlide(0, newSlides, selectedSong);
+            setSelectedSlideIndexes([0]);
+          }
+          return;
+        }
+
+        const nextIdx = Math.min(targetSlides.length - 1, activeSlideIndex + 1);
         if (nextIdx !== activeSlideIndex) {
           setSelectedSlideIndexes([nextIdx]);
-          handleSelectSlide(nextIdx, slides);
+          handleSelectSlide(nextIdx, targetSlides, bibleLiveSlides ? null : liveSong || selectedSong);
         }
       } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
         e.preventDefault();
         const prevIdx = Math.max(0, activeSlideIndex - 1);
         if (prevIdx !== activeSlideIndex) {
           setSelectedSlideIndexes([prevIdx]);
-          handleSelectSlide(prevIdx, slides);
+          handleSelectSlide(prevIdx, targetSlides, bibleLiveSlides ? null : liveSong || selectedSong);
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeSlideIndex, slides, selectedSong, activeHeaderTab]);
+  }, [activeSlideIndex, slides, bibleLiveSlides, liveSong, selectedSong, activeHeaderTab]);
 
   // Helper functions for matching styling in Live Output preview
   const getLivePreviewTextStyle = () => {
@@ -1577,61 +1774,6 @@ function OperatorDashboard() {
     }
   };
 
-  const handleBibleSearch = async (e) => {
-    e.preventDefault();
-    if (window.api) {
-      try {
-        const results = await window.api.queryBible(
-          bibleTranslation,
-          bibleBook,
-          bibleChapter,
-          bibleStartVerse,
-          bibleEndVerse
-        );
-        setScriptureResults(results || []);
-      } catch (err) {
-        console.error('Failed to lookup Bible verses:', err);
-      }
-    }
-  };
-
-  const handleAddScriptureToPlaylist = async (vs) => {
-    if (window.api) {
-      try {
-        const contentJson = JSON.stringify([{ 
-          label: 'SCRIPTURE', 
-          text: vs.text.toUpperCase(),
-          style: {
-            font: songFont,
-            size: songSize,
-            weight: songWeight,
-            color: songColor,
-            bgColor: songBgColor,
-            bgOpacity: songBgOpacity,
-            align: songAlign,
-            vertical: songVertical,
-            animation: songAnimation,
-            speed: songSpeed
-          }
-        }]);
-        const addedSong = await window.api.createSong({
-          title: `${vs.book_name} ${vs.chapter}:${vs.verse} (${vs.translation})`,
-          author: 'Bible',
-          key: 'READ',
-          tempo: 'SLOW',
-          contentJson
-        });
-
-        await fetchSongs();
-        await addToPlaylist(addedSong.title, 'song', addedSong.id);
-      } catch (err) {
-        console.error('Failed to add scripture to flow:', err);
-      }
-    }
-  };
-
-
-
   const handleAddBlankSlide = async () => {
     if (window.api) {
       try {
@@ -1801,7 +1943,7 @@ function OperatorDashboard() {
                 }`}
               >
                 <BookOpen className="h-3.5 w-3.5" />
-                Scripture
+                Bible Menu
               </button>
 
               <button 
@@ -2028,6 +2170,20 @@ function OperatorDashboard() {
 
             {/* Center Column: Slide Explorer */}
             <section className="flex-1 flex flex-col bg-appBg">
+              {bibleLiveSlides && (
+                <div className="bg-emerald-950/80 border-b border-emerald-800/60 px-5 py-3 flex items-center justify-between text-xs text-emerald-400 font-bold uppercase tracking-wider backdrop-blur-md">
+                  <span className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                    Live Scripture Overlay Active: {bibleLiveSlides[0]?.label || 'Scripture'}
+                  </span>
+                  <button
+                    onClick={handleExitLiveBible}
+                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-slate-900 rounded font-extrabold transition font-mono tracking-widest text-[10px]"
+                  >
+                    Exit Live Scripture
+                  </button>
+                </div>
+              )}
               {selectedSong ? (
                 <>
                   <div className="h-14 border-b border-[var(--border-app)] bg-appPanel/60 px-5 flex items-center justify-between">
@@ -2095,6 +2251,19 @@ function OperatorDashboard() {
 
                         {/* Player Custom Professional Controller Bar */}
                         <div className="w-full bg-[#1e293b]/30 border border-[var(--border-app)] rounded-xl px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                          {/* Project Live Button */}
+                          <button
+                            onClick={() => handleSelectSlide(0, slides, selectedSong)}
+                            className={`px-4 py-2.5 rounded-lg font-extrabold text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all ${
+                              liveSong && selectedSong && liveSong.id === selectedSong.id
+                                ? 'bg-emerald-700/35 text-emerald-400 border border-emerald-500/30 cursor-default'
+                                : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg active:scale-95'
+                            }`}
+                          >
+                            <Tv className="h-4 w-4" />
+                            {liveSong && selectedSong && liveSong.id === selectedSong.id ? 'Live on Projector' : 'Project Live'}
+                          </button>
+
                           {/* Playback Controls Group */}
                           <div className="flex items-center gap-3">
                             <button
@@ -2169,7 +2338,7 @@ function OperatorDashboard() {
                       {slides.length > 0 ? (
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                           {slides.map((slide, index) => {
-                            const isActive = index === activeSlideIndex;
+                            const isActive = (bibleLiveSlides !== null || (liveSong && selectedSong && liveSong.id === selectedSong.id)) && index === activeSlideIndex;
                             const isSelected = selectedSlideIndexes.includes(index);
                             return (
                               <div 
@@ -2188,17 +2357,27 @@ function OperatorDashboard() {
                                     handleSelectSlide(index, slides);
                                   }
                                 }}
-                                onDoubleClick={() => {
-                                  setSelectedSlideIndexes([index]);
-                                  handleSelectSlide(index, slides);
-                                  handleShowPendingSlide();
-                                }}
                                 className={`aspect-video rounded-lg relative overflow-hidden flex flex-col justify-between p-3 cursor-pointer group transition-all duration-200 border-2 bg-black ${getSlideCardBorderClass(slide.label, isActive, isSelected)}`}
                                 style={{
-                                  containerType: 'inline-size',
-                                  ...(slide.style?.background && isBgColor(slide.style.background) ? { backgroundColor: slide.style.background } : {})
+                                  containerType: 'inline-size'
                                 }}
                               >
+                                {/* Solid Color Background Layer */}
+                                {slide.style?.background && isBgColor(slide.style.background) && (
+                                  <div 
+                                    style={{
+                                      position: 'absolute',
+                                      left: 0,
+                                      right: 0,
+                                      height: slide.style?.bgHeight || '100%',
+                                      top: '50%',
+                                      transform: 'translateY(-50%)',
+                                      backgroundColor: slide.style?.background || '#000000',
+                                      zIndex: 0
+                                    }}
+                                  />
+                                )}
+
                                 {/* bgAsset: full-cover slide image (PowerPoint/PDF imports) */}
                                 {slide.bgAsset && (
                                   <div className="absolute inset-0 z-0 w-full h-full">
@@ -2211,7 +2390,14 @@ function OperatorDashboard() {
                                 )}
                                 {/* style.background overlay: shared video/image background for songs */}
                                 {!slide.bgAsset && ((slide.style && slide.style.background) || (selectedMedia && selectedMedia.filepath)) && !isBgColor(slide.style?.background || (selectedMedia && selectedMedia.filepath)) && (
-                                  <div className="absolute inset-0 z-0 w-full h-full">
+                                  <div 
+                                    className="absolute inset-x-0 z-0 w-full"
+                                    style={{
+                                      height: slide.style?.bgHeight || '100%',
+                                      top: '50%',
+                                      transform: 'translateY(-50%)'
+                                    }}
+                                  >
                                     {/\.(mp4|webm|mov|avi)($|\?)/i.test((slide.style && slide.style.background) || (selectedMedia && selectedMedia.filepath)) ? (
                                       <video 
                                         src={(slide.style && slide.style.background) || selectedMedia.filepath} 
@@ -2265,6 +2451,7 @@ function OperatorDashboard() {
                   {/* Dynamic Background Loop Explorer & Settings Form */}
                   <div
                     className="bg-[#10141D] border-t border-[var(--border-app)] flex flex-col relative select-none text-textMain transition-all duration-200 overflow-hidden"
+                    style={{ height: isBgPanelCollapsed ? '28px' : `${bgPanelHeight}px` }}
                   >
                     {/* Draggable resize handle */}
                     {!isBgPanelCollapsed && (
@@ -2336,6 +2523,22 @@ function OperatorDashboard() {
                               </div>
                             </div>
                           )}
+
+                          {/* Adjustable Background Height Control */}
+                          <div>
+                            <div className="flex justify-between items-center mb-1">
+                              <label className="text-[10px] text-textMuted uppercase font-mono font-bold">Background Height</label>
+                              <span className="text-[10px] font-mono text-textMuted">{bgHeight}%</span>
+                            </div>
+                            <input 
+                              type="range" 
+                              min="10" 
+                              max="100" 
+                              value={bgHeight} 
+                              onChange={(e) => setBgHeight(parseInt(e.target.value))}
+                              className="w-full h-1 bg-[#10141D] rounded-lg appearance-none cursor-pointer accent-brand"
+                            />
+                          </div>
 
                           {/* Apply To Segmented Controls */}
                           <div>
@@ -2457,11 +2660,11 @@ function OperatorDashboard() {
                       </div>
 
                       {/* Right Column: Local Directory Explorer OR Color presets (65% width) */}
-                      <div className="flex-1 flex flex-col bg-[#F0F2F5] overflow-hidden">
+                      <div className="flex-1 flex flex-col bg-appBg overflow-hidden border-t md:border-t-0 md:border-l border-[var(--border-app)]">
                         {bgType === 'color' ? (
                           /* Color Presets Picker Area */
-                          <div className="flex-1 flex flex-col bg-white p-4 overflow-y-auto">
-                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider font-mono mb-3">Color Palette Presets</span>
+                          <div className="flex-1 flex flex-col bg-appBg p-4 overflow-y-auto">
+                            <span className="text-[10px] font-bold text-textMuted uppercase tracking-wider font-mono mb-3">Color Palette Presets</span>
                             <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-8 gap-3">
                               {[
                                 '#000000', '#1E293B', '#475569', '#94A3B8', '#F1F5F9', '#FFFFFF',
@@ -2474,8 +2677,8 @@ function OperatorDashboard() {
                                   style={{ backgroundColor: col }}
                                   className={`aspect-square rounded-md border-2 cursor-pointer transition hover:scale-105 ${
                                     bgColorInput.toLowerCase() === col.toLowerCase() 
-                                      ? 'border-[#1E4E79] shadow-md scale-105' 
-                                      : 'border-slate-300'
+                                      ? 'border-brand shadow-md scale-105' 
+                                      : 'border-[var(--border-app)]'
                                   }`}
                                   title={col}
                                 />
@@ -2486,7 +2689,7 @@ function OperatorDashboard() {
                           /* Standard replica Local Directory Explorer */
                           <>
                             {/* Address Bar Toolbar */}
-                            <div className="h-9 bg-[#E3E6EB] border-b border-slate-300 flex items-center gap-2 px-3">
+                            <div className="h-9 bg-appPanel border-b border-[var(--border-app)] flex items-center gap-2 px-3">
                               <button 
                                 type="button"
                                 disabled={!mediaList.some(item => item.id === '..')}
@@ -2494,10 +2697,10 @@ function OperatorDashboard() {
                                   const parentItem = mediaList.find(item => item.id === '..');
                                   if (parentItem) loadLocalBackgrounds(parentItem.filepath);
                                 }}
-                                className="p-1 hover:bg-slate-200 disabled:opacity-40 rounded transition"
+                                className="p-1 hover:bg-appBg disabled:opacity-40 rounded transition"
                                 title="Go Up one folder level"
                               >
-                                <ArrowUp className="h-4 w-4 text-slate-700" />
+                                <ArrowUp className="h-4 w-4 text-textMain" />
                               </button>
                               
                               <input 
@@ -2510,7 +2713,7 @@ function OperatorDashboard() {
                                   }
                                 }}
                                 placeholder="Type folder path and press Enter..."
-                                className="flex-1 h-6 bg-white border border-slate-300 px-2 py-0.5 text-xs text-slate-800 focus:outline-none rounded font-mono font-medium shadow-inner"
+                                className="flex-1 h-6 bg-appBg border border-[var(--border-app)] px-2 py-0.5 text-xs text-textMain focus:outline-none rounded font-mono font-medium shadow-inner focus:border-brand"
                               />
                               
                               <input 
@@ -2519,17 +2722,17 @@ function OperatorDashboard() {
                                 max="100" 
                                 value={thumbnailScale}
                                 onChange={(e) => setThumbnailScale(parseInt(e.target.value))}
-                                className="w-20 cursor-pointer accent-[#1E4E79] h-1.5 bg-slate-300 rounded-lg appearance-none" 
+                                className="w-20 cursor-pointer accent-brand h-1.5 bg-slate-700 rounded-lg appearance-none" 
                                 title="Adjust Thumbnail Size"
                               />
                             </div>
 
                             {/* White Explorer Content Grid */}
-                            <div className="flex-1 bg-white overflow-y-auto p-4 scrollbar-thin">
+                            <div className="flex-1 bg-appBg overflow-y-auto p-4 scrollbar-thin">
                               <div 
                                 className="grid gap-3 pb-2"
                                 style={{
-                                  gridTemplateColumns: `repeat(auto-fill, minmax(${60 + (thumbnailScale / 100) * 140}px, 1fr))`
+                                  gridTemplateColumns: `repeat(auto-fill, minmax(${80 + (thumbnailScale / 100) * 140}px, 1fr))`
                                 }}
                               >
                                 
@@ -2539,14 +2742,14 @@ function OperatorDashboard() {
                                     setStagedBgAsset("");
                                     setSelectedMedia(null);
                                   }}
-                                  className={`flex flex-col items-center justify-center p-2 rounded cursor-pointer border-2 transition-all aspect-square ${
+                                  className={`flex flex-col items-center justify-center p-2 rounded-lg cursor-pointer border-2 transition-all aspect-square ${
                                     stagedBgAsset === ""
-                                      ? 'border-[#1E4E79] bg-slate-50 shadow-md' 
-                                      : 'border-transparent hover:bg-slate-100'
+                                      ? 'border-brand bg-brand/10 shadow-md' 
+                                      : 'border-[var(--border-app)] hover:bg-appPanel/40'
                                   }`}
                                 >
-                                  <Square className="h-8 w-8 text-slate-400 stroke-[1.25] mb-1" />
-                                  <span className="text-[9px] font-sans text-slate-800 text-center font-semibold truncate w-full px-1">
+                                  <Square className="h-8 w-8 text-textMuted stroke-[1.25] mb-1" />
+                                  <span className="text-[10px] font-sans text-textMain text-center font-semibold truncate w-full px-1">
                                     No Background
                                   </span>
                                 </div>
@@ -2566,10 +2769,10 @@ function OperatorDashboard() {
                                       <div 
                                         key={item.id}
                                         onClick={() => loadLocalBackgrounds(item.filepath)}
-                                        className="flex flex-col items-center justify-center p-2 rounded hover:bg-slate-100 cursor-pointer aspect-square transition"
+                                        className="flex flex-col items-center justify-center p-2 rounded-lg bg-appPanel/30 border border-[var(--border-app)]/60 hover:bg-appPanel/60 cursor-pointer aspect-square transition"
                                       >
                                         <Folder className="h-8 w-8 text-[#FFD24C] fill-[#FFD24C] stroke-amber-600 stroke-[1.25] mb-1" />
-                                        <span className="text-[9px] font-sans text-slate-800 text-center font-medium truncate w-full px-1">
+                                        <span className="text-[10px] font-sans text-textMain text-center font-medium truncate w-full px-1">
                                           {item.name}
                                         </span>
                                       </div>
@@ -2584,10 +2787,10 @@ function OperatorDashboard() {
                                         setStagedBgAsset(item.filepath);
                                         setSelectedMedia(item);
                                       }}
-                                      className={`flex flex-col items-center justify-center p-1 rounded cursor-pointer border-2 aspect-square relative overflow-hidden transition-all ${
+                                      className={`flex flex-col items-center justify-center p-1.5 rounded-lg cursor-pointer border-2 aspect-square relative overflow-hidden transition-all ${
                                         isStaged 
-                                          ? 'border-[#1E4E79] bg-slate-50 shadow-md scale-105' 
-                                          : 'border-transparent hover:bg-slate-100'
+                                          ? 'border-brand bg-brand/15 shadow-md scale-105' 
+                                          : 'border-[var(--border-app)] hover:bg-appPanel/40'
                                       }`}
                                     >
                                       <div className="w-full flex-1 relative rounded overflow-hidden bg-black flex items-center justify-center">
@@ -2610,7 +2813,7 @@ function OperatorDashboard() {
                                           />
                                         )}
                                       </div>
-                                      <span className="text-[8px] font-mono text-slate-800 text-center truncate w-full px-1 mt-1 leading-none">
+                                      <span className="text-[9px] font-mono text-textMain text-center truncate w-full px-1 mt-1 leading-none">
                                         {item.name}
                                       </span>
                                     </div>
@@ -2683,7 +2886,7 @@ function OperatorDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {songs.map((song) => (
+                    {songs.filter(song => song.author !== 'Media').map((song) => (
                       <tr key={song.id} className="border-b border-[var(--border-app)]/60 hover:bg-appPanel/20 text-textMain">
                         <td className="p-4 font-bold text-textMain">{song.title}</td>
                         <td className="p-4 text-center">
@@ -2928,102 +3131,26 @@ function OperatorDashboard() {
           </section>
         )}
 
-        {/* SCRIPTURE EXPLORER VIEW */}
+        {/* BIBLE MENU EXPLORER VIEW */}
         {activeHeaderTab === 'scripture' && (
-          <section className="flex-1 flex flex-col p-6 bg-appBg overflow-y-auto">
-            <h2 className="text-lg font-bold text-textMain flex items-center gap-2 mb-6">
-              <BookOpen className="text-brand h-5 w-5" />
-              Indexed Bible Scripture Lookup
-            </h2>
-
-            <form onSubmit={handleBibleSearch} className="grid grid-cols-4 gap-4 bg-appPanel/30 p-4 rounded-lg border border-[var(--border-app)] mb-6 text-xs">
-              <div className="flex flex-col gap-1.5 col-span-2">
-                <label className="text-[10px] text-textMuted font-bold uppercase font-mono">Translation Version</label>
-                <select 
-                  value={bibleTranslation}
-                  onChange={e => setBibleTranslation(e.target.value)}
-                  className="p-2 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain focus:outline-none"
-                >
-                  <option value="KJV">King James Version (KJV)</option>
-                  <option value="ASV">American Standard Version (ASV)</option>
-                  <option value="Tagalog">Ang Biblia (Tagalog)</option>
-                </select>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] text-textMuted font-bold uppercase font-mono">Book Name</label>
-                <input 
-                  type="text" 
-                  value={bibleBook}
-                  onChange={e => setBibleBook(e.target.value)}
-                  className="p-2 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain focus:outline-none"
-                  placeholder=""
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] text-textMuted font-bold uppercase font-mono">Chapter</label>
-                <input 
-                  type="number" 
-                  value={bibleChapter}
-                  onChange={e => setBibleChapter(parseInt(e.target.value) || 1)}
-                  className="p-2 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain focus:outline-none text-center font-mono"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] text-textMuted font-bold uppercase font-mono">Start Verse</label>
-                <input 
-                  type="number" 
-                  value={bibleStartVerse}
-                  onChange={e => setBibleStartVerse(parseInt(e.target.value) || 1)}
-                  className="p-2 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain focus:outline-none text-center font-mono"
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] text-textMuted font-bold uppercase font-mono">End Verse</label>
-                <input 
-                  type="number" 
-                  value={bibleEndVerse}
-                  onChange={e => setBibleEndVerse(parseInt(e.target.value) || 1)}
-                  className="p-2 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain focus:outline-none text-center font-mono"
-                />
-              </div>
-              <div className="col-span-2 flex items-end">
-                <button 
-                  type="submit"
-                  className="w-full py-2 bg-brand hover:bg-brand/80 text-white rounded font-bold transition shadow-lg font-mono"
-                >
-                  Search Database (Psalms 23:1-3 Seeded)
-                </button>
-              </div>
-            </form>
-
-            <div className="space-y-2">
-              {scriptureResults.length > 0 ? (
-                scriptureResults.map((vs, idx) => (
-                  <div key={idx} className="p-4 bg-appPanel/30 border border-[var(--border-app)] rounded-lg flex justify-between items-start text-xs hover:border-brand transition">
-                    <div className="flex-1 pr-6">
-                      <div className="font-bold text-xs text-brand flex items-center gap-2 font-mono">
-                        <BookOpen className="h-3.5 w-3.5" />
-                        {vs.book_name} {vs.chapter}:{vs.verse} ({vs.translation})
-                      </div>
-                      <p className="text-textMain text-sm mt-2 leading-relaxed font-sans">{vs.text}</p>
-                    </div>
-                    <button 
-                      onClick={() => handleAddScriptureToPlaylist(vs)}
-                      className="px-3 py-1.5 bg-brand/10 hover:bg-brand/20 border border-brand/60 rounded text-[11px] text-brand font-semibold flex items-center gap-1 font-mono"
-                    >
-                      <Plus className="h-3 w-3" />
-                      Add to Flow
-                    </button>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-16 border border-[var(--border-app)] rounded-lg text-textMuted text-xs">
-                  No Bible verses loaded. Query Book: "Psalms", Chapter: "23", Translation: "KJV" to pull seeded values.
-                </div>
-              )}
-            </div>
-          </section>
+          <BibleMenu 
+            addToPlaylist={addToPlaylist}
+            fetchSongs={fetchSongs}
+            isLiveActive={isLiveActive}
+            onGoLiveBible={handleGoLiveBible}
+            bibleLiveSlides={bibleLiveSlides}
+            onExitLiveBible={handleExitLiveBible}
+            songFont={songFont}
+            songSize={songSize}
+            songWeight={songWeight}
+            songColor={songColor}
+            songBgColor={songBgColor}
+            songBgOpacity={songBgOpacity}
+            songAlign={songAlign}
+            songVertical={songVertical}
+            songAnimation={songAnimation}
+            songSpeed={songSpeed}
+          />
         )}
 
 

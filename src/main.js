@@ -324,6 +324,50 @@ ipcMain.handle('db:query-bible', async (event, { translation, bookName, chapter,
   return await db.queryBible(translation, bookName, chapter, startVerse, endVerse);
 });
 
+ipcMain.handle('bible:get-translations', async () => {
+  return await db.getAvailableTranslations();
+});
+
+ipcMain.handle('bible:get-books', async (event, translation) => {
+  return await db.getBibleBooks(translation);
+});
+
+ipcMain.handle('bible:get-chapters', async (event, translation, bookName) => {
+  return await db.getBibleChapters(translation, bookName);
+});
+
+ipcMain.handle('bible:get-verses', async (event, translation, bookName, chapter) => {
+  return await db.getBibleVerses(translation, bookName, chapter);
+});
+
+ipcMain.handle('bible:search-text', async (event, translation, keyword) => {
+  return await db.searchBibleText(translation, keyword);
+});
+
+ipcMain.handle('bible:add-favorite', async (event, translation, bookName, chapter, startVerse, endVerse, label) => {
+  return await db.addBibleFavorite(translation, bookName, chapter, startVerse, endVerse, label);
+});
+
+ipcMain.handle('bible:remove-favorite', async (event, id) => {
+  return await db.removeBibleFavorite(id);
+});
+
+ipcMain.handle('bible:get-favorites', async () => {
+  return await db.getBibleFavorites();
+});
+
+ipcMain.handle('bible:add-history', async (event, translation, bookName, chapter, startVerse, endVerse) => {
+  return await db.addBibleHistory(translation, bookName, chapter, startVerse, endVerse);
+});
+
+ipcMain.handle('bible:get-history', async (event, limit) => {
+  return await db.getBibleHistory(limit);
+});
+
+ipcMain.handle('bible:clear-history', async () => {
+  return await db.clearBibleHistory();
+});
+
 ipcMain.handle('db:get-playlist', async () => {
   return await db.getPlaylist();
 });
@@ -603,12 +647,17 @@ function startStageServer(port = 5174) {
 
       // Serve local assets from absolute filesystem paths (useful for mobile clients loading media/slide thumbnails)
       if (urlPath.startsWith('/local-asset/')) {
-        const localPath = decodeURIComponent(urlPath.slice('/local-asset/'.length));
-        if (fs.existsSync(localPath)) {
-          const ext = path.extname(localPath).toLowerCase();
+        let localPath = decodeURIComponent(urlPath.slice('/local-asset/'.length));
+        localPath = path.normalize(localPath);
+        let resolvedPath = localPath;
+        if (!path.isAbsolute(resolvedPath)) {
+          resolvedPath = path.join(__dirname, '..', localPath);
+        }
+        if (fs.existsSync(resolvedPath)) {
+          const ext = path.extname(resolvedPath).toLowerCase();
           const contentType = mime[ext] || 'application/octet-stream';
           try {
-            const data = fs.readFileSync(localPath);
+            const data = fs.readFileSync(resolvedPath);
             res.writeHead(200, { 'Content-Type': contentType, 'Access-Control-Allow-Origin': '*' });
             res.end(data);
             return;
@@ -746,6 +795,55 @@ function startStageServer(port = 5174) {
             type: 'remote-bible-results',
             payload: { query, results }
           }));
+        }
+        else if (message.type === 'remote-song-search') {
+          const query = message.payload.query || '';
+          try {
+            const allResults = await db.searchSongs(query);
+            const results = (allResults || []).filter(s => s.author !== 'Media');
+            ws.send(JSON.stringify({
+              type: 'remote-song-results',
+              payload: { query, results }
+            }));
+          } catch (err) {
+            console.error('Failed to search songs from remote:', err);
+          }
+        }
+        else if (message.type === 'remote-get-bible-books') {
+          const translation = message.payload.translation || 'KJV';
+          try {
+            const books = await db.getBibleBooks(translation);
+            ws.send(JSON.stringify({
+              type: 'remote-bible-books',
+              payload: { books }
+            }));
+          } catch (err) {
+            console.error('Failed to get bible books for remote:', err);
+          }
+        }
+        else if (message.type === 'remote-get-bible-verses') {
+          const { translation, bookName, chapter } = message.payload;
+          try {
+            const verses = await db.getBibleVerses(translation, bookName, chapter);
+            ws.send(JSON.stringify({
+              type: 'remote-bible-verses',
+              payload: { translation, bookName, chapter, verses }
+            }));
+          } catch (err) {
+            console.error('Failed to get bible verses for remote:', err);
+          }
+        }
+        else if (message.type === 'remote-get-bible-chapters') {
+          const { translation, bookName } = message.payload;
+          try {
+            const chapters = await db.getBibleChapters(translation, bookName);
+            ws.send(JSON.stringify({
+              type: 'remote-bible-chapters',
+              payload: { translation, bookName, chapters }
+            }));
+          } catch (err) {
+            console.error('Failed to get bible chapters for remote:', err);
+          }
         }
       } catch (err) {
         console.error('Error handling WS message:', err);

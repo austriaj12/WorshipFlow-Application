@@ -1,7 +1,7 @@
 {
   "name": "worshipflow",
   "productName": "WorshipFlow",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "Local-first worship presentation app inspired by ProPresenter and G-Presenter",
   "main": "src/main.js",
   "type": "commonjs",
@@ -39,7 +39,9 @@
     "files": [
       "dist/**/*",
       "src/**/*",
-      "package.json"
+      "package.json",
+      "bible-data/**/*",
+      "scripts/**/*"
     ],
     "directories": {
       "output": "release"

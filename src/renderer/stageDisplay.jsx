@@ -103,6 +103,7 @@ function StageDisplay() {
           nextSlideBg: data.nextSlideBg || '',
           nextSlideLabel: data.nextSlideLabel || '',
           countdownTime: data.countdownTime || prev.countdownTime || '00:00',
+          countdownActive: data.countdownActive !== undefined ? data.countdownActive : prev.countdownActive,
           timerTime: data.timerTime || prev.timerTime || '00:00',
           timerActive: data.timerActive !== undefined ? data.timerActive : prev.timerActive,
           topLineColor: data.topLineColor || prev.topLineColor,
@@ -137,6 +138,7 @@ function StageDisplay() {
               nextSlideBg: data.nextSlideBg || '',
               nextSlideLabel: data.nextSlideLabel || '',
               countdownTime: data.countdownTime || prev.countdownTime || '00:00',
+              countdownActive: data.countdownActive !== undefined ? data.countdownActive : prev.countdownActive,
               timerTime: data.timerTime || prev.timerTime || '00:00',
               timerActive: data.timerActive !== undefined ? data.timerActive : prev.timerActive,
               topLineColor: data.topLineColor || prev.topLineColor,
@@ -223,14 +225,11 @@ function StageDisplay() {
   };
 
   return (
-    <div style={{ height: '100vh', width: '100vw', background: '#000', color: '#fff', position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <div style={{ height: '100vh', width: '100vw', background: '#000', color: '#fff', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       <div 
         style={{
-          width: '1920px',
-          height: '1080px',
-          transform: `scale(${scale})`,
-          transformOrigin: 'center center',
-          flexShrink: 0,
+          width: '100%',
+          height: '100%',
           position: 'relative',
           overflow: 'hidden',
           display: 'flex',
@@ -297,18 +296,16 @@ function StageDisplay() {
             <span>{stageData.label ? stageData.label.toUpperCase() : 'MAIN'}</span>
           </div>
           <div style={{ display: 'flex', flex: 1, width: '100%', minHeight: 0, marginTop: '10px', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
-            (
-              stageData.text ? (
-                <div style={{ width: '100%', textAlign: slideStyle.textAlign, maxWidth: '100%' }}>
-                  <div style={{ ...slideStyle, fontSize: slideStyle.fontSize, lineHeight: 1.1 }} className="projector-text-shadow">
-                    {transformText(stageData.text)}
-                  </div>
+            {stageData.text ? (
+              <div style={{ width: '100%', textAlign: slideStyle.textAlign, maxWidth: '100%' }}>
+                <div style={{ ...slideStyle, fontSize: slideStyle.fontSize, lineHeight: 1.1 }} className="projector-text-shadow">
+                  {transformText(stageData.text)}
                 </div>
-              ) : (
-                /* Clear text layout when showing visual slides or media */
-                null
-              )
-            )
+              </div>
+            ) : (
+              /* Clear text layout when showing visual slides or media */
+              null
+            )}
           </div>
         </div>
         <div

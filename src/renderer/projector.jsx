@@ -17,6 +17,7 @@ function ProjectorScreen() {
     label: '',
     bgAsset: '',
     style: null,
+    isBible: false,
     blackout: false,
     clearLyrics: false
   });
@@ -201,7 +202,14 @@ function ProjectorScreen() {
       {/* Viewport-level Background Media Layers: Covers 100% of display regardless of 16:9 inner window scaling */}
       {/* 1. Bottom Layer (Previous Background) */}
       {prevBgAsset && !slide.blackout && !isBgColor(prevBgAsset) && (
-        <div className="absolute inset-0 z-0 w-full h-full">
+        <div 
+          className="absolute inset-x-0 z-0 w-full"
+          style={{
+            height: slide.style?.bgHeight || '100%',
+            top: '50%',
+            transform: 'translateY(-50%)'
+          }}
+        >
           {/\.(mp4|webm|mov|avi)($|\?)/i.test(prevBgAsset) ? (
             <video 
               src={prevBgAsset} 
@@ -224,9 +232,14 @@ function ProjectorScreen() {
       {/* 2. Top Layer (Active Background Overlay) */}
       {activeBgAsset && !slide.blackout && !isBgColor(activeBgAsset) && (
         <div 
-          className={`absolute inset-0 z-10 w-full h-full transition-opacity duration-700 ease-in-out ${
+          className={`absolute inset-x-0 z-10 w-full transition-opacity duration-700 ease-in-out ${
             bgTransitioning ? 'opacity-0' : 'opacity-100'
           }`}
+          style={{
+            height: slide.style?.bgHeight || '100%',
+            top: '50%',
+            transform: 'translateY(-50%)'
+          }}
         >
           {/\.(mp4|webm|mov|avi)($|\?)/i.test(activeBgAsset) ? (
             <video 
@@ -248,6 +261,22 @@ function ProjectorScreen() {
         </div>
       )}
 
+      {/* 2.5 Solid Color Background Layer */}
+      {((slide.bgAsset && isBgColor(slide.bgAsset)) || (slide.style?.background && isBgColor(slide.style.background))) && !slide.blackout && (
+        <div 
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            height: slide.style?.bgHeight || '100%',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            backgroundColor: slide.bgAsset && isBgColor(slide.bgAsset) ? slide.bgAsset : slide.style?.background || '#000000',
+            zIndex: 10
+          }}
+        />
+      )}
+
       {/* 3. Audio Layer (Pushes audio playback to projector window when track active) */}
       {activeBgAsset && getMediaType(activeBgAsset) === 'audio' && (
         <audio 
@@ -263,7 +292,6 @@ function ProjectorScreen() {
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/40 to-black/55 z-20"></div>
       )}
 
-      {/* 16:9 Inner Canvas for Lyrics Positioning */}
       <div 
         style={{
           width: '1920px',
@@ -278,6 +306,38 @@ function ProjectorScreen() {
         }}
         className="select-none font-sans"
       >
+        {/* Top Left Reference Label (e.g. Genesis 1:1, etc.) */}
+        {slide.label && !slide.blackout && !slide.clearLyrics && slide.isBible && (
+          <div 
+            style={{
+              position: 'absolute',
+              top: '50px',
+              left: '60px',
+              zIndex: 40,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '12px',
+              textTransform: 'uppercase',
+              color: '#f8fafc',
+              fontSize: '32px',
+              fontWeight: 800,
+              letterSpacing: '0.15em',
+              opacity: 0.85,
+              textShadow: '0 2px 4px rgba(0,0,0,0.8)'
+            }}
+          >
+            <span 
+              style={{
+                width: '8px',
+                height: '32px',
+                borderRadius: '999px',
+                background: '#38bdf8' // Sky blue accent
+              }} 
+            />
+            <span>{slide.label}</span>
+          </div>
+        )}
+
         {/* Foreground Canvas: Text Lyrics Render Layer */}
         <div 
           style={{

@@ -27,6 +27,21 @@ contextBridge.exposeInMainWorld('api', {
   queryBible: (translation, bookName, chapter, startVerse, endVerse) => 
     ipcRenderer.invoke('db:query-bible', { translation, bookName, chapter, startVerse, endVerse }),
 
+  // Bible Menu API
+  getBibleTranslations: () => ipcRenderer.invoke('bible:get-translations'),
+  getBibleBooks: (translation) => ipcRenderer.invoke('bible:get-books', translation),
+  getBibleChapters: (translation, bookName) => ipcRenderer.invoke('bible:get-chapters', translation, bookName),
+  getBibleVerses: (translation, bookName, chapter) => ipcRenderer.invoke('bible:get-verses', translation, bookName, chapter),
+  searchBibleText: (translation, keyword) => ipcRenderer.invoke('bible:search-text', translation, keyword),
+  addBibleFavorite: (translation, bookName, chapter, startVerse, endVerse, label) => 
+    ipcRenderer.invoke('bible:add-favorite', translation, bookName, chapter, startVerse, endVerse, label),
+  removeBibleFavorite: (id) => ipcRenderer.invoke('bible:remove-favorite', id),
+  getBibleFavorites: () => ipcRenderer.invoke('bible:get-favorites'),
+  addBibleHistory: (translation, bookName, chapter, startVerse, endVerse) => 
+    ipcRenderer.invoke('bible:add-history', translation, bookName, chapter, startVerse, endVerse),
+  getBibleHistory: (limit) => ipcRenderer.invoke('bible:get-history', limit),
+  clearBibleHistory: () => ipcRenderer.invoke('bible:clear-history'),
+
   // Media Library & File Picker operations
   getMedia: () => ipcRenderer.invoke('db:get-media'),
   createMedia: (mediaData) => ipcRenderer.invoke('db:create-media', mediaData),
