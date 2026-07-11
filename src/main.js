@@ -28,6 +28,7 @@ function createOperatorWindow() {
       height: 48
     },
     autoHideMenuBar: true,
+    icon: path.join(__dirname, 'renderer', 'logo.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -70,17 +71,18 @@ function createProjectorWindow(displayIndex) {
   }
 
   const displays = screen.getAllDisplays();
+  const idx = typeof displayIndex === 'number' ? displayIndex : parseInt(displayIndex, 10);
   
-  // Prefer selected displayIndex if valid, otherwise look for secondary display, fallback to display 0
-  let targetDisplay = displays[displayIndex];
-  if (!targetDisplay) {
+  let targetDisplay = null;
+  if (!isNaN(idx) && idx >= 0 && idx < displays.length) {
+    targetDisplay = displays[idx];
+  } else {
     targetDisplay = displays.find((display) => {
       return display.bounds.x !== 0 || display.bounds.y !== 0;
     }) || displays[0];
   }
 
   const bounds = targetDisplay ? targetDisplay.bounds : { x: 0, y: 0, width: 1920, height: 1080 };
-
   const isMultiDisplay = displays.length > 1;
 
   projectorWindow = new BrowserWindow({
@@ -88,9 +90,10 @@ function createProjectorWindow(displayIndex) {
     height: bounds.height,
     x: bounds.x,
     y: bounds.y,
-    fullscreen: true,
+    fullscreen: false,
     frame: false,
     autoHideMenuBar: true,
+    icon: path.join(__dirname, 'renderer', 'logo.png'),
     skipTaskbar: false,
     resizable: false,
     movable: false,
@@ -106,6 +109,10 @@ function createProjectorWindow(displayIndex) {
     title: "WorshipFlow - Projector Screen",
     backgroundColor: "#000000"
   });
+
+  // Explicitly set bounds and set fullscreen to force correct monitor target
+  projectorWindow.setBounds(bounds);
+  projectorWindow.setFullScreen(true);
 
   if (operatorWindow && !operatorWindow.isDestroyed()) {
     operatorWindow.webContents.send('window:projector-status-change', true);
@@ -132,15 +139,21 @@ function createProjectorWindow(displayIndex) {
 }
 
 // Create the Stage Display Window (separate from audience projector)
-function createStageWindow(displayIndex = 1) {
+function createStageWindow(displayIndex) {
   if (stageWindow && !stageWindow.isDestroyed()) {
     stageWindow.focus();
     return;
   }
 
   const displays = screen.getAllDisplays();
-  // Prefer a different display than the main operator (try displayIndex, fallback to any non-primary)
-  let targetDisplay = displays[displayIndex] || displays.find(d => d.bounds.x !== 0 || d.bounds.y !== 0) || displays[0];
+  const idx = typeof displayIndex === 'number' ? displayIndex : parseInt(displayIndex, 10);
+  
+  let targetDisplay = null;
+  if (!isNaN(idx) && idx >= 0 && idx < displays.length) {
+    targetDisplay = displays[idx];
+  } else {
+    targetDisplay = displays.find(d => d.bounds.x !== 0 || d.bounds.y !== 0) || displays[0];
+  }
 
   const bounds = targetDisplay ? targetDisplay.bounds : { x: 0, y: 0, width: 1920, height: 1080 };
 
@@ -152,6 +165,7 @@ function createStageWindow(displayIndex = 1) {
     fullscreen: false,
     frame: false,
     autoHideMenuBar: true,
+    icon: path.join(__dirname, 'renderer', 'logo.png'),
     skipTaskbar: false,
     resizable: false,
     movable: false,
@@ -166,6 +180,10 @@ function createStageWindow(displayIndex = 1) {
     title: "WorshipFlow - Stage Display",
     backgroundColor: "#000000"
   });
+
+  // Explicitly set bounds and set fullscreen to force correct monitor target
+  stageWindow.setBounds(bounds);
+  stageWindow.setFullScreen(true);
 
   if (isDev) {
     stageWindow.loadURL('http://localhost:5173/stage.html');
@@ -1040,6 +1058,23 @@ app.whenReady().then(async () => {
 
     // Open only the operator dashboard window on startup (no projector)
     createOperatorWindow();
+
+    // Listen for display changes and notify frontend
+    screen.on('display-added', () => {
+      if (operatorWindow && !operatorWindow.isDestroyed()) {
+        operatorWindow.webContents.send('displays-changed');
+      }
+    });
+    screen.on('display-removed', () => {
+      if (operatorWindow && !operatorWindow.isDestroyed()) {
+        operatorWindow.webContents.send('displays-changed');
+      }
+    });
+    screen.on('display-metrics-changed', () => {
+      if (operatorWindow && !operatorWindow.isDestroyed()) {
+        operatorWindow.webContents.send('displays-changed');
+      }
+    });
   } catch (err) {
     console.error('Fatal initialization error:', err);
   }

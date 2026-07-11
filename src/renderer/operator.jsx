@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
+import appLogo from './logo.png';
 import BibleMenu from './BibleMenu';
 import { 
   useLibraryStore, 
@@ -307,6 +308,21 @@ function OperatorDashboard() {
       try {
         const list = await window.api.getDisplays();
         setDisplays(list || []);
+        
+        // Auto select secondary screen if available and not set
+        if (list && list.length > 1) {
+          const secondary = list.find(d => !d.isPrimary);
+          if (secondary) {
+            setSelectedProjectorDisplay(secondary.index);
+            const stageTarget = list.find(d => d.index !== secondary.index);
+            if (stageTarget) {
+              setSelectedStageDisplay(stageTarget.index);
+            }
+          }
+        } else if (list && list.length === 1) {
+          setSelectedProjectorDisplay(list[0].index);
+          setSelectedStageDisplay(list[0].index);
+        }
       } catch (err) {
         console.error('Failed to get displays:', err);
       }
@@ -368,11 +384,26 @@ function OperatorDashboard() {
     refreshWindowStatuses();
     fetchDisplays();
 
+    // Listen for display changes and refresh
+    window.addEventListener('focus', fetchDisplays);
+    const displayInterval = setInterval(fetchDisplays, 3000);
+    
+    if (window.api && window.api.onDisplaysChanged) {
+      window.api.onDisplaysChanged(() => {
+        fetchDisplays();
+      });
+    }
+
     if (window.api && window.api.onProjectorStatusChange) {
       window.api.onProjectorStatusChange((status) => {
         setIsLiveActive(status);
       });
     }
+
+    return () => {
+      window.removeEventListener('focus', fetchDisplays);
+      clearInterval(displayInterval);
+    };
   }, []);
 
   useEffect(() => {
@@ -1849,9 +1880,12 @@ function OperatorDashboard() {
         {/* Row 1: Logo & Global Navigation Tabs */}
         <div className="h-12 pl-4 pr-[150px] flex items-center justify-between" style={{ WebkitAppRegion: 'drag' }}>
           <div className="flex items-center gap-6" style={{ WebkitAppRegion: 'no-drag' }}>
-            <span className="font-extrabold text-lg tracking-wide text-textMain">
-              WorshipFlow
-            </span>
+            <div className="flex items-center gap-2">
+              <img src={appLogo} alt="WorshipFlow Logo" className="h-6 w-6 object-contain" />
+              <span className="font-extrabold text-lg tracking-wide text-textMain">
+                WorshipFlow
+              </span>
+            </div>
 
             {/* Premium File Dropdown menu */}
             <div className="relative">
@@ -3764,9 +3798,7 @@ function OperatorDashboard() {
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={async () => {
-                      const selectEl = document.getElementById('stage-target-display');
-                      const val = selectEl ? selectEl.value : 'auto';
-                      await window.api.openStage(val === 'auto' ? undefined : parseInt(val, 10));
+                      await window.api.openStage(selectedStageDisplay === 'auto' ? undefined : selectedStageDisplay);
                       await refreshWindowStatuses();
                     }}
                     className="py-3 rounded-xl bg-brand/10 border border-brand text-brand hover:bg-brand/20 transition-all font-bold text-xs uppercase tracking-wider active:scale-95"

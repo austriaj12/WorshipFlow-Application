@@ -77,25 +77,27 @@ function ProjectorScreen() {
     });
   }, [slide.mediaPlaying, slide.mediaLoop, slide.mediaVolume, activeBgAsset]);
 
+  const parseSpeedToMs = (speedStr) => {
+    if (!speedStr) return 600;
+    const match = speedStr.match(/(\d+(\.\d+)?)/);
+    if (match) {
+      return parseFloat(match[1]) * 1000;
+    }
+    return 600;
+  };
+
   useEffect(() => {
     if (window.api) {
       window.api.onSlideRender((slideData) => {
         // Trigger fade out
         setIsFading(true);
         
-        // Wait for fade out animation before changing text
         const speedStr = (slideData.style && slideData.style.speed) || 'Medium (0.6s)';
         const anim = (slideData.style && slideData.style.animation) || 'Zoom In/Out';
         
-        let speedMs = 250; 
-        if (slideData.isImportedSlide || slideData.mediaPlaying !== undefined) {
-          speedMs = 0; // Snapey flip for PPT/PDF slide pages and active media assets
-        } else if (anim === 'Instant') {
-          speedMs = 0;
-        } else if (speedStr.includes('0.3s')) {
-          speedMs = 120;
-        } else if (speedStr.includes('1.0s')) {
-          speedMs = 450;
+        let speedMs = parseSpeedToMs(speedStr) / 2; // half for fade out
+        if (slideData.isImportedSlide || slideData.mediaPlaying !== undefined || anim === 'None' || anim === 'Instant') {
+          speedMs = 0; // Snappy flip for PPT/PDF slide pages and active media assets
         }
         
         setTimeout(() => {
@@ -156,11 +158,9 @@ function ProjectorScreen() {
   };
 
   const getTransitionDuration = () => {
-    if (!slide.style || !slide.style.speed) return '600ms';
-    const speedStr = slide.style.speed;
-    if (speedStr.includes('0.3s')) return '300ms';
-    if (speedStr.includes('1.0s')) return '1000ms';
-    return '600ms';
+    if (!slide.style || !slide.style.speed) return '300ms'; // half of 0.6s
+    const totalMs = parseSpeedToMs(slide.style.speed);
+    return `${totalMs / 2}ms`;
   };
 
   const isBgColor = (bg) => {

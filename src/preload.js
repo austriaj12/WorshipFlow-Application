@@ -55,7 +55,7 @@ contextBridge.exposeInMainWorld('api', {
   createSong: (songData) => ipcRenderer.invoke('app:create-song', songData),
 
   // Projector Window Controls
-  toggleProjector: () => ipcRenderer.invoke('window:toggle-projector'),
+  toggleProjector: (displayIndex) => ipcRenderer.invoke('window:toggle-projector', displayIndex),
   getProjectorStatus: () => ipcRenderer.invoke('window:get-projector-status'),
   // Stage Display Window Controls
   openStage: (displayIndex) => ipcRenderer.invoke('window:open-stage', displayIndex),
@@ -96,6 +96,10 @@ contextBridge.exposeInMainWorld('api', {
   onRemoteCommand: (callback) => {
     ipcRenderer.removeAllListeners('remote-command');
     ipcRenderer.on('remote-command', (event, data) => callback(data));
+  },
+  onDisplaysChanged: (callback) => {
+    ipcRenderer.removeAllListeners('displays-changed');
+    ipcRenderer.on('displays-changed', () => callback());
   }
 });
 
