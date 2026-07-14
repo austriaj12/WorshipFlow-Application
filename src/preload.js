@@ -100,7 +100,23 @@ contextBridge.exposeInMainWorld('api', {
   onDisplaysChanged: (callback) => {
     ipcRenderer.removeAllListeners('displays-changed');
     ipcRenderer.on('displays-changed', () => callback());
-  }
+  },
+
+  // Updates & Auto-updater API
+  getAppVersion: () => ipcRenderer.invoke('app:get-version'),
+  checkUpdate: () => ipcRenderer.invoke('system:check-update'),
+  installUpdate: (url, fileName) => ipcRenderer.invoke('system:install-update', { downloadUrl: url, fileName }),
+  onUpdateProgress: (callback) => {
+    ipcRenderer.removeAllListeners('update-download-progress');
+    ipcRenderer.on('update-download-progress', (event, progress) => callback(progress));
+  },
+
+  // Song Library Export / Import (for USB transfer between computers)
+  exportSongs: () => ipcRenderer.invoke('db:export-songs'),
+  importSongs: () => ipcRenderer.invoke('db:import-songs'),
+
+  // Native dialog box
+  showMessageBox: (options) => ipcRenderer.invoke('dialog:show-message-box', options),
 });
 
 // Server controls for Stage Display and Mobile Remotes

@@ -25,12 +25,34 @@ function ProjectorScreen() {
   // State to drive smooth opacity transitions (crossfades) on text updates
   const [isFading, setIsFading] = useState(false);
 
+  // Track clearLyrics state to apply fast transitions on hide/show toggles
+  const [prevClearLyrics, setPrevClearLyrics] = useState(false);
+  const [isClearLyricsToggling, setIsClearLyricsToggling] = useState(false);
+
   // Background transition states
   const [prevBgAsset, setPrevBgAsset] = useState('');
   const [activeBgAsset, setActiveBgAsset] = useState('');
   const [bgTransitioning, setBgTransitioning] = useState(false);
 
   const [scale, setScale] = useState(1);
+
+  // Keep a ref of current slide to prevent stale closure comparison
+  const slideRef = React.useRef(slide);
+  useEffect(() => {
+    slideRef.current = slide;
+  }, [slide]);
+
+  // Handle clearLyrics toggle transitions
+  useEffect(() => {
+    if (slide.clearLyrics !== prevClearLyrics) {
+      setIsClearLyricsToggling(true);
+      setPrevClearLyrics(slide.clearLyrics);
+      const timer = setTimeout(() => {
+        setIsClearLyricsToggling(false);
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [slide.clearLyrics, prevClearLyrics]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -49,13 +71,6 @@ function ProjectorScreen() {
     if (targetBg !== activeBgAsset) {
       setPrevBgAsset(activeBgAsset);
       setActiveBgAsset(targetBg);
-      setBgTransitioning(true);
-      
-      const timer = setTimeout(() => {
-        setBgTransitioning(false);
-      }, 600);
-      
-      return () => clearTimeout(timer);
     }
   }, [slide.bgAsset, slide.blackout]);
 
@@ -89,17 +104,35 @@ function ProjectorScreen() {
   useEffect(() => {
     if (window.api) {
       window.api.onSlideRender((slideData) => {
-        // Trigger fade out
-        setIsFading(true);
-        
+        const currentSlide = slideRef.current;
+
+        // If the text, label, blackout state, clearLyrics state, and background haven't changed, DO NOT trigger the animation!
+        if (
+          currentSlide.text === slideData.text &&
+          currentSlide.label === slideData.label &&
+          currentSlide.blackout === slideData.blackout &&
+          currentSlide.clearLyrics === slideData.clearLyrics &&
+          currentSlide.bgAsset === slideData.bgAsset
+        ) {
+          // Just update slide configurations (e.g. volume/loop settings) but do not animate
+          setSlide(slideData);
+          return;
+        }
+
+        // Trigger animated transition only when animation type requires it
         const speedStr = (slideData.style && slideData.style.speed) || 'Medium (0.6s)';
         const anim = (slideData.style && slideData.style.animation) || 'Zoom In/Out';
-        
-        let speedMs = parseSpeedToMs(speedStr) / 2; // half for fade out
-        if (slideData.isImportedSlide || slideData.mediaPlaying !== undefined || anim === 'None' || anim === 'Instant') {
-          speedMs = 0; // Snappy flip for PPT/PDF slide pages and active media assets
+        const isInstant = slideData.isImportedSlide || anim === 'None' || anim === 'Instant';
+
+        if (isInstant) {
+          // Instant swap — no fading state change, no flicker at all
+          setSlide(slideData);
+          return;
         }
-        
+
+        // Animated swap: fade/zoom/slide out → update text → fade in
+        setIsFading(true);
+        const speedMs = parseSpeedToMs(speedStr) / 2; // half duration for fade-out phase
         setTimeout(() => {
           setSlide(slideData);
           setIsFading(false);
@@ -132,6 +165,8 @@ function ProjectorScreen() {
       fontWeight: weightVal,
       color: colorVal,
       textAlign: slide.style.align || 'center',
+      lineHeight: slide.style.lineHeight || 1.4,
+      letterSpacing: `${slide.style.letterSpacing || 0}px`,
       whiteSpace: 'pre-wrap'
     };
   };
@@ -170,7 +205,11 @@ function ProjectorScreen() {
 
   const getAnimationStyles = () => {
     const anim = slide.style?.animation || 'Zoom In/Out';
-    const duration = anim === 'Instant' ? '0ms' : getTransitionDuration();
+    const slideDuration = anim === 'Instant' ? '0ms' : getTransitionDuration();
+
+    // Snappy fade (150ms) for manual clearLyrics toggles, normal duration otherwise
+    const opacityDuration = isClearLyricsToggling ? '150ms' : slideDuration;
+    const transformDuration = slideDuration;
     
     let transformVal = 'none';
     if (anim === 'Zoom In/Out') {
@@ -184,7 +223,7 @@ function ProjectorScreen() {
     }
     
     return {
-      transition: anim === 'Instant' ? 'none' : `opacity ${duration} ease-in-out, transform ${duration} ease-in-out`,
+      transition: anim === 'Instant' ? 'none' : `opacity ${opacityDuration} ease-in-out, transform ${transformDuration} ease-in-out`,
       opacity: (slide.clearLyrics || isFading) ? 0 : 1,
       transform: transformVal,
       width: '100%',
@@ -195,7 +234,7 @@ function ProjectorScreen() {
     };
   };
 
-  const bgOpacityVal = (slide.isImportedSlide || slide.mediaPlaying !== undefined) ? 1.0 : 0.75;
+  const bgOpacityVal = 1.0;
 
   return (
     <div className="w-screen h-screen bg-black overflow-hidden relative flex items-center justify-center">
@@ -232,9 +271,7 @@ function ProjectorScreen() {
       {/* 2. Top Layer (Active Background Overlay) */}
       {activeBgAsset && !slide.blackout && !isBgColor(activeBgAsset) && (
         <div 
-          className={`absolute inset-x-0 z-10 w-full transition-opacity duration-700 ease-in-out ${
-            bgTransitioning ? 'opacity-0' : 'opacity-100'
-          }`}
+          className="absolute inset-x-0 z-10 w-full"
           style={{
             height: slide.style?.bgHeight || '100%',
             top: '50%',
@@ -287,10 +324,7 @@ function ProjectorScreen() {
         />
       )}
 
-      {/* 3. Gradient Dimming Overlay (Kept above media, below lyrics) - Suppressed for high-quality PPTX/PDF slide graphics */}
-      {!slide.blackout && !slide.isImportedSlide && ((activeBgAsset && !isBgColor(activeBgAsset)) || (prevBgAsset && !isBgColor(prevBgAsset))) && (
-        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/40 to-black/55 z-20"></div>
-      )}
+      {/* 3. Gradient Dimming Overlay (Removed to show full-brightness backgrounds) */}
 
       <div 
         style={{
@@ -395,7 +429,7 @@ function ProjectorScreen() {
           <div style={{ fontSize: `${slide.countdownTitleSize || 56}px`, opacity: 0.85, textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '24px', fontWeight: 'bold' }}>
             {slide.countdownTitle || 'Countdown'}
           </div>
-          <div style={{ fontSize: `${slide.countdownTimeSize || 180}px`, fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1, margin: '20px 0' }}>
+          <div style={{ fontSize: `${slide.countdownTimeSize || 180}px`, fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1, margin: '20px 0', color: slide.countdownTextColor || '#ffffff' }}>
             {slide.countdownTime || '00:00'}
           </div>
           {slide.countdownSubtext && (
@@ -427,7 +461,7 @@ function ProjectorScreen() {
           <div style={{ fontSize: `${slide.timerTitleSize || 56}px`, opacity: 0.85, textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '24px', fontWeight: 'bold' }}>
             {slide.timerTitle || 'Timer'}
           </div>
-          <div style={{ fontSize: `${slide.timerTimeSize || 180}px`, fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1, margin: '20px 0' }}>
+          <div style={{ fontSize: `${slide.timerTimeSize || 180}px`, fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1, margin: '20px 0', color: slide.timerTextColor || '#ffffff' }}>
             {slide.timerTime || '00:00'}
           </div>
         </div>

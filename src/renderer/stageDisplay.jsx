@@ -104,8 +104,10 @@ function StageDisplay() {
           nextSlideLabel: data.nextSlideLabel || '',
           countdownTime: data.countdownTime || prev.countdownTime || '00:00',
           countdownActive: data.countdownActive !== undefined ? data.countdownActive : prev.countdownActive,
+          countdownTextColor: data.countdownTextColor || prev.countdownTextColor || '#ffffff',
           timerTime: data.timerTime || prev.timerTime || '00:00',
           timerActive: data.timerActive !== undefined ? data.timerActive : prev.timerActive,
+          timerTextColor: data.timerTextColor || prev.timerTextColor || '#ffffff',
           topLineColor: data.topLineColor || prev.topLineColor,
           middleLineColor: data.middleLineColor || prev.middleLineColor,
           mainLineColor: data.mainLineColor || prev.mainLineColor,
@@ -139,8 +141,10 @@ function StageDisplay() {
               nextSlideLabel: data.nextSlideLabel || '',
               countdownTime: data.countdownTime || prev.countdownTime || '00:00',
               countdownActive: data.countdownActive !== undefined ? data.countdownActive : prev.countdownActive,
+              countdownTextColor: data.countdownTextColor || prev.countdownTextColor || '#ffffff',
               timerTime: data.timerTime || prev.timerTime || '00:00',
               timerActive: data.timerActive !== undefined ? data.timerActive : prev.timerActive,
+              timerTextColor: data.timerTextColor || prev.timerTextColor || '#ffffff',
               topLineColor: data.topLineColor || prev.topLineColor,
               middleLineColor: data.middleLineColor || prev.middleLineColor,
               mainLineColor: data.mainLineColor || prev.mainLineColor,
@@ -175,7 +179,7 @@ function StageDisplay() {
   const slideStyle = stageData.style
     ? {
         fontFamily: stageData.style.font || 'Inter',
-        fontSize: `${Math.max(48, Math.min(96, (stageData.style.size || 96) * 0.9))}px`,
+        fontSize: `${stageData.style.size || 90}px`,
         fontWeight: stageData.style.weight || 'bold',
         color: stageData.style.color || '#ffffff',
         textAlign: stageData.style.align || 'center',
@@ -246,13 +250,13 @@ function StageDisplay() {
             {stageData.countdownActive && (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.1 }}>
                 <span style={{ fontSize: '14px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 'bold' }}>Countdown</span>
-                <span>{stageData.countdownTime || '00:00'}</span>
+                <span style={{ color: stageData.countdownTextColor || '#ffffff' }}>{stageData.countdownTime || '00:00'}</span>
               </div>
             )}
             {stageData.timerActive && (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.1, borderLeft: stageData.countdownActive ? '2px solid rgba(255,255,255,0.15)' : 'none', paddingLeft: stageData.countdownActive ? '40px' : '0' }}>
                 <span style={{ fontSize: '14px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 'bold' }}>Timer</span>
-                <span>{stageData.timerTime || '00:00'}</span>
+                <span style={{ color: stageData.timerTextColor || '#ffffff' }}>{stageData.timerTime || '00:00'}</span>
               </div>
             )}
             {!stageData.countdownActive && !stageData.timerActive && (
@@ -345,7 +349,7 @@ function StageDisplay() {
           </div>
           <div style={{ width: '100%', textAlign: 'center', maxWidth: '92%', zIndex: 10 }}>
             {stageData.nextSlideText ? (
-              <div style={{ color: '#fff', fontSize: '56px', fontWeight: '700', opacity: 0.85, whiteSpace: 'pre-wrap', lineHeight: 1.2 }}>
+              <div style={{ color: '#fff', fontSize: `${(stageData.style?.size || 90) * 0.75}px`, fontWeight: '700', opacity: 0.85, whiteSpace: 'pre-wrap', lineHeight: 1.2 }}>
                 {stageData.nextSlideText}
               </div>
             ) : (

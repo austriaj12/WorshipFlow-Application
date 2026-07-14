@@ -66,6 +66,48 @@ const isBgColor = (bg) => {
   return bg.startsWith('#') || bg.startsWith('rgb') || bg.startsWith('hsl');
 };
 
+// Lazy-load video thumbnails only when they scroll into the viewport.
+// Using IntersectionObserver prevents crashing from loading dozens of videos at once.
+function LazyVideoThumbnail({ src }) {
+  const containerRef = React.useRef(null);
+  const [visible, setVisible] = React.useState(false);
+
+  React.useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) { setVisible(true); observer.disconnect(); } },
+      { threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div ref={containerRef} className="w-full h-full bg-slate-950 relative">
+      {visible ? (
+        <>
+          <video
+            src={src}
+            preload="metadata"
+            muted
+            playsInline
+            className="w-full h-full object-cover opacity-80"
+            onLoadedMetadata={(e) => { e.target.currentTime = 0.5; }}
+          />
+          <span className="absolute top-1 right-1 bg-black/75 px-1 py-0.5 rounded text-[5px] text-[#E2E8F0] font-mono font-bold uppercase tracking-wider leading-none">
+            VIDEO
+          </span>
+        </>
+      ) : (
+        <div className="w-full h-full flex items-center justify-center flex-col gap-1">
+          <span className="text-[8px] text-slate-500 font-mono font-bold uppercase">VIDEO</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OperatorDashboard() {
   // Global Top Navigation Tabs
   const [activeHeaderTab, setActiveHeaderTab] = useState('presentation'); 
@@ -186,6 +228,7 @@ function OperatorDashboard() {
   const [countdownTimeSize, setCountdownTimeSize] = useState(160);
   const [countdownSubtextSize, setCountdownSubtextSize] = useState(36);
   const [countdownBgColor, setCountdownBgColor] = useState("#0f172a");
+  const [countdownTextColor, setCountdownTextColor] = useState("#ffffff");
   const [countdownActive, setCountdownActive] = useState(false);
 
   // Count-up Timer State
@@ -197,6 +240,7 @@ function OperatorDashboard() {
   const [timerTitleSize, setTimerTitleSize] = useState(56);
   const [timerTimeSize, setTimerTimeSize] = useState(160);
   const [timerBgColor, setTimerBgColor] = useState("#0f172a");
+  const [timerTextColor, setTimerTextColor] = useState("#ffffff");
   const [timerActive, setTimerActive] = useState(false);
 
   // Modal Controllers
@@ -219,6 +263,91 @@ function OperatorDashboard() {
   const [lightPreset, setLightPreset] = useState('Default Light');
   const [darkPreset, setDarkPreset] = useState('Default Dark');
 
+  // Auto-update State variables
+  const [appVersion, setAppVersion] = useState('1.0.4');
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState(null);
+  const [updating, setUpdating] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState(0);
+
+  // Live Output preview animation states
+  const [livePreviewFading, setLivePreviewFading] = useState(false);
+  const prevLiveTextRef = React.useRef('');
+
+  useEffect(() => {
+    if (window.api && window.api.getAppVersion) {
+      window.api.getAppVersion().then(v => setAppVersion(v));
+    }
+  }, []);
+
+  const handleCheckForUpdates = async () => {
+    if (!window.api || !window.api.checkUpdate) return;
+    setCheckingUpdates(true);
+    setUpdateInfo(null);
+    try {
+      const res = await window.api.checkUpdate();
+      if (res && res.success) {
+        setUpdateInfo(res);
+      } else {
+        alert(res?.error || 'Failed to check for updates.');
+      }
+    } catch (e) {
+      alert('Error checking for updates: ' + e.message);
+    } finally {
+      setCheckingUpdates(false);
+    }
+  };
+
+  const handleInstallUpdate = async () => {
+    if (!window.api || !window.api.installUpdate || !updateInfo || !updateInfo.downloadUrl) return;
+    setUpdating(true);
+    setUpdateProgress(0);
+    
+    // Set up progress listener
+    if (window.api.onUpdateProgress) {
+      window.api.onUpdateProgress((progress) => {
+        setUpdateProgress(progress);
+      });
+    }
+
+    try {
+      const res = await window.api.installUpdate(updateInfo.downloadUrl, updateInfo.fileName);
+      if (res && !res.success) {
+        alert('Update installation failed: ' + res.error);
+        setUpdating(false);
+      }
+    } catch (e) {
+      alert('Error installing update: ' + e.message);
+      setUpdating(false);
+    }
+  };
+
+  // Animate the live output preview in the operator panel whenever the slide text changes
+  useEffect(() => {
+    if (!activeSlideText && !prevLiveTextRef.current) return; // skip initial empty → empty
+    if (activeSlideText === prevLiveTextRef.current) return;   // same text, no animation
+
+    const anim = activeSlideStyle?.animation || 'Zoom In/Out';
+    const isInstant = anim === 'None' || anim === 'Instant';
+
+    // For None/Instant: just update the ref and show text immediately, no fading
+    if (isInstant) {
+      prevLiveTextRef.current = activeSlideText;
+      setLivePreviewFading(false);
+      return;
+    }
+
+    const speedMs = activeSlideStyle?.speed
+      ? parseFloat(activeSlideStyle.speed.match(/\d+(\.\d+)?/)?.[0] || 0.3) * 500
+      : 300;
+    setLivePreviewFading(true);
+    const t = setTimeout(() => {
+      prevLiveTextRef.current = activeSlideText;
+      setLivePreviewFading(false);
+    }, speedMs);
+    return () => clearTimeout(t);
+  }, [activeSlideText, clearLyrics, blackout]);
+
   // One-time check to migrate old storage keys to new premium theme defaults
   useEffect(() => {
     const cachedLight = localStorage.getItem('lightBg');
@@ -240,6 +369,8 @@ function OperatorDashboard() {
   const [songFont, setSongFont] = useState('Inter');
   const [songSize, setSongSize] = useState(90);
   const [songWeight, setSongWeight] = useState('bold'); // Default bold weight settings
+  const [songLineHeight, setSongLineHeight] = useState(1.4);
+  const [songLetterSpacing, setSongLetterSpacing] = useState(0);
   const [songColor, setSongColor] = useState('#ffffff');
   const [songBgColor, setSongBgColor] = useState('#000000');
   const [songBgOpacity, setSongBgOpacity] = useState('0%');
@@ -255,10 +386,12 @@ function OperatorDashboard() {
   // Add Song Form states
   const [newSongTitle, setNewSongTitle] = useState('');
   const [newSongSlidesRaw, setNewSongSlidesRaw] = useState('');
+  const [addSlideStyleOverrides, setAddSlideStyleOverrides] = useState({});
 
   // Edit Song Form states
   const [editSongTitle, setEditSongTitle] = useState('');
   const [editSongSlidesRaw, setEditSongSlidesRaw] = useState('');
+  const [editSlideStyleOverrides, setEditSlideStyleOverrides] = useState({});
 
   // Floating Audio track details
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
@@ -548,13 +681,32 @@ function OperatorDashboard() {
   };
 
   const handleNewPresentation = async () => {
-    if (confirm("Are you sure you want to clear the current presentation?")) {
-      await clearPlaylist();
-      selectSong(null);
-      setPresentationFilePath(null);
-      setSearchQuery('');
-      setActiveHeaderTab('presentation');
+    // If playlist has items and there's no saved file path, offer to save first
+    if (playlist && playlist.length > 0) {
+      const choice = await window.api?.showMessageBox?.({
+        type: 'question',
+        buttons: ['Save', "Don't Save", 'Cancel'],
+        defaultId: 0,
+        cancelId: 2,
+        title: 'Unsaved Presentation',
+        message: 'Do you want to save the current presentation before starting a new one?',
+        detail: presentationFilePath
+          ? `Current file: ${presentationFilePath}`
+          : 'The current presentation has not been saved.'
+      });
+      // Cancel
+      if (choice === undefined || choice === 2) return;
+      // Save
+      if (choice === 0) {
+        await handleSavePresentation();
+      }
+      // Don't Save falls through
     }
+    await clearPlaylist();
+    selectSong(null);
+    setPresentationFilePath(null);
+    setSearchQuery('');
+    setActiveHeaderTab('presentation');
   };
 
   const handleOpenPresentation = async () => {
@@ -844,6 +996,21 @@ function OperatorDashboard() {
     rootEl.style.setProperty('--text-main', activeFg);
     rootEl.style.setProperty('--brand', activeAccent);
 
+    // Label color: auto-compute a readable label text color from the background
+    // Use white on dark themes, dark on light themes
+    const bgR = parseInt((activeBg || '#121212').slice(1,3), 16) || 0;
+    const bgG = parseInt((activeBg || '#121212').slice(3,5), 16) || 0;
+    const bgB = parseInt((activeBg || '#121212').slice(5,7), 16) || 0;
+    const bgBright = (bgR * 299 + bgG * 587 + bgB * 114) / 1000;
+    // Derive label color that contrasts both background and accent
+    const acR = parseInt((activeAccent || '#6366F1').slice(1,3), 16) || 0;
+    const acG = parseInt((activeAccent || '#6366F1').slice(3,5), 16) || 0;
+    const acB = parseInt((activeAccent || '#6366F1').slice(5,7), 16) || 0;
+    const acBright = (acR * 299 + acG * 587 + acB * 114) / 1000;
+    // Pick white or a light grey that reads well on the accent color
+    const labelColor = acBright > 160 ? '#1E293B' : '#FFFFFF';
+    rootEl.style.setProperty('--label-text', labelColor);
+
     // Synchronize native window titlebar overlay colors with theme state
     if (window.api && window.api.updateTitleBar) {
       const panelColor = rootEl.style.getPropertyValue('--bg-panel').trim();
@@ -1031,7 +1198,7 @@ function OperatorDashboard() {
       setLiveSlides(slidesList);
       setLiveActiveIndex(index);
 
-      const rawBg = activeSlide.bgAsset || (activeSlide.style && activeSlide.style.background) || (selectedMedia ? selectedMedia.filepath : '');
+      const rawBg = activeSlide.bgAsset || (activeSlide.style && activeSlide.style.background) || '';
       const bgPath = formatBgPath(rawBg);
       
       // Determine if it is a Bible slide
@@ -1152,8 +1319,10 @@ function OperatorDashboard() {
             nextSlideLabel: slides && slides[activeSlideIndex + 1] ? (slides[activeSlideIndex + 1].label || `Slide ${activeSlideIndex + 2}`) : '',
             countdownTime: showOnStage ? countdownTimeStr : '',
             countdownActive: countdownActive,
+            countdownTextColor: countdownTextColor,
             timerTime: showTimerOnStage ? timerTimeStr : '',
             timerActive: timerActive,
+            timerTextColor: timerTextColor,
             topLineColor: stageTopLineColor,
             middleLineColor: stageMiddleLineColor,
             mainLineColor: stageMainLineColor,
@@ -1195,6 +1364,7 @@ function OperatorDashboard() {
               countdownTitle,
               countdownSubtext,
               countdownBgColor,
+              countdownTextColor,
               countdownTitleSize,
               countdownTimeSize,
               countdownSubtextSize,
@@ -1207,6 +1377,7 @@ function OperatorDashboard() {
               timerTime: timerTimeStr,
               timerTitle,
               timerBgColor,
+              timerTextColor,
               timerTitleSize,
               timerTimeSize,
               countdownActive: false,
@@ -1251,8 +1422,8 @@ function OperatorDashboard() {
   }, [
     activeSlideText, activeSlideLabel, activeBgAsset, activeSlideStyle, blackout, clearLyrics, stageMessage, slides, activeSlideIndex,
     stageLeftWidthPct, stagePanelVisibility, stagePanelHeights, stageShowClock, stageShowSlideIndex, stageShowNextPreview, stageTextStyle, stageUpNextFontSize,
-    countdownActive, countdownMinutes, countdownSeconds, countdownTitle, countdownSubtext, countdownBgColor, countdownTitleSize, countdownTimeSize, countdownSubtextSize, countdownShowOn,
-    timerActive, timerMinutes, timerSeconds, timerTitle, timerBgColor, timerTitleSize, timerTimeSize, timerShowOn,
+    countdownActive, countdownMinutes, countdownSeconds, countdownTitle, countdownSubtext, countdownBgColor, countdownTextColor, countdownTitleSize, countdownTimeSize, countdownSubtextSize, countdownShowOn,
+    timerActive, timerMinutes, timerSeconds, timerTitle, timerBgColor, timerTextColor, timerTitleSize, timerTimeSize, timerShowOn,
     stageTopLineColor, stageMiddleLineColor, stageMainLineColor, stageUpNextLineColor,
     mediaPlaying, mediaLoop, mediaVolume, isLiveActive
   ]);
@@ -1393,6 +1564,7 @@ function OperatorDashboard() {
 
                   const style = {
                     font: songFont, size: songSize, weight: songWeight,
+                    lineHeight: songLineHeight, letterSpacing: songLetterSpacing,
                     color: songColor, bgColor: songBgColor, bgOpacity: songBgOpacity,
                     align: songAlign, vertical: songVertical, animation: songAnimation, speed: songSpeed
                   };
@@ -1444,6 +1616,8 @@ function OperatorDashboard() {
                   font: songFont,
                   size: songSize,
                   weight: songWeight,
+                  lineHeight: songLineHeight,
+                  letterSpacing: songLetterSpacing,
                   color: songColor,
                   bgColor: songBgColor,
                   bgOpacity: songBgOpacity,
@@ -1474,7 +1648,26 @@ function OperatorDashboard() {
         }
       });
     }
-  }, [slides, activeSlideIndex, selectedSong, playlist, songFont, songSize, songWeight, songColor, songBgColor, songBgOpacity, songAlign, songVertical, songAnimation, songSpeed, bibleLiveSlides, liveSong, liveSlides, liveActiveIndex, countdownMinutes, countdownSeconds, countdownActive, timerMinutes, timerSeconds, timerActive]);
+  }, [slides, activeSlideIndex, selectedSong, playlist, songFont, songSize, songWeight, songLineHeight, songLetterSpacing, songColor, songBgColor, songBgOpacity, songAlign, songVertical, songAnimation, songSpeed, bibleLiveSlides, liveSong, liveSlides, liveActiveIndex, countdownMinutes, countdownSeconds, countdownActive, timerMinutes, timerSeconds, timerActive]);
+
+  // React ref to hold latest states for the keydown event listener to prevent stale closures
+  const keydownStatesRef = React.useRef({
+    activeSlideIndex,
+    slides,
+    bibleLiveSlides,
+    liveSong,
+    selectedSong
+  });
+
+  useEffect(() => {
+    keydownStatesRef.current = {
+      activeSlideIndex,
+      slides,
+      bibleLiveSlides,
+      liveSong,
+      selectedSong
+    };
+  }, [activeSlideIndex, slides, bibleLiveSlides, liveSong, selectedSong]);
 
   // Keyboard arrow keys slide navigation controller
   useEffect(() => {
@@ -1489,9 +1682,16 @@ function OperatorDashboard() {
         return;
       }
 
-      // Allow navigation if we have live slides or selected slides
-      const targetSlides = bibleLiveSlides || slides;
-      if (targetSlides.length === 0) return;
+      const {
+        activeSlideIndex: curIdx,
+        slides: curSlides,
+        bibleLiveSlides: curBibleSlides,
+        liveSong: curLiveSong,
+        selectedSong: curSelectedSong
+      } = keydownStatesRef.current;
+
+      const targetSlides = curBibleSlides || curSlides;
+      if (!targetSlides || targetSlides.length === 0) return;
 
       if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
         e.preventDefault();
@@ -1499,33 +1699,33 @@ function OperatorDashboard() {
         // If we are viewing a different song in the dashboard than the live song,
         // and there is no active live Bible override,
         // pressing Next should trigger live output for the selected song's first slide!
-        if (!bibleLiveSlides && selectedSong && (!liveSong || liveSong.id !== selectedSong.id)) {
-          const newSlides = getSlidesArray();
+        if (!curBibleSlides && curSelectedSong && (!curLiveSong || curLiveSong.id !== curSelectedSong.id)) {
+          const newSlides = curSelectedSong.content_json ? JSON.parse(curSelectedSong.content_json) : [];
           if (newSlides.length > 0) {
-            handleSelectSlide(0, newSlides, selectedSong);
+            handleSelectSlide(0, newSlides, curSelectedSong);
             setSelectedSlideIndexes([0]);
           }
           return;
         }
 
-        const nextIdx = Math.min(targetSlides.length - 1, activeSlideIndex + 1);
-        if (nextIdx !== activeSlideIndex) {
+        const nextIdx = Math.min(targetSlides.length - 1, curIdx + 1);
+        if (nextIdx !== curIdx) {
           setSelectedSlideIndexes([nextIdx]);
-          handleSelectSlide(nextIdx, targetSlides, bibleLiveSlides ? null : liveSong || selectedSong);
+          handleSelectSlide(nextIdx, targetSlides, curBibleSlides ? null : curLiveSong || curSelectedSong);
         }
       } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
         e.preventDefault();
-        const prevIdx = Math.max(0, activeSlideIndex - 1);
-        if (prevIdx !== activeSlideIndex) {
+        const prevIdx = Math.max(0, curIdx - 1);
+        if (prevIdx !== curIdx) {
           setSelectedSlideIndexes([prevIdx]);
-          handleSelectSlide(prevIdx, targetSlides, bibleLiveSlides ? null : liveSong || selectedSong);
+          handleSelectSlide(prevIdx, targetSlides, curBibleSlides ? null : curLiveSong || curSelectedSong);
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeSlideIndex, slides, bibleLiveSlides, liveSong, selectedSong, activeHeaderTab]);
+  }, []);
 
   // Helper functions for matching styling in Live Output preview
   const getLivePreviewTextStyle = () => {
@@ -1547,9 +1747,10 @@ function OperatorDashboard() {
       fontFamily: `'${fontVal}', sans-serif`,
       fontSize: `${(baseSize / 19.2).toFixed(3)}cqw`,
       fontWeight: weightVal,
+      lineHeight: activeSlideStyle.lineHeight || 1.4,
+      letterSpacing: `${activeSlideStyle.letterSpacing || 0}px`,
       color: colorVal,
       textAlign: activeSlideStyle.align || 'center',
-      lineHeight: '1.4',
       whiteSpace: 'pre-wrap'
     };
   };
@@ -1586,40 +1787,60 @@ function OperatorDashboard() {
     return `${vClass} ${hClass}`;
   };
 
-  // Color-coded mapping for various slide categories
+  // Compute the full animation style for the Live Output operator panel preview.
+  // Mirrors projector.jsx getAnimationStyles() exactly so the panel shows the same motion.
+  const liveOutputAnimStyle = (() => {
+    const overlayStyle = (() => {
+      if (!activeSlideStyle) return {};
+      const hex = activeSlideStyle.bgColor || '#000000';
+      const opacityStr = activeSlideStyle.bgOpacity || '0%';
+      const opacity = parseInt(opacityStr) || 0;
+      if (opacity === 0) return { backgroundColor: 'transparent' };
+      const r = parseInt(hex.slice(1, 3), 16) || 0;
+      const g = parseInt(hex.slice(3, 5), 16) || 0;
+      const b = parseInt(hex.slice(5, 7), 16) || 0;
+      return { backgroundColor: `rgba(${r}, ${g}, ${b}, ${opacity / 100})`, borderRadius: '4px', padding: '0.2rem 0.4rem' };
+    })();
+
+    const anim = activeSlideStyle?.animation || 'Zoom In/Out';
+    const speedMs = activeSlideStyle?.speed
+      ? parseFloat(activeSlideStyle.speed.match(/\d+(\.\d+)?/)?.[0] || 0.3) * 500
+      : 300;
+    const dur = speedMs + 'ms';
+
+    let transform = 'none';
+    if (anim === 'Zoom In/Out') {
+      transform = livePreviewFading ? 'scale(0.90)' : 'scale(1)';
+    } else if (anim === 'Slide Left') {
+      transform = livePreviewFading ? 'translateX(-18px)' : 'translateX(0)';
+    } else if (anim === 'Slide Right') {
+      transform = livePreviewFading ? 'translateX(18px)' : 'translateX(0)';
+    } else if (anim === 'Slide Up') {
+      transform = livePreviewFading ? 'translateY(18px)' : 'translateY(0)';
+    }
+
+    return {
+      ...overlayStyle,
+      transition: anim === 'None' ? 'none' : `opacity ${dur} ease-in-out, transform ${dur} ease-in-out`,
+      opacity: (livePreviewFading || clearLyrics || blackout) ? 0 : 1,
+      transform,
+    };
+  })();
+
+  // Color-coded mapping for various slide categories - Solid colors for readability in all themes
   const getLabelBadgeStyle = (label = 'VERSE') => {
     const clean = label ? label.toUpperCase().trim() : 'VERSE';
-    if (clean.startsWith('INTRO')) {
-      return { bg: 'bg-slate-500/25', text: 'text-slate-400', border: 'border-slate-500/40' };
-    }
-    if (clean.startsWith('VERSE')) {
-      return { bg: 'bg-blue-500/25', text: 'text-blue-400', border: 'border-blue-500/40' };
-    }
-    if (clean.startsWith('PRE-CHORUS')) {
-      return { bg: 'bg-amber-500/25', text: 'text-amber-400', border: 'border-amber-500/40' };
-    }
-    if (clean.startsWith('CHORUS')) {
-      return { bg: 'bg-emerald-500/25', text: 'text-emerald-400', border: 'border-emerald-500/40' };
-    }
-    if (clean.startsWith('POST-CHORUS')) {
-      return { bg: 'bg-teal-500/25', text: 'text-teal-400', border: 'border-teal-500/40' };
-    }
-    if (clean.startsWith('BRIDGE')) {
-      return { bg: 'bg-purple-500/25', text: 'text-purple-400', border: 'border-purple-500/40' };
-    }
-    if (clean.startsWith('REFRAIN')) {
-      return { bg: 'bg-rose-500/25', text: 'text-rose-400', border: 'border-rose-500/40' };
-    }
-    if (clean.startsWith('INTERLUDE')) {
-      return { bg: 'bg-zinc-500/25', text: 'text-zinc-400', border: 'border-zinc-500/40' };
-    }
-    if (clean.startsWith('TAG')) {
-      return { bg: 'bg-orange-500/25', text: 'text-orange-400', border: 'border-orange-500/40' };
-    }
-    if (clean.startsWith('OUTRO')) {
-      return { bg: 'bg-red-500/25', text: 'text-red-400', border: 'border-red-500/40' };
-    }
-    return { bg: 'bg-brand/25', text: 'text-brand', border: 'border-brand/40' };
+    if (clean.startsWith('INTRO')) return { bg: 'bg-slate-600', text: 'text-white', border: 'border-slate-700' };
+    if (clean.startsWith('VERSE')) return { bg: 'bg-blue-600', text: 'text-white', border: 'border-blue-700' };
+    if (clean.startsWith('PRE-CHORUS')) return { bg: 'bg-amber-600', text: 'text-white', border: 'border-amber-700' };
+    if (clean.startsWith('CHORUS')) return { bg: 'bg-emerald-600', text: 'text-white', border: 'border-emerald-700' };
+    if (clean.startsWith('POST-CHORUS')) return { bg: 'bg-teal-600', text: 'text-white', border: 'border-teal-700' };
+    if (clean.startsWith('BRIDGE')) return { bg: 'bg-purple-600', text: 'text-white', border: 'border-purple-700' };
+    if (clean.startsWith('REFRAIN')) return { bg: 'bg-rose-600', text: 'text-white', border: 'border-rose-700' };
+    if (clean.startsWith('INTERLUDE')) return { bg: 'bg-zinc-600', text: 'text-white', border: 'border-zinc-700' };
+    if (clean.startsWith('TAG')) return { bg: 'bg-orange-600', text: 'text-white', border: 'border-orange-700' };
+    if (clean.startsWith('ENDING')) return { bg: 'bg-red-600', text: 'text-white', border: 'border-red-700' };
+    return { bg: 'bg-slate-700', text: 'text-white', border: 'border-slate-800' };
   };
 
   const getSlideCardBorderClass = (label, isActive, isSelected, isModal = false) => {
@@ -1664,7 +1885,7 @@ function OperatorDashboard() {
     searchSongs(val);
   };
 
-  const parseSlidesFromRaw = (rawText, customStyle, existingSlides = []) => {
+  const parseSlidesFromRaw = (rawText, customStyle, styleOverrides = {}, existingSlides = []) => {
     if (!rawText.trim()) return [];
     const blocks = rawText.split(/\n\n+/);
     return blocks.map((block, idx) => {
@@ -1676,8 +1897,10 @@ function OperatorDashboard() {
       const text = (isHeader ? lines.slice(1) : lines).join('\n').trim();
       
       const existing = existingSlides[idx];
+      const override = styleOverrides[idx] || {};
       const mergedStyle = { 
         ...customStyle,
+        ...override,
         background: existing?.style?.background || ''
       };
       
@@ -1703,6 +1926,8 @@ function OperatorDashboard() {
       font: songFont,
       size: songSize,
       weight: songWeight,
+      lineHeight: songLineHeight,
+      letterSpacing: songLetterSpacing,
       color: songColor,
       bgColor: songBgColor,
       bgOpacity: songBgOpacity,
@@ -1712,7 +1937,7 @@ function OperatorDashboard() {
       speed: songSpeed
     };
 
-    const parsedSlides = parseSlidesFromRaw(newSongSlidesRaw, activeStyle);
+    const parsedSlides = parseSlidesFromRaw(newSongSlidesRaw, activeStyle, addSlideStyleOverrides);
     const contentJson = JSON.stringify(parsedSlides);
 
     try {
@@ -1745,11 +1970,21 @@ function OperatorDashboard() {
     setEditSongTitle(selectedSong.title);
     setEditSongSlidesRaw(formatSlidesToRaw(slides));
 
-    if (slides && slides[0] && slides[0].style) {
-      const s = slides[0].style;
+    if (slides && slides.length > 0) {
+      const s = slides[0].style || {};
+      const overrides = {};
+      slides.forEach((slide, i) => {
+        if (slide.style && slide.style.size !== undefined && slide.style.size !== (s.size || 90)) {
+          overrides[i] = { size: slide.style.size };
+        }
+      });
+      setEditSlideStyleOverrides(overrides);
+
       setSongFont(s.font || 'Inter');
       setSongSize(s.size || 90);
       setSongWeight(s.weight || 'bold');
+      setSongLineHeight(s.lineHeight || 1.4);
+      setSongLetterSpacing(s.letterSpacing || 0);
       setSongColor(s.color || '#ffffff');
       setSongBgColor(s.bgColor || '#000000');
       setSongBgOpacity(s.bgOpacity || '0%');
@@ -1770,6 +2005,8 @@ function OperatorDashboard() {
       font: songFont,
       size: songSize,
       weight: songWeight,
+      lineHeight: songLineHeight,
+      letterSpacing: songLetterSpacing,
       color: songColor,
       bgColor: songBgColor,
       bgOpacity: songBgOpacity,
@@ -1780,7 +2017,7 @@ function OperatorDashboard() {
     };
 
     const existingSlides = selectedSong.content_json ? JSON.parse(selectedSong.content_json) : [];
-    const parsedSlides = parseSlidesFromRaw(editSongSlidesRaw, activeStyle, existingSlides);
+    const parsedSlides = parseSlidesFromRaw(editSongSlidesRaw, activeStyle, editSlideStyleOverrides, existingSlides);
     const contentJson = JSON.stringify(parsedSlides);
 
     try {
@@ -1805,6 +2042,14 @@ function OperatorDashboard() {
     }
   };
 
+  const handleUpdateSlideSpecificSize = (index, newSize, isEditModal) => {
+    if (isEditModal) {
+      setEditSlideStyleOverrides(prev => ({ ...prev, [index]: { ...prev[index], size: newSize } }));
+    } else {
+      setAddSlideStyleOverrides(prev => ({ ...prev, [index]: { ...prev[index], size: newSize } }));
+    }
+  };
+
   const handleAddBlankSlide = async () => {
     if (window.api) {
       try {
@@ -1815,6 +2060,8 @@ function OperatorDashboard() {
             font: songFont,
             size: songSize,
             weight: songWeight,
+            lineHeight: songLineHeight,
+            letterSpacing: songLetterSpacing,
             color: songColor,
             bgColor: songBgColor,
             bgOpacity: songBgOpacity,
@@ -1852,11 +2099,13 @@ function OperatorDashboard() {
     }
   };
 
-  const getPreviewSlides = (rawText) => {
+  const getPreviewSlides = (rawText, styleOverrides = {}) => {
     const activeStyle = {
       font: songFont,
       size: songSize,
       weight: songWeight,
+      lineHeight: songLineHeight,
+      letterSpacing: songLetterSpacing,
       color: songColor,
       bgColor: songBgColor,
       bgOpacity: songBgOpacity,
@@ -1865,11 +2114,12 @@ function OperatorDashboard() {
       animation: songAnimation,
       speed: songSpeed
     };
-    return parseSlidesFromRaw(rawText, activeStyle);
+
+    return parseSlidesFromRaw(rawText, activeStyle, styleOverrides);
   };
 
-  const addPreviewSlides = getPreviewSlides(newSongSlidesRaw);
-  const editPreviewSlides = getPreviewSlides(editSongSlidesRaw);
+  const addPreviewSlides = getPreviewSlides(newSongSlidesRaw, addSlideStyleOverrides);
+  const editPreviewSlides = getPreviewSlides(editSongSlidesRaw, editSlideStyleOverrides);
 
   return (
     <div className="h-screen w-screen overflow-hidden flex flex-col bg-appBg text-textMain font-sans select-none">
@@ -2025,7 +2275,7 @@ function OperatorDashboard() {
               className="p-1.5 rounded hover:bg-appBg text-textMuted hover:text-textMain transition"
               title="Remote Control & Devices"
             >
-              <Wifi className="h-4.5 w-4.5" />
+              <Wifi className="h-4 w-4" />
             </button>
 
             <button 
@@ -2423,7 +2673,7 @@ function OperatorDashboard() {
                                   </div>
                                 )}
                                 {/* style.background overlay: shared video/image background for songs */}
-                                {!slide.bgAsset && ((slide.style && slide.style.background) || (selectedMedia && selectedMedia.filepath)) && !isBgColor(slide.style?.background || (selectedMedia && selectedMedia.filepath)) && (
+                                {!slide.bgAsset && (slide.style && slide.style.background) && !isBgColor(slide.style.background) && (
                                   <div 
                                     className="absolute inset-x-0 z-0 w-full"
                                     style={{
@@ -2432,9 +2682,9 @@ function OperatorDashboard() {
                                       transform: 'translateY(-50%)'
                                     }}
                                   >
-                                    {/\.(mp4|webm|mov|avi)($|\?)/i.test((slide.style && slide.style.background) || (selectedMedia && selectedMedia.filepath)) ? (
+                                    {/\.(mp4|webm|mov|avi)($|\?)/i.test(slide.style.background) ? (
                                       <video 
-                                        src={(slide.style && slide.style.background) || selectedMedia.filepath} 
+                                        src={slide.style.background} 
                                         muted 
                                         loop 
                                         autoPlay 
@@ -2443,7 +2693,7 @@ function OperatorDashboard() {
                                       />
                                     ) : (
                                       <img 
-                                        src={(slide.style && slide.style.background) || selectedMedia.filepath} 
+                                        src={slide.style.background} 
                                         className="w-full h-full object-cover opacity-40 group-hover:opacity-50 transition-opacity" 
                                         alt="" 
                                       />
@@ -2459,11 +2709,12 @@ function OperatorDashboard() {
                                     fontFamily: `'${slide.style?.font || 'Inter'}', sans-serif`,
                                     fontSize: `${((slide.style?.size || 90) / 19.2).toFixed(3)}cqw`,
                                     fontWeight: { 'normal': 400, 'semibold': 600, 'bold': 700, 'extrabold': 800 }[slide.style?.weight] || slide.style?.weight || 700,
+                                    lineHeight: slide.style?.lineHeight || 1.4,
+                                    letterSpacing: `${slide.style?.letterSpacing || 0}px`,
                                     color: slide.style?.color || '#ffffff',
                                     textAlign: slide.style?.align || 'center',
                                     justifyContent: slide.style?.vertical === 'top' ? 'flex-start' : slide.style?.vertical === 'bottom' ? 'flex-end' : 'center',
-                                    whiteSpace: 'pre-wrap',
-                                    lineHeight: '1.4'
+                                    whiteSpace: 'pre-wrap'
                                   }}
                                   className="z-10 flex-1 flex flex-col my-1 text-center whitespace-pre-line leading-tight projector-text-shadow"
                                 >
@@ -2829,19 +3080,11 @@ function OperatorDashboard() {
                                     >
                                       <div className="w-full flex-1 relative rounded overflow-hidden bg-black flex items-center justify-center">
                                         {item.type === 'video' ? (
-                                          <div className="w-full h-full bg-slate-950 relative">
-                                            <video 
-                                              src={item.filepath} 
-                                              preload="metadata" 
-                                              className="w-full h-full object-cover opacity-80" 
-                                            />
-                                            <span className="absolute top-1 right-1 bg-black/75 px-1 py-0.5 rounded text-[5px] text-[#E2E8F0] font-mono font-bold uppercase tracking-wider leading-none">
-                                              VIDEO
-                                            </span>
-                                          </div>
+                                          <LazyVideoThumbnail src={item.filepath} />
                                         ) : (
                                           <img 
                                             src={item.filepath} 
+                                            loading="lazy"
                                             className="w-full h-full object-cover opacity-80" 
                                             alt="" 
                                           />
@@ -2979,8 +3222,8 @@ function OperatorDashboard() {
                   <h3 className="font-bold text-textMain text-sm mb-1">{selectedSong.title}</h3>
                 </div>
                 
-                {/* Horizontal styling toolbar on top of text area */}
-                <div className="bg-appBg border border-[var(--border-app)] rounded-t-lg p-3 grid grid-cols-3 md:grid-cols-5 gap-3 items-end">
+                {/* Text Styling toolbar */}
+                <div className="bg-appBg border border-[var(--border-app)] rounded-t-lg p-3 grid grid-cols-4 md:grid-cols-7 gap-3 items-end">
                   <div className="flex flex-col gap-1">
                     <label className="text-[9px] text-textMuted uppercase font-mono">Font</label>
                     <select 
@@ -3034,6 +3277,31 @@ function OperatorDashboard() {
                       <option value="bold">Bold</option>
                       <option value="extrabold">Extra Bold</option>
                     </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Line Spacing</label>
+                    <input 
+                      type="number" 
+                      step="0.1"
+                      min="0.5"
+                      max="3.0"
+                      value={songLineHeight} 
+                      onChange={e => setSongLineHeight(parseFloat(e.target.value) || 1.4)}
+                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Char Spacing</label>
+                    <input 
+                      type="number" 
+                      min="-5"
+                      max="20"
+                      value={songLetterSpacing} 
+                      onChange={e => setSongLetterSpacing(parseInt(e.target.value) || 0)}
+                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                    />
                   </div>
 
                   <div className="flex flex-col gap-1">
@@ -3115,6 +3383,9 @@ function OperatorDashboard() {
                         <option value="None">None</option>
                         <option value="Fade">Fade</option>
                         <option value="Zoom In/Out">Zoom In/Out</option>
+                        <option value="Slide Left">Slide Left</option>
+                        <option value="Slide Right">Slide Right</option>
+                        <option value="Slide Up">Slide Up</option>
                       </select>
                       <select 
                         value={songSpeed} 
@@ -3446,6 +3717,19 @@ function OperatorDashboard() {
                         />
                       </div>
                     </div>
+                    {/* Text Color */}
+                    <div className="bg-appPanel/40 border border-[var(--border-app)] p-5 rounded-xl flex items-center justify-between text-xs">
+                      <span className="text-textMain font-medium font-mono uppercase">Countdown Time Text Color</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[11px] text-textMuted">{countdownTextColor}</span>
+                        <input 
+                          type="color" 
+                          value={countdownTextColor} 
+                          onChange={e => setCountdownTextColor(e.target.value)} 
+                          className="h-6 w-9 bg-transparent cursor-pointer rounded border border-[var(--border-app)]" 
+                        />
+                      </div>
+                    </div>
                   </div>
 
                   {/* Right Column: Timer Preview & Action */}
@@ -3618,7 +3902,7 @@ function OperatorDashboard() {
                       </div>
                     </div>
 
-                    {/* Background Color */}
+                    {/* Background Colors */}
                     <div className="bg-appPanel/40 border border-[var(--border-app)] p-5 rounded-xl flex items-center justify-between text-xs">
                       <span className="text-textMain font-medium font-mono uppercase">Timer Overlay Color</span>
                       <div className="flex items-center gap-2">
@@ -3627,6 +3911,19 @@ function OperatorDashboard() {
                           type="color" 
                           value={timerBgColor} 
                           onChange={e => setTimerBgColor(e.target.value)} 
+                          className="h-6 w-9 bg-transparent cursor-pointer rounded border border-[var(--border-app)]" 
+                        />
+                      </div>
+                    </div>
+                    {/* Text Color */}
+                    <div className="bg-appPanel/40 border border-[var(--border-app)] p-5 rounded-xl flex items-center justify-between text-xs">
+                      <span className="text-textMain font-medium font-mono uppercase">Timer Text Color</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[11px] text-textMuted">{timerTextColor}</span>
+                        <input 
+                          type="color" 
+                          value={timerTextColor} 
+                          onChange={e => setTimerTextColor(e.target.value)} 
                           className="h-6 w-9 bg-transparent cursor-pointer rounded border border-[var(--border-app)]" 
                         />
                       </div>
@@ -3923,7 +4220,10 @@ function OperatorDashboard() {
                 </div>
               </div>
             ) : (
-              <div className="z-10" style={getLivePreviewOverlayStyle()}>
+              <div
+                className="z-10 w-full"
+                style={liveOutputAnimStyle}
+              >
                 {!blackout && !clearLyrics && activeSlideText ? (
                   <p style={getLivePreviewTextStyle()} className="whitespace-pre-line uppercase projector-text-shadow">
                     {activeSlideText}
@@ -3993,7 +4293,7 @@ function OperatorDashboard() {
               const previewBg = currentSlide 
                 ? (currentSlide.bgAsset 
                     ? `file:///${currentSlide.bgAsset.replace(/\\/g, '/')}` 
-                    : (currentSlide.style && currentSlide.style.background) || (selectedMedia ? selectedMedia.filepath : ''))
+                    : (currentSlide.style && currentSlide.style.background) || '')
                 : '';
               
               return (
@@ -4034,9 +4334,10 @@ function OperatorDashboard() {
                           fontFamily: `'${currentSlide.style?.font || 'Inter'}', sans-serif`,
                           fontSize: `${((currentSlide.style?.size || 90) / 19.2).toFixed(3)}cqw`,
                           fontWeight: { 'normal': 400, 'semibold': 600, 'bold': 700, 'extrabold': 800 }[currentSlide.style?.weight] || currentSlide.style?.weight || 700,
+                          lineHeight: currentSlide.style?.lineHeight || 1.4,
+                          letterSpacing: `${currentSlide.style?.letterSpacing || 0}px`,
                           color: currentSlide.style?.color || '#ffffff',
                           textAlign: currentSlide.style?.align || 'center',
-                          lineHeight: '1.4',
                           whiteSpace: 'pre-wrap'
                         }}
                         className="whitespace-pre-line uppercase projector-text-shadow"
@@ -4115,7 +4416,7 @@ function OperatorDashboard() {
                 </div>
 
                 {/* Text Styling toolbar */}
-                <div className="bg-appBg border border-[var(--border-app)] rounded-t-lg p-3 grid grid-cols-3 md:grid-cols-5 gap-3 items-end">
+                <div className="bg-appBg border border-[var(--border-app)] rounded-t-lg p-3 grid grid-cols-4 md:grid-cols-7 gap-3 items-end">
                   <div className="flex flex-col gap-1">
                     <label className="text-[9px] text-textMuted uppercase font-mono">Font</label>
                     <select 
@@ -4169,6 +4470,31 @@ function OperatorDashboard() {
                       <option value="bold">Bold</option>
                       <option value="extrabold">Extra Bold</option>
                     </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Line Spacing</label>
+                    <input 
+                      type="number" 
+                      step="0.1"
+                      min="0.5"
+                      max="3.0"
+                      value={songLineHeight} 
+                      onChange={e => setSongLineHeight(parseFloat(e.target.value) || 1.4)}
+                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Char Spacing</label>
+                    <input 
+                      type="number" 
+                      min="-5"
+                      max="20"
+                      value={songLetterSpacing} 
+                      onChange={e => setSongLetterSpacing(parseInt(e.target.value) || 0)}
+                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                    />
                   </div>
 
                   <div className="flex flex-col gap-1">
@@ -4250,6 +4576,9 @@ function OperatorDashboard() {
                         <option value="None">None</option>
                         <option value="Fade">Fade</option>
                         <option value="Zoom In/Out">Zoom In/Out</option>
+                        <option value="Slide Left">Slide Left</option>
+                        <option value="Slide Right">Slide Right</option>
+                        <option value="Slide Up">Slide Up</option>
                       </select>
                       <select 
                         value={songSpeed} 
@@ -4334,14 +4663,25 @@ function OperatorDashboard() {
                           <span className={`px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase tracking-wider ${getLabelBadgeStyle(slide.label).bg} ${getLabelBadgeStyle(slide.label).text}`}>
                             {slide.label || `SLIDE ${idx + 1}`} {isCurrent && '• Editing'}
                           </span>
-                          <span className="font-mono">{idx + 1}</span>
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center bg-appBg/50 rounded overflow-hidden border border-appPanel">
+                              <span className="px-1 text-[8px] text-textMuted border-r border-appPanel" title="Slide Font Size">px</span>
+                              <input 
+                                type="number" 
+                                value={slide.style?.size || songSize} 
+                                onChange={(e) => handleUpdateSlideSpecificSize(idx, parseInt(e.target.value) || 60, false)}
+                                className="w-10 text-center bg-transparent text-textMain text-[9px] py-0.5 focus:outline-none"
+                              />
+                            </div>
+                            <span className="font-mono bg-appBg px-1.5 py-0.5 rounded">{idx + 1}</span>
+                          </div>
                         </div>
                         <div 
                           className={`aspect-video w-full bg-black rounded relative overflow-hidden flex flex-col p-3 ${verticalClass} ${flexAlignClass}`}
                           style={{ containerType: 'inline-size' }}
                         >
-                          {selectedMedia && selectedMedia.filepath && (
-                            <img src={selectedMedia.filepath} className="absolute inset-0 w-full h-full object-cover opacity-35 z-0" alt="" />
+                          {slide.style?.background && !isBgColor(slide.style.background) && (
+                            <img src={slide.style.background} className="absolute inset-0 w-full h-full object-cover opacity-35 z-0" alt="" />
                           )}
                           <div 
                             className="z-10"
@@ -4356,9 +4696,10 @@ function OperatorDashboard() {
                                 fontFamily: `'${slide.style.font || 'Inter'}', sans-serif`,
                                 fontSize: `${((slide.style.size || 90) / 19.2).toFixed(3)}cqw`,
                                 fontWeight: { 'normal': 400, 'semibold': 600, 'bold': 700, 'extrabold': 800 }[slide.style.weight] || slide.style.weight || 700,
+                                lineHeight: slide.style.lineHeight || 1.4,
+                                letterSpacing: `${slide.style.letterSpacing || 0}px`,
                                 color: slide.style.color || '#ffffff',
                                 textAlign: slide.style.align || 'center',
-                                lineHeight: '1.4',
                                 whiteSpace: 'pre-wrap'
                               }}
                               className="whitespace-pre-line uppercase projector-text-shadow"
@@ -4418,7 +4759,7 @@ function OperatorDashboard() {
                 </div>
 
                 {/* Text Styling toolbar */}
-                <div className="bg-appBg border border-[var(--border-app)] rounded-t-lg p-3 grid grid-cols-3 md:grid-cols-5 gap-3 items-end">
+                <div className="bg-appBg border border-[var(--border-app)] rounded-t-lg p-3 grid grid-cols-4 md:grid-cols-7 gap-3 items-end">
                   <div className="flex flex-col gap-1">
                     <label className="text-[9px] text-textMuted uppercase font-mono">Font</label>
                     <select 
@@ -4472,6 +4813,31 @@ function OperatorDashboard() {
                       <option value="bold">Bold</option>
                       <option value="extrabold">Extra Bold</option>
                     </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Line Spacing</label>
+                    <input 
+                      type="number" 
+                      step="0.1"
+                      min="0.5"
+                      max="3.0"
+                      value={songLineHeight} 
+                      onChange={e => setSongLineHeight(parseFloat(e.target.value) || 1.4)}
+                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">Char Spacing</label>
+                    <input 
+                      type="number" 
+                      min="-5"
+                      max="20"
+                      value={songLetterSpacing} 
+                      onChange={e => setSongLetterSpacing(parseInt(e.target.value) || 0)}
+                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                    />
                   </div>
 
                   <div className="flex flex-col gap-1">
@@ -4553,6 +4919,9 @@ function OperatorDashboard() {
                         <option value="None">None</option>
                         <option value="Fade">Fade</option>
                         <option value="Zoom In/Out">Zoom In/Out</option>
+                        <option value="Slide Left">Slide Left</option>
+                        <option value="Slide Right">Slide Right</option>
+                        <option value="Slide Up">Slide Up</option>
                       </select>
                       <select 
                         value={songSpeed} 
@@ -4631,14 +5000,25 @@ function OperatorDashboard() {
                           <span className={`px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase tracking-wider ${getLabelBadgeStyle(slide.label).bg} ${getLabelBadgeStyle(slide.label).text}`}>
                             {slide.label || `SLIDE ${idx + 1}`} {isCurrent && '• Editing'}
                           </span>
-                          <span className="font-mono">{idx + 1}</span>
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center bg-appBg/50 rounded overflow-hidden border border-appPanel">
+                              <span className="px-1 text-[8px] text-textMuted border-r border-appPanel" title="Slide Font Size">px</span>
+                              <input 
+                                type="number" 
+                                value={slide.style?.size || songSize} 
+                                onChange={(e) => handleUpdateSlideSpecificSize(idx, parseInt(e.target.value) || 60, true)}
+                                className="w-10 text-center bg-transparent text-textMain text-[9px] py-0.5 focus:outline-none"
+                              />
+                            </div>
+                            <span className="font-mono bg-appBg px-1.5 py-0.5 rounded">{idx + 1}</span>
+                          </div>
                         </div>
                         <div 
                           className={`aspect-video w-full bg-black rounded relative overflow-hidden flex flex-col p-3 ${verticalClass} ${flexAlignClass}`}
                           style={{ containerType: 'inline-size' }}
                         >
-                          {selectedMedia && selectedMedia.filepath && (
-                            <img src={selectedMedia.filepath} className="absolute inset-0 w-full h-full object-cover opacity-35 z-0" alt="" />
+                          {slide.style?.background && !isBgColor(slide.style.background) && (
+                            <img src={slide.style.background} className="absolute inset-0 w-full h-full object-cover opacity-35 z-0" alt="" />
                           )}
                           <div 
                             className="z-10"
@@ -4653,9 +5033,10 @@ function OperatorDashboard() {
                                 fontFamily: `'${slide.style.font || 'Inter'}', sans-serif`,
                                 fontSize: `${((slide.style.size || 90) / 19.2).toFixed(3)}cqw`,
                                 fontWeight: { 'normal': 400, 'semibold': 600, 'bold': 700, 'extrabold': 800 }[slide.style.weight] || slide.style.weight || 700,
+                                lineHeight: slide.style.lineHeight || 1.4,
+                                letterSpacing: `${slide.style.letterSpacing || 0}px`,
                                 color: slide.style.color || '#ffffff',
                                 textAlign: slide.style.align || 'center',
-                                lineHeight: '1.4',
                                 whiteSpace: 'pre-wrap'
                               }}
                               className="whitespace-pre-line uppercase projector-text-shadow"
@@ -4767,6 +5148,26 @@ function OperatorDashboard() {
                   }`}
                 >
                   Projector Output
+                </button>
+                <button 
+                  onClick={() => setActiveSettingsTab('updates')}
+                  className={`w-full p-2.5 rounded text-left font-bold transition flex items-center gap-2 ${
+                    activeSettingsTab === 'updates' 
+                    ? 'bg-brand/10 text-brand border border-brand/40' 
+                    : 'text-textMuted hover:text-textMain hover:bg-appPanel/30 border border-transparent'
+                  }`}
+                >
+                  Updates
+                </button>
+                <button 
+                  onClick={() => setActiveSettingsTab('songlibrary')}
+                  className={`w-full p-2.5 rounded text-left font-bold transition flex items-center gap-2 ${
+                    activeSettingsTab === 'songlibrary' 
+                    ? 'bg-brand/10 text-brand border border-brand/40' 
+                    : 'text-textMuted hover:text-textMain hover:bg-appPanel/30 border border-transparent'
+                  }`}
+                >
+                  Song Library
                 </button>
               </div>
 
@@ -4971,6 +5372,141 @@ function OperatorDashboard() {
                       </div>
 
                       <div className="text-[10px] text-textMuted mt-2">Note: Stage window will render exact slide text & styling. Use the left width slider to tune default layout.</div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 3. UPDATES TAB */}
+                {activeSettingsTab === 'updates' && (
+                  <div className="space-y-4 font-sans">
+                    <div>
+                      <h4 className="text-xs font-bold text-textMain mb-1">Check for Updates</h4>
+                      <p className="text-[10px] text-textMuted font-sans">Keep your WorshipFlow application up to date with the latest features and bug fixes.</p>
+                    </div>
+
+                    <div className="bg-appBg border border-[var(--border-app)] rounded p-4 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="font-bold text-textMain block">WorshipFlow App</span>
+                          <span className="text-[10px] text-textMuted font-mono">Current Version: v{appVersion}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleCheckForUpdates}
+                          disabled={checkingUpdates || updating}
+                          className="px-4 py-2 bg-[#1E4E79] hover:bg-[#1E4E79]/85 text-white font-bold rounded text-xs transition"
+                        >
+                          {checkingUpdates ? 'Checking...' : 'Check for Updates'}
+                        </button>
+                      </div>
+
+                      {updateInfo && (
+                        <div className="border-t border-[var(--border-app)]/50 pt-3 space-y-3">
+                          {updateInfo.hasUpdate ? (
+                            <>
+                              <div className="bg-[#10B981]/10 border border-[#10B981]/30 p-3 rounded text-[#10B981] flex flex-col gap-1">
+                                <span className="font-bold text-xs">Update Available: v{updateInfo.latestVersion}</span>
+                                <span className="text-[10px]">A newer version of WorshipFlow has been found.</span>
+                              </div>
+                              
+                              {updateInfo.notes && (
+                                <div className="space-y-1">
+                                  <span className="font-bold text-textMuted text-[10px] uppercase font-mono block">Release Notes</span>
+                                  <div className="bg-appPanel border border-[var(--border-app)] p-3 rounded max-h-[150px] overflow-y-auto font-mono text-[10px] text-textMain whitespace-pre-wrap leading-normal">
+                                    {updateInfo.notes}
+                                  </div>
+                                </div>
+                              )}
+
+                              {updating ? (
+                                <div className="space-y-2">
+                                  <div className="flex justify-between items-center text-[10px]">
+                                    <span className="text-textMuted">Downloading installer...</span>
+                                    <span className="font-mono text-brand font-bold">{updateProgress}%</span>
+                                  </div>
+                                  <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden border border-[var(--border-app)]">
+                                    <div 
+                                      className="bg-brand h-2 rounded-full transition-all duration-150" 
+                                      style={{ width: `${updateProgress}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={handleInstallUpdate}
+                                  disabled={!updateInfo.downloadUrl}
+                                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded text-xs transition"
+                                >
+                                  Download & Install Update
+                                </button>
+                              )}
+                            </>
+                          ) : (
+                            <div className="bg-[#1E293B] border border-[var(--border-app)] p-3 rounded text-textMuted text-center font-medium">
+                              WorshipFlow is up to date! (v{appVersion} is the latest version)
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 4. SONG LIBRARY TAB */}
+                {activeSettingsTab === 'songlibrary' && (
+                  <div className="space-y-4 font-sans">
+                    <div>
+                      <h4 className="text-xs font-bold text-textMain mb-1">Song Library</h4>
+                      <p className="text-[10px] text-textMuted">Export your song library to a file for backup or to transfer to another computer via USB drive.</p>
+                    </div>
+
+                    <div className="bg-appBg border border-[var(--border-app)] rounded p-4 space-y-3">
+                      <div>
+                        <span className="font-bold text-textMain block text-xs">Export Song Library</span>
+                        <span className="text-[10px] text-textMuted block mt-0.5">Saves all your songs to a <code className="font-mono">.wfl-songs</code> file. Copy this file to a USB drive to transfer songs to another laptop.</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!window.api?.exportSongs) return;
+                          const res = await window.api.exportSongs();
+                          if (res?.success) alert(`✅ Exported ${res.count} songs to:\n${res.filePath}`);
+                          else if (!res?.canceled) alert('Export failed: ' + (res?.error || 'Unknown error'));
+                        }}
+                        className="w-full py-2.5 bg-brand hover:bg-brand/80 text-white font-bold rounded text-xs transition"
+                      >
+                        Export Songs (.wfl-songs)
+                      </button>
+                    </div>
+
+                    <div className="bg-appBg border border-[var(--border-app)] rounded p-4 space-y-3">
+                      <div>
+                        <span className="font-bold text-textMain block text-xs">Import Song Library</span>
+                        <span className="text-[10px] text-textMuted block mt-0.5">Load songs from a <code className="font-mono">.wfl-songs</code> file. Imported songs are merged into your existing library — nothing is deleted.</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!window.api?.importSongs) return;
+                          const res = await window.api.importSongs();
+                          if (res?.success) { await fetchSongs(); alert(`✅ Imported ${res.count} songs into your library!`); }
+                          else if (!res?.canceled) alert('Import failed: ' + (res?.error || 'Unknown error'));
+                        }}
+                        className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded text-xs transition"
+                      >
+                        Import Songs from File
+                      </button>
+                    </div>
+
+                    <div className="bg-appBg border border-[var(--border-app)] rounded p-3">
+                      <p className="text-[10px] text-textMuted leading-relaxed">
+                        💡 <strong className="text-textMain">How to transfer songs to another laptop:</strong><br/>
+                        1. Click <em>Export Songs</em> and save the file to a USB drive.<br/>
+                        2. On the other laptop, open WorshipFlow → Settings → Song Library.<br/>
+                        3. Click <em>Import Songs from File</em> and select the file from the USB drive.<br/>
+                        4. All songs will appear in the Song Library instantly.
+                      </p>
                     </div>
                   </div>
                 )}

@@ -318,6 +318,14 @@ ipcMain.on('window:update-titlebar', (event, { color, symbolColor }) => {
 });
 
 // Phase 2: Asynchronous IPC Database Handlers (ipcMain.handle)
+
+// Native message/dialog box for Save prompts etc.
+ipcMain.handle('dialog:show-message-box', async (event, options) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const result = await dialog.showMessageBox(win, options);
+  return result.response; // 0 = first button, 1 = second, etc.
+});
+
 ipcMain.handle('db:get-all-songs', async () => {
   return await db.getAllSongs();
 });
@@ -408,6 +416,48 @@ ipcMain.handle('db:playlist-import', async (event, items) => {
 
 ipcMain.handle('db:playlist-reorder', async (event, items) => {
   return await db.updatePlaylistOrder(items);
+});
+
+// Song Library Export: save all songs to a .wfl-songs JSON file chosen by user
+ipcMain.handle('db:export-songs', async () => {
+  try {
+    const songs = await db.getAllSongs();
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: 'Export Song Library',
+      defaultPath: `WorshipFlow-Songs-${new Date().toISOString().slice(0,10)}.wfl-songs`,
+      filters: [{ name: 'WorshipFlow Song Library', extensions: ['wfl-songs'] }, { name: 'JSON', extensions: ['json'] }]
+    });
+    if (canceled || !filePath) return { success: false, canceled: true };
+    await fs.promises.writeFile(filePath, JSON.stringify({ version: 1, songs }, null, 2), 'utf8');
+    return { success: true, filePath, count: songs.length };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// Song Library Import: load songs from a .wfl-songs JSON file, merge with existing library
+ipcMain.handle('db:import-songs', async () => {
+  try {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: 'Import Song Library',
+      filters: [{ name: 'WorshipFlow Song Library', extensions: ['wfl-songs', 'json'] }],
+      properties: ['openFile']
+    });
+    if (canceled || !filePaths.length) return { success: false, canceled: true };
+    const raw = await fs.promises.readFile(filePaths[0], 'utf8');
+    const data = JSON.parse(raw);
+    const songs = Array.isArray(data) ? data : (data.songs || []);
+    let imported = 0;
+    for (const song of songs) {
+      try {
+        await db.saveSong(null, song.title, song.author || '', song.key || '', song.tempo || '', song.content_json || '[]');
+        imported++;
+      } catch (e) { /* skip duplicates or errors */ }
+    }
+    return { success: true, count: imported };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 });
 
 // Media Library SQLite handlers
@@ -1030,6 +1080,142 @@ ipcMain.handle('media:save-pdf-pages', async (event, { title, outputDir, pages }
     return { success: false, error: err.message };
   }
 });
+
+// Get current application version
+ipcMain.handle('app:get-version', () => app.getVersion());
+
+// Check for updates against GitHub Releases
+ipcMain.handle('system:check-update', async () => {
+  return new Promise((resolve) => {
+    const request = net.request({
+      method: 'GET',
+      url: 'https://api.github.com/repos/austriaj12/WorshipFlow-Application/releases/latest',
+      headers: {
+        'User-Agent': 'WorshipFlow-App'
+      }
+    });
+
+    request.on('response', (response) => {
+      let data = '';
+      response.on('data', (chunk) => {
+        data += chunk;
+      });
+      response.on('end', () => {
+        try {
+          if (response.statusCode !== 200) {
+            resolve({ success: false, error: `GitHub API returned status ${response.statusCode}` });
+            return;
+          }
+          const release = JSON.parse(data);
+          const latestVersion = release.tag_name.replace(/^v/, '');
+          const currentVersion = app.getVersion();
+
+          const hasUpdate = isNewerVersion(latestVersion, currentVersion);
+
+          // Find the windows installer (.exe)
+          const exeAsset = release.assets.find(asset => asset.name.endsWith('.exe'));
+          
+          resolve({
+            success: true,
+            currentVersion,
+            latestVersion,
+            hasUpdate,
+            notes: release.body,
+            downloadUrl: exeAsset ? exeAsset.browser_download_url : null,
+            fileName: exeAsset ? exeAsset.name : null
+          });
+        } catch (e) {
+          resolve({ success: false, error: e.message });
+        }
+      });
+    });
+
+    request.on('error', (err) => {
+      resolve({ success: false, error: err.message });
+    });
+
+    request.end();
+  });
+});
+
+// Download and install update installer
+ipcMain.handle('system:install-update', async (event, { downloadUrl, fileName }) => {
+  return new Promise((resolve) => {
+    const tempDir = app.getPath('temp');
+    const localFilePath = path.join(tempDir, fileName || 'worshipflow-setup.exe');
+
+    const request = net.request({
+      method: 'GET',
+      url: downloadUrl,
+      headers: {
+        'User-Agent': 'WorshipFlow-App'
+      }
+    });
+
+    request.on('response', (response) => {
+      if (response.statusCode !== 200) {
+        resolve({ success: false, error: `Download failed with status ${response.statusCode}` });
+        return;
+      }
+
+      const totalBytes = parseInt(response.headers['content-length'], 10) || 0;
+      let downloadedBytes = 0;
+
+      const fileStream = fs.createWriteStream(localFilePath);
+
+      response.on('data', (chunk) => {
+        downloadedBytes += chunk.length;
+        fileStream.write(chunk);
+
+        if (totalBytes > 0) {
+          const progress = Math.round((downloadedBytes / totalBytes) * 100);
+          if (operatorWindow && !operatorWindow.isDestroyed()) {
+            operatorWindow.webContents.send('update-download-progress', progress);
+          }
+        }
+      });
+
+      response.on('end', () => {
+        fileStream.end();
+        
+        // Execute the installer asynchronously and quit the app
+        setTimeout(() => {
+          try {
+            const spawn = require('child_process').spawn;
+            const child = spawn(localFilePath, [], {
+              detached: true,
+              stdio: 'ignore'
+            });
+            child.unref();
+            app.quit();
+            resolve({ success: true });
+          } catch (e) {
+            resolve({ success: false, error: `Failed to start installer: ${e.message}` });
+          }
+        }, 500);
+      });
+    });
+
+    request.on('error', (err) => {
+      resolve({ success: false, error: err.message });
+    });
+
+    request.end();
+  });
+});
+
+// Helper function to compare semver versions
+function isNewerVersion(latest, current) {
+  const latestParts = latest.split('.').map(Number);
+  const currentParts = current.split('.').map(Number);
+  for (let i = 0; i < Math.max(latestParts.length, currentParts.length); i++) {
+    const latestPart = latestParts[i] || 0;
+    const currentPart = currentParts[i] || 0;
+    if (latestPart > currentPart) return true;
+    if (latestPart < currentPart) return false;
+  }
+  return false;
+}
 
 // Register a custom protocol to serve local file assets (PowerPoint/PDF slide images)
 protocol.registerSchemesAsPrivileged([

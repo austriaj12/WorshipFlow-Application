@@ -36,6 +36,7 @@
     "appId": "com.alabworship.worshipflow",
     "productName": "WorshipFlow",
     "asar": true,
+    "icon": "src/renderer/logo.png",
     "files": [
       "dist/**/*",
       "src/**/*",
@@ -49,7 +50,8 @@
     "win": {
       "target": [
         "nsis"
-      ]
+      ],
+      "icon": "src/renderer/logo.png"
     },
     "nsis": {
       "oneClick": false,
