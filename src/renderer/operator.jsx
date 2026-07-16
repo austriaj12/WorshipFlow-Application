@@ -184,6 +184,7 @@ function OperatorDashboard() {
   const [isResizingBgPanel, setIsResizingBgPanel] = useState(false);
   const [selectedSlideIndexes, setSelectedSlideIndexes] = useState([0]);
   const [thumbnailScale, setThumbnailScale] = useState(() => parseInt(localStorage.getItem('thumbnailScale') || '50'));
+  const [slidePreviewSize, setSlidePreviewSize] = useState(() => parseInt(localStorage.getItem('slidePreviewSize') || '100'));
 
   useEffect(() => {
     setPathInputVal(bgDirectoryPath);
@@ -192,6 +193,10 @@ function OperatorDashboard() {
   useEffect(() => {
     localStorage.setItem('thumbnailScale', String(thumbnailScale));
   }, [thumbnailScale]);
+
+  useEffect(() => {
+    localStorage.setItem('slidePreviewSize', String(slidePreviewSize));
+  }, [slidePreviewSize]);
 
   // Strict double-action confirmation lifecycle states & background form states
   const [bgType, setBgType] = useState('color'); // 'color' | 'image' | 'video'
@@ -516,6 +521,10 @@ function OperatorDashboard() {
     refreshWindowStatuses();
     refreshWindowStatuses();
     fetchDisplays();
+
+    if (window.api && window.api.notifyAppReady) {
+      window.api.notifyAppReady();
+    }
 
     // Listen for display changes and refresh
     window.addEventListener('focus', fetchDisplays);
@@ -2474,15 +2483,32 @@ function OperatorDashboard() {
                     <div>
                       <h2 className="text-sm font-bold text-textMain tracking-wide">{selectedSong.title}</h2>
                     </div>
-                    {selectedSong.author !== 'PowerPoint Import' && selectedSong.author !== 'PDF Import' && (
-                      <button 
-                        onClick={handleOpenEdit}
-                        className="flex items-center gap-1 px-2.5 py-1 bg-brand text-white hover:bg-brand/80 rounded text-[11px] font-semibold transition"
-                      >
-                        <Edit className="h-3 w-3" />
-                        Edit Song
-                      </button>
-                    )}
+                    <div className="flex items-center gap-6">
+                      {/* Slide Preview Size Control */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-textMuted uppercase tracking-wider font-semibold">Preview Size:</span>
+                        <input 
+                          type="range"
+                          min="50"
+                          max="200"
+                          value={slidePreviewSize}
+                          onChange={(e) => setSlidePreviewSize(parseInt(e.target.value))}
+                          className="w-24 h-1 bg-[#10141D] rounded-lg appearance-none cursor-pointer accent-brand"
+                          title="Slide Preview Size Control"
+                        />
+                        <span className="text-[10px] font-mono text-textMuted w-10 text-right">{slidePreviewSize}%</span>
+                      </div>
+
+                      {selectedSong.author !== 'PowerPoint Import' && selectedSong.author !== 'PDF Import' && (
+                        <button 
+                          onClick={handleOpenEdit}
+                          className="flex items-center gap-1 px-2.5 py-1 bg-brand text-white hover:bg-brand/80 rounded text-[11px] font-semibold transition"
+                        >
+                          <Edit className="h-3 w-3" />
+                          Edit Song
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Slides Grid / Media Player */}
@@ -2620,7 +2646,8 @@ function OperatorDashboard() {
                   ) : (
                     <div className="flex-1 overflow-y-auto p-4">
                       {slides.length > 0 ? (
-                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        /* Use flex wrap with custom slide card width matching slidePreviewSize setting */
+                        <div className="flex flex-wrap gap-4 items-start justify-start">
                           {slides.map((slide, index) => {
                             const isActive = (bibleLiveSlides !== null || (liveSong && selectedSong && liveSong.id === selectedSong.id)) && index === activeSlideIndex;
                             const isSelected = selectedSlideIndexes.includes(index);
@@ -2643,7 +2670,10 @@ function OperatorDashboard() {
                                 }}
                                 className={`aspect-video rounded-lg relative overflow-hidden flex flex-col justify-between p-3 cursor-pointer group transition-all duration-200 border-2 bg-black ${getSlideCardBorderClass(slide.label, isActive, isSelected)}`}
                                 style={{
-                                  containerType: 'inline-size'
+                                  containerType: 'inline-size',
+                                  width: `${slidePreviewSize * 2.8}px`,
+                                  minWidth: '140px',
+                                  maxWidth: '560px'
                                 }}
                               >
                                 {/* Solid Color Background Layer */}

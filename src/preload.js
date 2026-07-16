@@ -1,6 +1,7 @@
-const { contextBridge, ipcRenderer } = require('electron');
+﻿const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
+  notifyAppReady: () => ipcRenderer.send('app-ready'),
   // Slide Synchronization Control
   sendSlideUpdate: (slideData) => {
     ipcRenderer.send('slide-update-send', slideData);

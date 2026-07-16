@@ -56,6 +56,10 @@ export default function BibleMenu({
   onGoLiveBible,
   bibleLiveSlides,
   onExitLiveBible,
+  bibleFontSize = 48,
+  setBibleFontSize,
+  bibleRefColor = '#ef4444',
+  setBibleRefColor,
   songFont = 'Inter',
   songSize = 90,
   songWeight = 'bold',
@@ -97,8 +101,7 @@ export default function BibleMenu({
   
   // Live editing overrides
   const [bibleFont, setBibleFont] = useState(songFont);
-  const [bibleFontSize, setBibleFontSize] = useState(songSize);
-  const [bibleColor, setBibleColor] = useState(songColor);
+  const [bibleColor, setBibleColor] = useState('#ffffff');
   const [bibleAlign, setBibleAlign] = useState(songAlign);
   const [bibleBg, setBibleBg] = useState('#000000');
   
@@ -165,8 +168,42 @@ export default function BibleMenu({
   // Load verses when chapter changes
   useEffect(() => {
     if (translation && selectedBook && selectedChapter) {
-      loadVerses(translation, selectedBook, selectedChapter);
-      setSelectedVerses([]);
+      loadVerses(translation, selectedBook, selectedChapter).then(newVerses => {
+        // If we had verses selected and we just changed translation, auto-update the live output!
+        if (selectedVerses.length > 0 && onGoLiveBible) {
+          const newSelectedVerseData = (newVerses || []).filter(v => selectedVerses.includes(v.verse));
+          if (newSelectedVerseData.length > 0) {
+            const style = {
+              font: bibleFont, size: bibleFontSize, weight: songWeight,
+              color: bibleColor, bgColor: bibleBg, bgOpacity: songBgOpacity, refColor: bibleRefColor,
+              align: bibleAlign, vertical: songVertical, animation: songAnimation, speed: songSpeed
+            };
+            const chunkVerses = (arr, size = 3) => {
+              const chunks = [];
+              for (let i = 0; i < arr.length; i += size) { chunks.push(arr.slice(i, i + size)); }
+              return chunks;
+            };
+            let slides = [];
+            if (!mergeVerses) {
+              slides = newSelectedVerseData.map(v => ({
+                label: `${selectedBook} ${selectedChapter}:${v.verse}`,
+                text: showVerseNumbers ? `${v.verse} ${v.text}` : v.text,
+                style, isBible: true
+              }));
+            } else {
+              slides = chunkVerses(newSelectedVerseData, 3).map(chunk => {
+                const startV = chunk[0].verse;
+                const endV = chunk[chunk.length - 1].verse;
+                const label = `${selectedBook} ${selectedChapter}:${startV === endV ? startV : `${startV}-${endV}`}`;
+                const text = chunk.map(v => showVerseNumbers ? `${v.verse} ${v.text}` : v.text).join('\n');
+                return { label, text, style, isBible: true };
+              });
+            }
+            // Auto go live
+            onGoLiveBible(slides);
+          }
+        }
+      });
     }
   }, [selectedChapter, translation, selectedBook]);
   
@@ -230,6 +267,7 @@ export default function BibleMenu({
         window.api.addBibleHistory(trans, book, chapter, 1, result?.length || 1);
         loadHistory();
       }
+      return result;
     } catch (err) {
       console.error('Failed to load verses:', err);
     }
@@ -363,6 +401,7 @@ export default function BibleMenu({
       weight: songWeight,
       color: bibleColor,
       bgColor: bibleBg,
+      refColor: bibleRefColor,
       bgOpacity: songBgOpacity,
       align: bibleAlign,
       vertical: songVertical,
@@ -448,7 +487,7 @@ export default function BibleMenu({
     const title = `${result.book_name} ${result.chapter}:${result.verse} (${result.translation})`;
     const style = {
       font: bibleFont, size: bibleFontSize, weight: songWeight,
-      color: bibleColor, bgColor: bibleBg, bgOpacity: songBgOpacity,
+      color: bibleColor, bgColor: bibleBg, bgOpacity: songBgOpacity, refColor: bibleRefColor,
       align: bibleAlign, vertical: songVertical, animation: songAnimation, speed: songSpeed
     };
     
@@ -646,6 +685,46 @@ export default function BibleMenu({
               <option key={t} value={t}>{t}</option>
             ))}
           </select>
+        </div>
+      </div>
+      
+      {/* ── Bible Styling & Formatting Bar ── */}
+      <div className="flex flex-wrap items-center gap-6 px-4 py-2 border-b border-[var(--border-app)] bg-appPanel/30 text-xs">
+        {/* Bible Font Size */}
+        <div className="flex items-center gap-2">
+          <span className="text-textMuted font-semibold font-mono uppercase tracking-wider text-[10px]">Bible Font Size:</span>
+          <span className="font-mono text-brand font-bold">{bibleFontSize}px</span>
+          <input
+            type="range"
+            min="24"
+            max="120"
+            value={bibleFontSize}
+            onChange={(e) => {
+              const val = parseInt(e.target.value);
+              if (setBibleFontSize) {
+                setBibleFontSize(val);
+                localStorage.setItem('bibleFontSize', val.toString());
+              }
+            }}
+            className="h-1 bg-slate-700 rounded appearance-none cursor-pointer accent-brand w-24"
+          />
+        </div>
+
+        {/* Bible Reference Pill Background Color */}
+        <div className="flex items-center gap-2">
+          <span className="text-textMuted font-semibold font-mono uppercase tracking-wider text-[10px]">Reference Pill Color:</span>
+          <span className="font-mono text-brand font-bold">{bibleRefColor}</span>
+          <input
+            type="color"
+            value={bibleRefColor}
+            onChange={(e) => {
+              if (setBibleRefColor) {
+                setBibleRefColor(e.target.value);
+                localStorage.setItem('bibleRefColor', e.target.value);
+              }
+            }}
+            className="h-5 w-8 bg-transparent cursor-pointer rounded border border-[var(--border-app)]"
+          />
         </div>
       </div>
       

@@ -65,32 +65,115 @@ function ProjectorScreen() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Single-fire background asset sync effect
+  // Double buffering video states
+  const [videoA, setVideoA] = useState({ src: '', active: false, opacity: 0 });
+  const [videoB, setVideoB] = useState({ src: '', active: false, opacity: 0 });
+  const [activeImage, setActiveImage] = useState('');
+  
+  const videoRefA = React.useRef(null);
+  const videoRefB = React.useRef(null);
+
+  // Single-fire background asset sync effect with double buffering preloading logic
   useEffect(() => {
     const targetBg = slide.blackout ? '' : (slide.bgAsset || '');
-    if (targetBg !== activeBgAsset) {
-      setPrevBgAsset(activeBgAsset);
-      setActiveBgAsset(targetBg);
+    const isVid = /\.(mp4|webm|mov|avi)($|\?)/i.test(targetBg);
+    
+    if (slide.blackout || !targetBg) {
+      setVideoA(prev => ({ ...prev, active: false, opacity: 0 }));
+      setVideoB(prev => ({ ...prev, active: false, opacity: 0 }));
+      setActiveImage('');
+      return;
+    }
+
+    if (!isVid) {
+      // It's an image or other static asset: fade out videos, set image
+      setVideoA(prev => ({ ...prev, active: false, opacity: 0 }));
+      setVideoB(prev => ({ ...prev, active: false, opacity: 0 }));
+      setActiveImage(targetBg);
+      if (videoRefA.current) videoRefA.current.pause();
+      if (videoRefB.current) videoRefB.current.pause();
+      return;
+    }
+
+    // It's a video. Determine which buffer to load.
+    // If Video A is currently active/visible, load into B. Otherwise load into A.
+    setActiveImage('');
+    const useB = videoA.active || videoA.opacity > 0;
+
+    if (useB) {
+      if (videoB.src !== targetBg) {
+        setVideoB({ src: targetBg, active: false, opacity: 0 });
+      } else {
+        // Already loaded or loading in B, force activate
+        setVideoB(prev => ({ ...prev, active: true, opacity: 1 }));
+        setVideoA(prev => ({ ...prev, active: false, opacity: 0 }));
+        if (videoRefA.current) videoRefA.current.pause();
+        if (videoRefB.current) {
+          videoRefB.current.play().catch(() => {});
+        }
+      }
+    } else {
+      if (videoA.src !== targetBg) {
+        setVideoA({ src: targetBg, active: false, opacity: 0 });
+      } else {
+        // Already loaded or loading in A, force activate
+        setVideoA(prev => ({ ...prev, active: true, opacity: 1 }));
+        setVideoB(prev => ({ ...prev, active: false, opacity: 0 }));
+        if (videoRefB.current) videoRefB.current.pause();
+        if (videoRefA.current) {
+          videoRefA.current.play().catch(() => {});
+        }
+      }
     }
   }, [slide.bgAsset, slide.blackout]);
 
-  // Sync media player playback state directly on HTML5 video & audio DOM tags
+  // Sync playback attributes on active/inactive video elements
   useEffect(() => {
-    const videoEl = document.getElementById('projector-video');
-    const audioEl = document.getElementById('projector-audio');
-    
-    [videoEl, audioEl].forEach(mediaEl => {
-      if (mediaEl) {
-        mediaEl.loop = !!slide.mediaLoop;
-        mediaEl.volume = (slide.mediaVolume !== undefined ? slide.mediaVolume : 100) / 100;
-        if (slide.mediaPlaying) {
-          mediaEl.play().catch(e => {});
-        } else {
-          mediaEl.pause();
-        }
+    const applyVideoState = (videoEl, isCurrentActive) => {
+      if (!videoEl) return;
+      videoEl.loop = !!slide.mediaLoop;
+      videoEl.volume = (slide.mediaVolume !== undefined ? slide.mediaVolume : 100) / 100;
+      if (isCurrentActive && slide.mediaPlaying) {
+        videoEl.play().catch(() => {});
+      } else {
+        videoEl.pause();
       }
-    });
-  }, [slide.mediaPlaying, slide.mediaLoop, slide.mediaVolume, activeBgAsset]);
+    };
+    applyVideoState(videoRefA.current, videoA.active);
+    applyVideoState(videoRefB.current, videoB.active);
+  }, [slide.mediaPlaying, slide.mediaLoop, slide.mediaVolume, videoA.active, videoB.active, videoA.src, videoB.src]);
+
+  // Sync audio tag directly if applicable
+  useEffect(() => {
+    const audioEl = document.getElementById('projector-audio');
+    if (audioEl) {
+      audioEl.loop = !!slide.mediaLoop;
+      audioEl.volume = (slide.mediaVolume !== undefined ? slide.mediaVolume : 100) / 100;
+      if (slide.mediaPlaying) {
+        audioEl.play().catch(() => {});
+      } else {
+        audioEl.pause();
+      }
+    }
+  }, [slide.mediaPlaying, slide.mediaLoop, slide.mediaVolume, slide.bgAsset]);
+
+  const handleVideoCanPlay = (bufferName) => {
+    if (bufferName === 'A') {
+      setVideoA(prev => ({ ...prev, active: true, opacity: 1 }));
+      setVideoB(prev => ({ ...prev, active: false, opacity: 0 }));
+      if (videoRefB.current) videoRefB.current.pause();
+      if (videoRefA.current && slide.mediaPlaying) {
+        videoRefA.current.play().catch(() => {});
+      }
+    } else {
+      setVideoB(prev => ({ ...prev, active: true, opacity: 1 }));
+      setVideoA(prev => ({ ...prev, active: false, opacity: 0 }));
+      if (videoRefA.current) videoRefA.current.pause();
+      if (videoRefB.current && slide.mediaPlaying) {
+        videoRefB.current.play().catch(() => {});
+      }
+    }
+  };
 
   const parseSpeedToMs = (speedStr) => {
     if (!speedStr) return 600;
@@ -106,7 +189,6 @@ function ProjectorScreen() {
       window.api.onSlideRender((slideData) => {
         const currentSlide = slideRef.current;
 
-        // If the text, label, blackout state, clearLyrics state, and background haven't changed, DO NOT trigger the animation!
         if (
           currentSlide.text === slideData.text &&
           currentSlide.label === slideData.label &&
@@ -114,25 +196,24 @@ function ProjectorScreen() {
           currentSlide.clearLyrics === slideData.clearLyrics &&
           currentSlide.bgAsset === slideData.bgAsset
         ) {
-          // Just update slide configurations (e.g. volume/loop settings) but do not animate
           setSlide(slideData);
           return;
         }
 
-        // Trigger animated transition only when animation type requires it
+        // Determine if this slide transition is set to manual 'fade'
+        const isFadeForced = slideData.transitionToNext === 'fade';
         const speedStr = (slideData.style && slideData.style.speed) || 'Medium (0.6s)';
         const anim = (slideData.style && slideData.style.animation) || 'Zoom In/Out';
-        const isInstant = slideData.isImportedSlide || anim === 'None' || anim === 'Instant';
+        const isInstant = !isFadeForced && (slideData.isImportedSlide || anim === 'None' || anim === 'Instant');
 
         if (isInstant) {
-          // Instant swap — no fading state change, no flicker at all
           setSlide(slideData);
           return;
         }
 
-        // Animated swap: fade/zoom/slide out → update text → fade in
+        // Trigger smooth fade transition
         setIsFading(true);
-        const speedMs = parseSpeedToMs(speedStr) / 2; // half duration for fade-out phase
+        const speedMs = parseSpeedToMs(speedStr) / 2;
         setTimeout(() => {
           setSlide(slideData);
           setIsFading(false);
@@ -141,16 +222,12 @@ function ProjectorScreen() {
     }
   }, []);
 
-  // Translate styling parameters to inline CSS styles
   const getLyricsContainerStyle = () => {
     if (!slide.style) return { fontWeight: 'bold', fontSize: '64px', whiteSpace: 'pre-wrap' };
-    
-    // Dynamic styling from payload
     const baseSize = slide.style.size || 90;
     const fontVal = slide.style.font || 'Inter';
     const colorVal = slide.style.color || '#ffffff';
     
-    // Strict Font Weight Map to support integer-based standard weights
     const weightMap = {
       'normal': 400,
       'semibold': 600,
@@ -167,33 +244,38 @@ function ProjectorScreen() {
       textAlign: slide.style.align || 'center',
       lineHeight: slide.style.lineHeight || 1.4,
       letterSpacing: `${slide.style.letterSpacing || 0}px`,
-      whiteSpace: 'pre-wrap'
+      whiteSpace: 'pre-wrap',
+      willChange: 'transform, opacity',
+      transform: 'translate3d(0,0,0)'
     };
   };
 
   const getOverlayPillStyle = () => {
     if (!slide.style) return {};
-    
     const hex = slide.style.bgColor || '#000000';
     const opacityStr = slide.style.bgOpacity || '0%';
     const opacity = parseInt(opacityStr) || 0;
-    
     if (opacity === 0) return { backgroundColor: 'transparent' };
     
-    // Convert hex to rgb
     const r = parseInt(hex.slice(1, 3), 16);
     const g = parseInt(hex.slice(3, 5), 16);
     const b = parseInt(hex.slice(5, 7), 16);
     
+    const radius = slide.style.bgRadius !== undefined ? slide.style.bgRadius : 8;
+    const paddingX = slide.style.bgPaddingX !== undefined ? slide.style.bgPaddingX : 48;
+    const paddingY = slide.style.bgPaddingY !== undefined ? slide.style.bgPaddingY : 24;
+
     return {
       backgroundColor: `rgba(${r}, ${g}, ${b}, ${opacity / 100})`,
-      borderRadius: '8px',
-      padding: '1.5rem 3rem'
+      borderRadius: `${radius}px`,
+      padding: `${paddingY}px ${paddingX}px`,
+      willChange: 'transform, opacity',
+      transform: 'translate3d(0,0,0)'
     };
   };
 
   const getTransitionDuration = () => {
-    if (!slide.style || !slide.style.speed) return '300ms'; // half of 0.6s
+    if (!slide.style || !slide.style.speed) return '300ms';
     const totalMs = parseSpeedToMs(slide.style.speed);
     return `${totalMs / 2}ms`;
   };
@@ -206,26 +288,25 @@ function ProjectorScreen() {
   const getAnimationStyles = () => {
     const anim = slide.style?.animation || 'Zoom In/Out';
     const slideDuration = anim === 'Instant' ? '0ms' : getTransitionDuration();
-
-    // Snappy fade (150ms) for manual clearLyrics toggles, normal duration otherwise
     const opacityDuration = isClearLyricsToggling ? '150ms' : slideDuration;
     const transformDuration = slideDuration;
     
-    let transformVal = 'none';
+    let transformVal = 'translate3d(0,0,0)';
     if (anim === 'Zoom In/Out') {
-      transformVal = isFading ? 'scale(0.96)' : 'scale(1)';
+      transformVal = isFading ? 'scale3d(0.96, 0.96, 1)' : 'scale3d(1, 1, 1)';
     } else if (anim === 'Slide Left') {
-      transformVal = isFading ? 'translateX(-40px)' : 'translateX(0)';
+      transformVal = isFading ? 'translate3d(-40px, 0, 0)' : 'translate3d(0, 0, 0)';
     } else if (anim === 'Slide Right') {
-      transformVal = isFading ? 'translateX(40px)' : 'translateX(0)';
+      transformVal = isFading ? 'translate3d(40px, 0, 0)' : 'translate3d(0, 0, 0)';
     } else if (anim === 'Slide Up') {
-      transformVal = isFading ? 'translateY(40px)' : 'translateY(0)';
+      transformVal = isFading ? 'translate3d(0, 40px, 0)' : 'translate3d(0, 0, 0)';
     }
     
     return {
       transition: anim === 'Instant' ? 'none' : `opacity ${opacityDuration} ease-in-out, transform ${transformDuration} ease-in-out`,
       opacity: (slide.clearLyrics || isFading) ? 0 : 1,
       transform: transformVal,
+      willChange: 'transform, opacity',
       width: '100%',
       maxWidth: '1760px',
       display: 'flex',
@@ -238,63 +319,74 @@ function ProjectorScreen() {
 
   return (
     <div className="w-screen h-screen bg-black overflow-hidden relative flex items-center justify-center">
-      {/* Viewport-level Background Media Layers: Covers 100% of display regardless of 16:9 inner window scaling */}
-      {/* 1. Bottom Layer (Previous Background) */}
-      {prevBgAsset && !slide.blackout && !isBgColor(prevBgAsset) && (
+      {/* Double Buffering Video Layers with will-change GPU Layer Promotion */}
+      {videoA.src && (
         <div 
-          className="absolute inset-x-0 z-0 w-full"
+          className="absolute inset-x-0 w-full"
           style={{
             height: slide.style?.bgHeight || '100%',
             top: '50%',
-            transform: 'translateY(-50%)'
+            transform: 'translate3d(0, -50%, 0)',
+            zIndex: 1,
+            transition: 'opacity 500ms ease-in-out',
+            opacity: videoA.opacity,
+            willChange: 'opacity'
           }}
         >
-          {/\.(mp4|webm|mov|avi)($|\?)/i.test(prevBgAsset) ? (
-            <video 
-              src={prevBgAsset} 
-              autoPlay 
-              muted={slide.mediaPlaying !== undefined ? false : true}
-              loop 
-              playsInline 
-              style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', opacity: bgOpacityVal }} 
-            />
-          ) : (
-            <img 
-              src={prevBgAsset} 
-              style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', opacity: bgOpacityVal }} 
-              alt="" 
-            />
-          )}
+          <video 
+            ref={videoRefA}
+            src={videoA.src} 
+            preload="auto"
+            muted={slide.mediaPlaying !== undefined ? false : true}
+            playsInline 
+            onCanPlayThrough={() => handleVideoCanPlay('A')}
+            onLoadedData={() => handleVideoCanPlay('A')}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', willChange: 'transform', transform: 'translate3d(0,0,0)' }} 
+          />
         </div>
       )}
 
-      {/* 2. Top Layer (Active Background Overlay) */}
-      {activeBgAsset && !slide.blackout && !isBgColor(activeBgAsset) && (
+      {videoB.src && (
         <div 
-          className="absolute inset-x-0 z-10 w-full"
+          className="absolute inset-x-0 w-full"
           style={{
             height: slide.style?.bgHeight || '100%',
             top: '50%',
-            transform: 'translateY(-50%)'
+            transform: 'translate3d(0, -50%, 0)',
+            zIndex: 2,
+            transition: 'opacity 500ms ease-in-out',
+            opacity: videoB.opacity,
+            willChange: 'opacity'
           }}
         >
-          {/\.(mp4|webm|mov|avi)($|\?)/i.test(activeBgAsset) ? (
-            <video 
-              id="projector-video"
-              src={activeBgAsset} 
-              autoPlay 
-              muted={slide.mediaPlaying !== undefined ? false : true}
-              loop 
-              playsInline 
-              style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', opacity: bgOpacityVal }} 
-            />
-          ) : (
-            <img 
-              src={activeBgAsset} 
-              style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', opacity: bgOpacityVal }} 
-              alt="WorshipFlow Background" 
-            />
-          )}
+          <video 
+            ref={videoRefB}
+            src={videoB.src} 
+            preload="auto"
+            muted={slide.mediaPlaying !== undefined ? false : true}
+            playsInline 
+            onCanPlayThrough={() => handleVideoCanPlay('B')}
+            onLoadedData={() => handleVideoCanPlay('B')}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', willChange: 'transform', transform: 'translate3d(0,0,0)' }} 
+          />
+        </div>
+      )}
+
+      {/* Image Layer */}
+      {activeImage && (
+        <div 
+          className="absolute inset-x-0 w-full z-3"
+          style={{
+            height: slide.style?.bgHeight || '100%',
+            top: '50%',
+            transform: 'translate3d(0, -50%, 0)'
+          }}
+        >
+          <img 
+            src={activeImage} 
+            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', opacity: bgOpacityVal }} 
+            alt="WorshipFlow Background" 
+          />
         </div>
       )}
 
@@ -340,37 +432,7 @@ function ProjectorScreen() {
         }}
         className="select-none font-sans"
       >
-        {/* Top Left Reference Label (e.g. Genesis 1:1, etc.) */}
-        {slide.label && !slide.blackout && !slide.clearLyrics && slide.isBible && (
-          <div 
-            style={{
-              position: 'absolute',
-              top: '50px',
-              left: '60px',
-              zIndex: 40,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '12px',
-              textTransform: 'uppercase',
-              color: '#f8fafc',
-              fontSize: '32px',
-              fontWeight: 800,
-              letterSpacing: '0.15em',
-              opacity: 0.85,
-              textShadow: '0 2px 4px rgba(0,0,0,0.8)'
-            }}
-          >
-            <span 
-              style={{
-                width: '8px',
-                height: '32px',
-                borderRadius: '999px',
-                background: '#38bdf8' // Sky blue accent
-              }} 
-            />
-            <span>{slide.label}</span>
-          </div>
-        )}
+        {/* Top Left Reference Label (Removed, now rendered inline above text) */}
 
         {/* Foreground Canvas: Text Lyrics Render Layer */}
         <div 
@@ -387,6 +449,25 @@ function ProjectorScreen() {
           }}
         >
           <div style={getAnimationStyles()}>
+            {slide.isBible && slide.label && !slide.blackout && !slide.clearLyrics && (
+              <div 
+                style={{
+                  backgroundColor: slide.style?.refColor || '#ef4444',
+                  color: '#ffffff',
+                  padding: '8px 24px',
+                  borderRadius: '9999px',
+                  fontSize: `${(slide.style?.size || 90) * 0.45}px`,
+                  fontWeight: 800,
+                  letterSpacing: '0.05em',
+                  textTransform: 'uppercase',
+                  marginBottom: '24px',
+                  display: 'inline-block',
+                  boxShadow: '0 10px 25px rgba(0,0,0,0.5)'
+                }}
+              >
+                {slide.label}
+              </div>
+            )}
             <div style={getOverlayPillStyle()}>
               {slide.text ? (
                 <p 
@@ -426,17 +507,28 @@ function ProjectorScreen() {
             boxSizing: 'border-box'
           }}
         >
-          <div style={{ fontSize: `${slide.countdownTitleSize || 56}px`, opacity: 0.85, textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '24px', fontWeight: 'bold' }}>
-            {slide.countdownTitle || 'Countdown'}
-          </div>
-          <div style={{ fontSize: `${slide.countdownTimeSize || 180}px`, fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1, margin: '20px 0', color: slide.countdownTextColor || '#ffffff' }}>
-            {slide.countdownTime || '00:00'}
-          </div>
-          {slide.countdownSubtext && (
-            <div style={{ fontSize: `${slide.countdownSubtextSize || 36}px`, opacity: 0.6, fontStyle: 'italic', marginTop: '24px' }}>
-              {slide.countdownSubtext}
+          {slide.countdownBgAsset && (
+            <div className="absolute inset-0 z-0 overflow-hidden">
+              {/\.(mp4|webm|mov|avi)($|\?)/i.test(slide.countdownBgAsset) ? (
+                <video src={slide.countdownBgAsset} autoPlay muted loop playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                <img src={slide.countdownBgAsset} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
+              )}
             </div>
           )}
+          <div className="z-10 flex flex-col items-center">
+            <div style={{ fontSize: `${slide.countdownTitleSize || 56}px`, opacity: 0.85, textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '24px', fontWeight: 'bold' }}>
+              {slide.countdownTitle || 'Countdown'}
+            </div>
+            <div style={{ fontSize: `${slide.countdownTimeSize || 180}px`, fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1, margin: '20px 0', color: slide.countdownTextColor || '#ffffff' }}>
+              {slide.countdownTime || '00:00'}
+            </div>
+            {slide.countdownSubtext && (
+              <div style={{ fontSize: `${slide.countdownSubtextSize || 36}px`, opacity: 0.6, fontStyle: 'italic', marginTop: '24px' }}>
+                {slide.countdownSubtext}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

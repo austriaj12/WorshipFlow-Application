@@ -4,8 +4,13 @@ const fs = require('fs');
 const db = require('./database');
 
 // Ensure video/audio items can autoplay immediately and unmute without blocking
+// Enable Chromium Hardware Acceleration & GPU Optimizations
+app.commandLine.appendSwitch('enable-gpu-rasterization');
+app.commandLine.appendSwitch('enable-zero-copy');
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
+let splashWindow = null;
 let operatorWindow = null;
 let projectorWindow = null;
 let stageWindow = null;
@@ -13,6 +18,31 @@ let lastSlideData = null;
 let lastStageData = null;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+
+// Create the Splash Screen Window
+function createSplashWindow() {
+  splashWindow = new BrowserWindow({
+    width: 580,
+    height: 360,
+    transparent: true,
+    backgroundColor: '#00000000',
+    frame: false,
+    alwaysOnTop: true,
+    resizable: false,
+    center: true,
+    icon: path.join(__dirname, 'renderer', 'logo.png'),
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  });
+
+  splashWindow.loadFile(path.join(__dirname, 'splash.html'));
+
+  splashWindow.on('closed', () => {
+    splashWindow = null;
+  });
+}
 
 // Create the Operator Panel Control Window
 function createOperatorWindow() {
@@ -36,10 +66,9 @@ function createOperatorWindow() {
       webSecurity: false
     },
     title: "WorshipFlow",
-    backgroundColor: "#121212"
+    backgroundColor: "#121212",
+    show: false
   });
-
-  operatorWindow.maximize();
 
   if (isDev) {
     operatorWindow.loadURL('http://localhost:5173');
@@ -47,6 +76,38 @@ function createOperatorWindow() {
   } else {
     operatorWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+
+  ipcMain.once('app-ready', () => {
+    // Keep splash screen visible for a minimum of 5 seconds to pre-load assets in the background
+    setTimeout(() => {
+      if (splashWindow && !splashWindow.isDestroyed()) {
+        splashWindow.close();
+        splashWindow = null;
+      }
+      setTimeout(() => {
+        if (operatorWindow && !operatorWindow.isDestroyed()) {
+          operatorWindow.show();
+          operatorWindow.maximize();
+        }
+      }, 350);
+    }, 5000);
+  });
+
+  operatorWindow.on('close', (e) => {
+    e.preventDefault();
+    const choice = dialog.showMessageBoxSync(operatorWindow, {
+      type: 'question',
+      buttons: ['Yes', 'No'],
+      title: 'Exit Confirmation',
+      message: 'Are you sure you want to close WorshipFlow?',
+      defaultId: 1,
+      cancelId: 1
+    });
+
+    if (choice === 0) {
+      operatorWindow.destroy(); // bypass the interceptor to close cleanly
+    }
+  });
 
   operatorWindow.on('closed', () => {
     operatorWindow = null;
@@ -1034,13 +1095,7 @@ try {
     return { success: true, song };
   } catch (err) {
     console.error('PowerPoint export failed:', err);
-    await dialog.showMessageBox(operatorWindow, {
-      type: 'info',
-      title: 'WorshipFlow - PowerPoint Import Guide',
-      message: 'To import PowerPoint presentations with 100% accurate layout, images, and fonts, please save your PowerPoint file as a PDF (File > Save As > PDF) and use the "PDF" option to import. This ensures perfect projection quality on any computer.',
-      buttons: ['OK']
-    });
-    return { success: false };
+    return { success: false, error: err.message };
   }
 });
 
@@ -1241,6 +1296,9 @@ app.whenReady().then(async () => {
     // Auto-start stage & remote control server on launch (Port 5174)
     startStageServer(5174);
     console.log('Stage & Remote control server started automatically on port 5174.');
+
+    // Open the splash screen preloader first
+    createSplashWindow();
 
     // Open only the operator dashboard window on startup (no projector)
     createOperatorWindow();

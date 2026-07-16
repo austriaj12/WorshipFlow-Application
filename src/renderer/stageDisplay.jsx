@@ -17,7 +17,12 @@ function StageDisplay() {
     nextSlideText: '',
     nextSlideBg: '',
     nextSlideLabel: '',
-    countdownTime: '00:00'
+    countdownTime: '00:00',
+    isBible: false,
+    stageMainFontSize: 90,
+    stageUpNextFontSize: 60,
+    bibleFontSize: 48,
+    bibleRefColor: '#ef4444'
   });
   const [clockTime, setClockTime] = useState('');
   const rowDragState = useRef({ dragging: false, index: -1, startY: 0, startHeights: null });
@@ -111,7 +116,12 @@ function StageDisplay() {
           topLineColor: data.topLineColor || prev.topLineColor,
           middleLineColor: data.middleLineColor || prev.middleLineColor,
           mainLineColor: data.mainLineColor || prev.mainLineColor,
-          upNextLineColor: data.upNextLineColor || prev.upNextLineColor
+          upNextLineColor: data.upNextLineColor || prev.upNextLineColor,
+          isBible: data.isBible || false,
+          stageMainFontSize: data.stageMainFontSize || prev.stageMainFontSize,
+          stageUpNextFontSize: data.stageUpNextFontSize || prev.stageUpNextFontSize,
+          bibleFontSize: data.bibleFontSize || prev.bibleFontSize,
+          bibleRefColor: data.bibleRefColor || prev.bibleRefColor
         }));
       });
     } else {
@@ -148,7 +158,12 @@ function StageDisplay() {
               topLineColor: data.topLineColor || prev.topLineColor,
               middleLineColor: data.middleLineColor || prev.middleLineColor,
               mainLineColor: data.mainLineColor || prev.mainLineColor,
-              upNextLineColor: data.upNextLineColor || prev.upNextLineColor
+              upNextLineColor: data.upNextLineColor || prev.upNextLineColor,
+              isBible: data.isBible || false,
+              stageMainFontSize: data.stageMainFontSize || prev.stageMainFontSize,
+              stageUpNextFontSize: data.stageUpNextFontSize || prev.stageUpNextFontSize,
+              bibleFontSize: data.bibleFontSize || prev.bibleFontSize,
+              bibleRefColor: data.bibleRefColor || prev.bibleRefColor
             }));
           }
         } catch (err) {
@@ -176,10 +191,86 @@ function StageDisplay() {
     return () => clearInterval(timer);
   }, [stageData.showClock]);
 
+  const [resizeTrigger, setResizeTrigger] = useState(0);
+  const mainTextRef = useRef(null);
+  const nextTextRef = useRef(null);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setResizeTrigger(prev => prev + 1);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  useEffect(() => {
+    if (!mainTextRef.current) return;
+    const parent = mainTextRef.current.parentElement;
+    if (!parent) return;
+
+    const baseSize = stageData.isBible 
+      ? (stageData.bibleFontSize || 48) 
+      : (stageData.stageMainFontSize || 70);
+
+    let size = baseSize;
+    mainTextRef.current.style.fontSize = `${size}px`;
+
+    const rowContainer = parent.closest('.stage-row-middle');
+    if (!rowContainer) return;
+
+    const maxAllowedHeight = rowContainer.clientHeight * 0.85;
+    let iterations = 0;
+
+    const adjustSize = () => {
+      while (
+        mainTextRef.current.scrollHeight > maxAllowedHeight && 
+        size > 18 && 
+        iterations < 30
+      ) {
+        size -= 2;
+        mainTextRef.current.style.fontSize = `${size}px`;
+        iterations++;
+      }
+    };
+    
+    adjustSize();
+    requestAnimationFrame(adjustSize);
+  }, [stageData.text, stageData.bibleFontSize, stageData.stageMainFontSize, stageData.isBible, rowHeights.middle, resizeTrigger]);
+
+  useEffect(() => {
+    if (!nextTextRef.current) return;
+    const parent = nextTextRef.current.parentElement;
+    if (!parent) return;
+
+    const baseSize = stageData.stageUpNextFontSize || 40;
+    let size = baseSize;
+    nextTextRef.current.style.fontSize = `${size}px`;
+
+    const rowContainer = parent.closest('.stage-row-bottom');
+    if (!rowContainer) return;
+
+    const maxAllowedHeight = rowContainer.clientHeight * 0.75;
+    let iterations = 0;
+
+    const adjustSize = () => {
+      while (
+        nextTextRef.current.scrollHeight > maxAllowedHeight && 
+        size > 14 && 
+        iterations < 30
+      ) {
+        size -= 2;
+        nextTextRef.current.style.fontSize = `${size}px`;
+        iterations++;
+      }
+    };
+    
+    adjustSize();
+    requestAnimationFrame(adjustSize);
+  }, [stageData.nextSlideText, stageData.stageUpNextFontSize, rowHeights.bottom, resizeTrigger]);
+
   const slideStyle = stageData.style
     ? {
         fontFamily: stageData.style.font || 'Inter',
-        fontSize: `${stageData.style.size || 90}px`,
         fontWeight: stageData.style.weight || 'bold',
         color: stageData.style.color || '#ffffff',
         textAlign: stageData.style.align || 'center',
@@ -188,7 +279,6 @@ function StageDisplay() {
       }
     : {
         fontFamily: 'Inter',
-        fontSize: '72px',
         color: '#fff',
         textAlign: 'center',
         whiteSpace: 'pre-wrap',
@@ -264,15 +354,13 @@ function StageDisplay() {
             )}
           </div>
         </div>
-        <div
+         <div
           onMouseDown={(e) => handleStartRowDrag(0, e)}
-          style={{ height: '12px', cursor: 'row-resize', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.05)' }}
-        >
-          <div style={{ width: '80px', height: '4px', background: 'rgba(255,255,255,0.22)', borderRadius: '999px' }} />
-        </div>
+          style={{ height: '12px', cursor: 'row-resize', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent' }}
+        />
 
         {/* Middle Main Lyrics Row */}
-        <div style={{ height: `${rowHeights.middle}%`, display: 'flex', flexDirection: 'column', borderBottom: `4px solid ${stageData.middleLineColor || '#0284c7'}`, boxSizing: 'border-box', padding: '24px', position: 'relative', overflow: 'hidden' }}>
+        <div className="stage-row-middle" style={{ height: `${rowHeights.middle}%`, display: 'flex', flexDirection: 'column', borderBottom: `4px solid ${stageData.middleLineColor || '#0284c7'}`, boxSizing: 'border-box', padding: '24px', position: 'relative', overflow: 'hidden' }}>
           {/* Render background/slide graphics only for PPT, PDF, or Media loops (suppressed for song lyrics) */}
           {!stageData.blackout && !stageData.text && stageData.bgAsset && (
             <div style={{ position: 'absolute', inset: 0, zIndex: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000' }}>
@@ -299,10 +387,30 @@ function StageDisplay() {
             <span style={{ width: '10px', height: '28px', borderRadius: '999px', background: stageData.mainLineColor || '#7dd3fc' }} />
             <span>{stageData.label ? stageData.label.toUpperCase() : 'MAIN'}</span>
           </div>
+
           <div style={{ display: 'flex', flex: 1, width: '100%', minHeight: 0, marginTop: '10px', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
             {stageData.text ? (
               <div style={{ width: '100%', textAlign: slideStyle.textAlign, maxWidth: '100%' }}>
-                <div style={{ ...slideStyle, fontSize: slideStyle.fontSize, lineHeight: 1.1 }} className="projector-text-shadow">
+                {stageData.isBible && stageData.label && !stageData.blackout && !stageData.clearLyrics && (
+                  <div 
+                    style={{
+                      backgroundColor: stageData.bibleRefColor || '#ef4444',
+                      color: '#ffffff',
+                      padding: '6px 18px',
+                      borderRadius: '9999px',
+                      fontSize: `${stageData.bibleFontSize * 0.45}px`,
+                      fontWeight: 800,
+                      letterSpacing: '0.05em',
+                      textTransform: 'uppercase',
+                      marginBottom: '16px',
+                      display: 'inline-block',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+                    }}
+                  >
+                    {stageData.label}
+                  </div>
+                )}
+                <div ref={mainTextRef} style={{ ...slideStyle, lineHeight: 1.1 }} className="projector-text-shadow">
                   {transformText(stageData.text)}
                 </div>
               </div>
@@ -312,15 +420,13 @@ function StageDisplay() {
             )}
           </div>
         </div>
-        <div
+         <div
           onMouseDown={(e) => handleStartRowDrag(1, e)}
-          style={{ height: '12px', cursor: 'row-resize', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.05)' }}
-        >
-          <div style={{ width: '80px', height: '4px', background: 'rgba(255,255,255,0.22)', borderRadius: '999px' }} />
-        </div>
+          style={{ height: '12px', cursor: 'row-resize', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent' }}
+        />
 
         {/* Bottom Next Lyrics Row */}
-        <div style={{ height: `${rowHeights.bottom}%`, background: '#000', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '24px', boxSizing: 'border-box', overflow: 'hidden', position: 'relative' }}>
+        <div className="stage-row-bottom" style={{ height: `${rowHeights.bottom}%`, background: '#000', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '24px', boxSizing: 'border-box', overflow: 'hidden', position: 'relative' }}>
           {/* Render background/slide preview graphics only for the UP NEXT slide (PPT/PDF pages, suppressed for lyrics) */}
           {!stageData.blackout && !stageData.nextSlideText && stageData.nextSlideBg && (
             <div style={{ position: 'absolute', inset: 0, zIndex: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000' }}>
@@ -349,8 +455,8 @@ function StageDisplay() {
           </div>
           <div style={{ width: '100%', textAlign: 'center', maxWidth: '92%', zIndex: 10 }}>
             {stageData.nextSlideText ? (
-              <div style={{ color: '#fff', fontSize: `${(stageData.style?.size || 90) * 0.75}px`, fontWeight: '700', opacity: 0.85, whiteSpace: 'pre-wrap', lineHeight: 1.2 }}>
-                {stageData.nextSlideText}
+              <div ref={nextTextRef} style={{ color: '#fff', fontWeight: '700', opacity: 0.85, whiteSpace: 'pre-wrap', lineHeight: 1.2 }}>
+                {transformText(stageData.nextSlideText)}
               </div>
             ) : (
               !stageData.nextSlideBg && (

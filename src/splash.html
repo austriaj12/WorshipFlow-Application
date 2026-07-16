@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>WorshipFlow</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background-color: transparent;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    .splash-container {
+      width: 580px;
+      height: 360px;
+      background: #000000;
+      border-radius: 24px;
+      border: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      overflow: hidden;
+      -webkit-app-region: drag;
+    }
+
+    /* Subtle glow behind the logo */
+    .glow-blob {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 300px;
+      height: 300px;
+      background: radial-gradient(circle, rgba(14, 165, 233, 0.15) 0%, rgba(0, 0, 0, 0) 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .content-center {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      z-index: 10;
+    }
+
+    .logo-img {
+      width: 84px;
+      height: 84px;
+      margin-bottom: 20px;
+      filter: drop-shadow(0 0 12px rgba(14, 165, 233, 0.4));
+      animation: float 6s ease-in-out infinite;
+    }
+
+    .app-title {
+      font-size: 32px;
+      font-weight: 800;
+      color: #F8FAFC;
+      letter-spacing: 2px;
+      margin: 0;
+      text-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    }
+
+    .app-subtitle {
+      font-size: 12px;
+      color: #94A3B8;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      margin-top: 8px;
+      font-weight: 600;
+    }
+
+    .loading-container {
+      margin-top: 40px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 240px;
+    }
+
+    .loading-bar-bg {
+      width: 100%;
+      height: 2px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .loading-bar-fill {
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 100%;
+      width: 30%;
+      background: #0EA5E9;
+      border-radius: 2px;
+      box-shadow: 0 0 10px #0EA5E9;
+      animation: slide 2s ease-in-out infinite alternate;
+    }
+
+    .status-text {
+      margin-top: 12px;
+      font-size: 11px;
+      color: #64748B;
+      font-weight: 500;
+      letter-spacing: 0.5px;
+      animation: pulseText 2s ease-in-out infinite;
+    }
+
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      padding: 20px 28px;
+      z-index: 10;
+    }
+
+    .version {
+      font-size: 11px;
+      color: #475569;
+      font-weight: 600;
+      font-family: monospace;
+    }
+
+    .credits {
+      font-size: 10px;
+      color: #475569;
+      font-weight: 500;
+    }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-8px); }
+    }
+
+    @keyframes slide {
+      0% { left: 0; width: 10%; }
+      50% { width: 60%; }
+      100% { left: 90%; width: 10%; }
+    }
+
+    @keyframes pulseText {
+      0%, 100% { opacity: 0.6; }
+      50% { opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="splash-container">
+    <div class="glow-blob"></div>
+    
+    <div class="content-center">
+      <img src="./renderer/logo.png" class="logo-img" alt="Logo" />
+      <h1 class="app-title">WorshipFlow</h1>
+      <p class="app-subtitle">Presentation System</p>
+      
+      <div class="loading-container">
+        <div class="loading-bar-bg">
+          <div class="loading-bar-fill"></div>
+        </div>
+        <div class="status-text" id="status">Initializing system...</div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <div class="version">v1.0.5</div>
+      <div class="credits">Developed by TLSCF Tech Team</div>
+    </div>
+  </div>
+
+  <script>
+    const statuses = [
+      "Initializing local database...",
+      "Loading user configurations...",
+      "Starting Wi-Fi remote server...",
+      "Booting user interface..."
+    ];
+    let i = 0;
+    setInterval(() => {
+      i = (i + 1) % statuses.length;
+      document.getElementById('status').innerText = statuses[i];
+    }, 800);
+  </script>
+</body>
+</html>
