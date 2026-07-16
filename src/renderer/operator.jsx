@@ -61,6 +61,19 @@ if (typeof URL.parse !== 'function') {
   };
 }
 
+// Inline SVG icon components for format badges
+const PPTIcon = ({ className }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={className}>
+    <path d="M6 2a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6H6zm7 1.5L18.5 9H13V3.5zM9 13h2a2 2 0 1 1 0 4H10v2H9v-6zm1 3h1a1 1 0 1 0 0-2h-1v2z"/>
+  </svg>
+);
+
+const PDFIcon = ({ className }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={className}>
+    <path d="M6 2a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6H6zm7 1.5L18.5 9H13V3.5zM8 13h1.5a1.5 1.5 0 1 1 0 3H9v2H8v-5zm4 0h1.2c1 0 1.8.8 1.8 1.8v1.4c0 1-.8 1.8-1.8 1.8H12v-5zm3.5 0H17v1h-1v1h1v1h-1v2h-1v-5h1.5zM9 14v1h.5a.5.5 0 0 0 0-1H9zm4 0v3h.2c.4 0 .8-.3.8-.8v-1.4c0-.4-.4-.8-.8-.8H13z"/>
+  </svg>
+);
+
 const isBgColor = (bg) => {
   if (!bg) return false;
   return bg.startsWith('#') || bg.startsWith('rgb') || bg.startsWith('hsl');
@@ -210,6 +223,8 @@ function OperatorDashboard() {
   const [stagedBgAsset, setStagedBgAsset] = useState(null); // null = nothing selected, "" = no background, string = file path
   const [bgActionStatus, setBgActionStatus] = useState('idle'); // 'idle' | 'success'
   const [draggedIndex, setDraggedIndex] = useState(null);
+  const [isAddingSectionInline, setIsAddingSectionInline] = useState(false);
+  const [newSectionNameInline, setNewSectionNameInline] = useState('');
 
   // Countdown State
   const [countdownMinutes, setCountdownMinutes] = useState(5);
@@ -762,6 +777,7 @@ function OperatorDashboard() {
   };
 
   const detectPlaylistItemType = (item) => {
+    if (item.type === 'section') return 'Section';
     const song = songs.find(s => s.id === item.song_id);
     if (!song) return 'Song';
     if (song.author === 'PowerPoint Import') return 'PowerPoint';
@@ -2347,9 +2363,13 @@ function OperatorDashboard() {
                   <Layers className="h-3.5 w-3.5 text-brand" />
                   Presentation Flow
                 </span>
-                <span className="text-[10px] bg-brand/10 text-brand px-2 py-0.5 rounded font-mono font-bold">
-                  {playlist.length} Items
-                </span>
+                <button
+                  onClick={() => setIsAddingSectionInline(true)}
+                  className="px-2 py-0.5 bg-brand/10 text-brand rounded text-[10px] font-bold hover:bg-brand/20 transition font-mono uppercase"
+                  title="Add Section Name Divider"
+                >
+                  + Section
+                </button>
               </div>
 
               {/* Search Song Library bar inside sidebar */}
@@ -2394,6 +2414,44 @@ function OperatorDashboard() {
                 )}
               </div>
 
+              {/* Inline Section Name Adder Form block */}
+              {isAddingSectionInline && (
+                <div className="p-3 border-b border-[var(--border-app)] bg-appBg/40 flex flex-col gap-2">
+                  <input
+                    type="text"
+                    required
+                    placeholder="Enter section name (e.g. WORSHIP)..."
+                    value={newSectionNameInline}
+                    onChange={e => setNewSectionNameInline(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-appBg border border-[var(--border-app)] rounded text-xs text-textMain placeholder-textMuted focus:outline-none focus:border-brand transition"
+                    autoFocus
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setIsAddingSectionInline(false);
+                        setNewSectionNameInline('');
+                      }}
+                      className="flex-1 py-1 border border-[var(--border-app)] text-textMuted hover:text-textMain rounded text-[10px] font-semibold transition"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (newSectionNameInline.trim()) {
+                          await addToPlaylist(newSectionNameInline.trim(), 'section', null);
+                          setIsAddingSectionInline(false);
+                          setNewSectionNameInline('');
+                        }
+                      }}
+                      className="flex-1 py-1 bg-brand text-white hover:bg-brand/80 rounded text-[10px] font-semibold transition"
+                    >
+                      Add Section
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Sidebar Playlist (Presentation Flow) list */}
               <div className="flex-1 overflow-y-auto p-2 space-y-1.5 scrollbar-thin">
                 {playlist.map((item, index) => {
@@ -2401,6 +2459,26 @@ function OperatorDashboard() {
                   const detectedType = detectPlaylistItemType(item);
 
                   return (
+                    detectedType === 'Section' ? (
+                      <div 
+                        key={item.id}
+                        className="py-1 px-2.5 bg-[#10141D] border-y border-[var(--border-app)] text-[#1E4E79] font-bold text-[10px] tracking-wider uppercase font-sans flex items-center justify-between select-none"
+                      >
+                        <span>{item.name}</span>
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (confirm(`Remove section "${item.name}"?`)) {
+                              await removeFromPlaylist(item.id);
+                            }
+                          }}
+                          className="text-textMuted hover:text-liveDanger transition-colors"
+                          title="Remove Section"
+                        >
+                          <Trash className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ) : (
                     <div 
                       key={item.id}
                       draggable
@@ -2423,9 +2501,25 @@ function OperatorDashboard() {
                         
                         <div className="flex flex-col min-w-0 flex-1">
                           <span className="font-semibold text-xs truncate leading-snug">{item.name}</span>
-                          <span className="text-[9px] text-textMuted uppercase font-mono tracking-wider font-bold">
-                            {detectedType}
-                          </span>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            {detectedType === 'PowerPoint' && (
+                              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-orange-500/10 border border-orange-500/30 text-orange-400 text-[8px] font-mono font-bold tracking-wider uppercase">
+                                <PPTIcon className="h-2.5 w-2.5" />
+                                PPTX
+                              </span>
+                            )}
+                            {detectedType === 'PDF' && (
+                              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-500/10 border border-red-500/30 text-red-400 text-[8px] font-mono font-bold tracking-wider uppercase">
+                                <PDFIcon className="h-2.5 w-2.5" />
+                                PDF
+                              </span>
+                            )}
+                            {detectedType !== 'PowerPoint' && detectedType !== 'PDF' && (
+                              <span className="text-[9px] text-textMuted uppercase font-mono tracking-wider font-bold">
+                                {detectedType}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
 
@@ -2450,6 +2544,7 @@ function OperatorDashboard() {
                         <Trash className="h-3.5 w-3.5" />
                       </button>
                     </div>
+                  )
                   );
                 })}
 
@@ -2839,21 +2934,7 @@ function OperatorDashboard() {
                             </div>
                           )}
 
-                          {/* Adjustable Background Height Control */}
-                          <div>
-                            <div className="flex justify-between items-center mb-1">
-                              <label className="text-[10px] text-textMuted uppercase font-mono font-bold">Background Height</label>
-                              <span className="text-[10px] font-mono text-textMuted">{bgHeight}%</span>
-                            </div>
-                            <input 
-                              type="range" 
-                              min="10" 
-                              max="100" 
-                              value={bgHeight} 
-                              onChange={(e) => setBgHeight(parseInt(e.target.value))}
-                              className="w-full h-1 bg-[#10141D] rounded-lg appearance-none cursor-pointer accent-brand"
-                            />
-                          </div>
+
 
                           {/* Apply To Segmented Controls */}
                           <div>
