@@ -226,6 +226,13 @@ function OperatorDashboard() {
   const [isAddingSectionInline, setIsAddingSectionInline] = useState(false);
   const [newSectionNameInline, setNewSectionNameInline] = useState('');
 
+  // Slide Transition Hotspot State
+  const [slideTransitions, setSlideTransitions] = useState({}); // { [slideIndex]: 'fade' | 'none' }
+  const [hoveredTransitionGap, setHoveredTransitionGap] = useState(null); // index of the gap being hovered
+
+  // Right-click context menu for playlist items
+  const [playlistContextMenu, setPlaylistContextMenu] = useState(null); // { x, y, itemId, itemName, itemIndex }
+
   // Countdown State
   const [countdownMinutes, setCountdownMinutes] = useState(5);
   const [countdownSeconds, setCountdownSeconds] = useState(0);
@@ -1416,6 +1423,7 @@ function OperatorDashboard() {
               bgAsset: activeBgAsset,
               style: activeSlideStyle,
               isImportedSlide: !!(slides && slides[activeSlideIndex] && slides[activeSlideIndex].bgAsset),
+              transitionToNext: (activeSlideIndex > 0 && slideTransitions[activeSlideIndex - 1] === 'fade') ? 'fade' : 'none',
               countdownActive: false,
               timerActive: false,
               blackout,
@@ -1450,7 +1458,8 @@ function OperatorDashboard() {
     countdownActive, countdownMinutes, countdownSeconds, countdownTitle, countdownSubtext, countdownBgColor, countdownTextColor, countdownTitleSize, countdownTimeSize, countdownSubtextSize, countdownShowOn,
     timerActive, timerMinutes, timerSeconds, timerTitle, timerBgColor, timerTextColor, timerTitleSize, timerTimeSize, timerShowOn,
     stageTopLineColor, stageMiddleLineColor, stageMainLineColor, stageUpNextLineColor,
-    mediaPlaying, mediaLoop, mediaVolume, isLiveActive
+    mediaPlaying, mediaLoop, mediaVolume, isLiveActive,
+    slideTransitions
   ]);
 
   // Sync operator volume element ref
@@ -2490,6 +2499,17 @@ function OperatorDashboard() {
                           selectSong(item.song_id);
                         }
                       }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setPlaylistContextMenu({
+                          x: e.clientX,
+                          y: e.clientY,
+                          itemId: item.id,
+                          itemName: item.name,
+                          itemIndex: index
+                        });
+                      }}
                       className={`p-2 rounded-lg cursor-grab active:cursor-grabbing group border transition flex items-center justify-between gap-2 ${
                         isSelected 
                           ? 'bg-brand/10 border-brand/40 text-textMain' 
@@ -2555,6 +2575,106 @@ function OperatorDashboard() {
                 )}
               </div>
             </aside>
+
+            {/* Right-click Context Menu for Playlist Items */}
+            {playlistContextMenu && (
+              <div 
+                className="fixed inset-0 z-[9999]" 
+                onClick={() => setPlaylistContextMenu(null)}
+                onContextMenu={(e) => { e.preventDefault(); setPlaylistContextMenu(null); }}
+              >
+                <div 
+                  className="absolute bg-appPanel border border-[var(--border-app)] rounded-lg shadow-2xl shadow-black/40 py-1 min-w-[180px] text-xs backdrop-blur-xl"
+                  style={{ 
+                    left: `${Math.min(playlistContextMenu.x, window.innerWidth - 200)}px`, 
+                    top: `${Math.min(playlistContextMenu.y, window.innerHeight - 300)}px` 
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="px-3 py-1.5 text-[9px] text-textMuted uppercase font-mono tracking-wider font-bold border-b border-[var(--border-app)] mb-1 truncate">
+                    {playlistContextMenu.itemName}
+                  </div>
+                  
+                  {/* Move to Top / Bottom */}
+                  <button
+                    onClick={() => {
+                      const fromIdx = playlistContextMenu.itemIndex;
+                      if (fromIdx > 0) {
+                        const newList = [...playlist];
+                        const [moved] = newList.splice(fromIdx, 1);
+                        newList.unshift(moved);
+                        reorderPlaylist(newList);
+                      }
+                      setPlaylistContextMenu(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-left text-textMain hover:bg-brand/10 hover:text-brand transition flex items-center gap-2"
+                  >
+                    <ArrowUp className="h-3 w-3" /> Move to Top
+                  </button>
+                  <button
+                    onClick={() => {
+                      const fromIdx = playlistContextMenu.itemIndex;
+                      if (fromIdx < playlist.length - 1) {
+                        const newList = [...playlist];
+                        const [moved] = newList.splice(fromIdx, 1);
+                        newList.push(moved);
+                        reorderPlaylist(newList);
+                      }
+                      setPlaylistContextMenu(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-left text-textMain hover:bg-brand/10 hover:text-brand transition flex items-center gap-2"
+                  >
+                    <ChevronDown className="h-3 w-3" /> Move to Bottom
+                  </button>
+
+                  {/* Move to Section Submenu */}
+                  {playlist.filter(p => detectPlaylistItemType(p) === 'Section').length > 0 && (
+                    <>
+                      <div className="border-t border-[var(--border-app)] my-1" />
+                      <div className="px-3 py-1 text-[9px] text-textMuted uppercase font-mono tracking-wider">Move to Section</div>
+                      {playlist.map((p, pIdx) => {
+                        if (detectPlaylistItemType(p) !== 'Section') return null;
+                        return (
+                          <button
+                            key={p.id}
+                            onClick={() => {
+                              const fromIdx = playlistContextMenu.itemIndex;
+                              if (fromIdx !== pIdx && fromIdx !== pIdx + 1) {
+                                const newList = [...playlist];
+                                const [moved] = newList.splice(fromIdx, 1);
+                                // Insert right after the section header
+                                const targetInsertIdx = fromIdx < pIdx ? pIdx : pIdx + 1;
+                                newList.splice(targetInsertIdx, 0, moved);
+                                reorderPlaylist(newList);
+                              }
+                              setPlaylistContextMenu(null);
+                            }}
+                            className="w-full px-3 py-1.5 pl-5 text-left text-textMain hover:bg-[#1E4E79]/20 hover:text-[#5BA3D9] transition flex items-center gap-2 truncate"
+                          >
+                            <Layers className="h-3 w-3 text-[#1E4E79]" />
+                            {p.name}
+                          </button>
+                        );
+                      })}
+                    </>
+                  )}
+
+                  {/* Remove */}
+                  <div className="border-t border-[var(--border-app)] my-1" />
+                  <button
+                    onClick={async () => {
+                      if (confirm(`Remove "${playlistContextMenu.itemName}" from Presentation Flow?`)) {
+                        await removeFromPlaylist(playlistContextMenu.itemId);
+                      }
+                      setPlaylistContextMenu(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-left text-liveDanger hover:bg-liveDanger/10 transition flex items-center gap-2"
+                  >
+                    <Trash className="h-3 w-3" /> Remove from Flow
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Center Column: Slide Explorer */}
             <section className="flex-1 flex flex-col bg-appBg">
@@ -2742,110 +2862,161 @@ function OperatorDashboard() {
                     <div className="flex-1 overflow-y-auto p-4">
                       {slides.length > 0 ? (
                         /* Use flex wrap with custom slide card width matching slidePreviewSize setting */
-                        <div className="flex flex-wrap gap-4 items-start justify-start">
+                        <div className="flex flex-wrap items-start justify-start" style={{ gap: '4px' }}>
                           {slides.map((slide, index) => {
                             const isActive = (bibleLiveSlides !== null || (liveSong && selectedSong && liveSong.id === selectedSong.id)) && index === activeSlideIndex;
                             const isSelected = selectedSlideIndexes.includes(index);
+                            const hasTransition = slideTransitions[index] === 'fade';
+                            const prevHasTransition = index > 0 && slideTransitions[index - 1] === 'fade';
                             return (
-                              <div 
-                                key={index}
-                                onClick={(e) => {
-                                  if (e.ctrlKey || e.metaKey || e.shiftKey) {
-                                    if (selectedSlideIndexes.includes(index)) {
-                                      if (selectedSlideIndexes.length > 1) {
-                                        setSelectedSlideIndexes(selectedSlideIndexes.filter(i => i !== index));
-                                      }
-                                    } else {
-                                      setSelectedSlideIndexes([...selectedSlideIndexes, index]);
-                                    }
-                                  } else {
-                                    setSelectedSlideIndexes([index]);
-                                    handleSelectSlide(index, slides);
-                                  }
-                                }}
-                                className={`aspect-video rounded-lg relative overflow-hidden flex flex-col justify-between p-3 cursor-pointer group transition-all duration-200 border-2 bg-black ${getSlideCardBorderClass(slide.label, isActive, isSelected)}`}
-                                style={{
-                                  containerType: 'inline-size',
-                                  width: `${slidePreviewSize * 2.8}px`,
-                                  minWidth: '140px',
-                                  maxWidth: '560px'
-                                }}
-                              >
-                                {/* Solid Color Background Layer */}
-                                {slide.style?.background && isBgColor(slide.style.background) && (
+                              <React.Fragment key={index}>
+                                {/* Transition Hotspot Zone between slides */}
+                                {index > 0 && (
                                   <div 
-                                    style={{
-                                      position: 'absolute',
-                                      left: 0,
-                                      right: 0,
-                                      height: slide.style?.bgHeight || '100%',
-                                      top: '50%',
-                                      transform: 'translateY(-50%)',
-                                      backgroundColor: slide.style?.background || '#000000',
-                                      zIndex: 0
-                                    }}
-                                  />
-                                )}
-
-                                {/* bgAsset: full-cover slide image (PowerPoint/PDF imports) */}
-                                {slide.bgAsset && (
-                                  <div className="absolute inset-0 z-0 w-full h-full">
-                                    <img 
-                                      src={`file:///${slide.bgAsset.replace(/\\/g, '/')}`}
-                                      className="w-full h-full object-cover" 
-                                      alt=""
-                                    />
-                                  </div>
-                                )}
-                                {/* style.background overlay: shared video/image background for songs */}
-                                {!slide.bgAsset && (slide.style && slide.style.background) && !isBgColor(slide.style.background) && (
-                                  <div 
-                                    className="absolute inset-x-0 z-0 w-full"
-                                    style={{
-                                      height: slide.style?.bgHeight || '100%',
-                                      top: '50%',
-                                      transform: 'translateY(-50%)'
-                                    }}
+                                    className="flex flex-col items-center justify-center self-stretch relative"
+                                    style={{ width: '20px', minHeight: '60px' }}
+                                    onMouseEnter={() => setHoveredTransitionGap(index)}
+                                    onMouseLeave={() => setHoveredTransitionGap(null)}
                                   >
-                                    {/\.(mp4|webm|mov|avi)($|\?)/i.test(slide.style.background) ? (
-                                      <video 
-                                        src={slide.style.background} 
-                                        muted 
-                                        loop 
-                                        autoPlay 
-                                        playsInline 
-                                        className="w-full h-full object-cover opacity-40 group-hover:opacity-50 transition-opacity" 
-                                      />
-                                    ) : (
-                                      <img 
-                                        src={slide.style.background} 
-                                        className="w-full h-full object-cover opacity-40 group-hover:opacity-50 transition-opacity" 
-                                        alt="" 
-                                      />
+                                    {/* Visible connector when transition is active */}
+                                    {prevHasTransition && (
+                                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                        <div className="w-0.5 h-full bg-gradient-to-b from-transparent via-emerald-400/80 to-transparent rounded-full shadow-[0_0_8px_rgba(52,211,153,0.5)]" />
+                                      </div>
+                                    )}
+                                    {/* Hover reveal button */}
+                                    {hoveredTransitionGap === index && (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const prevIdx = index - 1;
+                                          setSlideTransitions(prev => ({
+                                            ...prev,
+                                            [prevIdx]: prev[prevIdx] === 'fade' ? 'none' : 'fade'
+                                          }));
+                                        }}
+                                        className={`z-20 p-1 rounded-full border shadow-lg transition-all duration-150 ${
+                                          slideTransitions[index - 1] === 'fade'
+                                            ? 'bg-emerald-500/30 border-emerald-400/60 text-emerald-300 shadow-emerald-500/20'
+                                            : 'bg-appPanel/90 border-[var(--border-app)] text-textMuted hover:text-brand hover:border-brand/50'
+                                        }`}
+                                        title={slideTransitions[index - 1] === 'fade' ? 'Remove Fade Transition' : 'Add Fade Transition'}
+                                      >
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
+                                          <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 2a5 5 0 0 1 0 10V3z" />
+                                        </svg>
+                                      </button>
+                                    )}
+                                    {/* Active fade indicator icon (always visible when transition is set) */}
+                                    {!hoveredTransitionGap && prevHasTransition && (
+                                      <div className="z-10 p-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-400">
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-2.5 w-2.5">
+                                          <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 2a5 5 0 0 1 0 10V3z" />
+                                        </svg>
+                                      </div>
                                     )}
                                   </div>
                                 )}
-                                <div className="z-10 flex justify-between">
-                                  <span className="bg-black/70 px-1.5 py-0.5 rounded text-[8px] font-mono text-textMuted">{index + 1}</span>
-                                  {!slide.bgAsset && <span className={`px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase tracking-wider ${getLabelBadgeStyle(slide.label).bg} ${getLabelBadgeStyle(slide.label).text}`}>{slide.label}</span>}
-                                </div>
+                                {/* Slide Card */}
                                 <div 
-                                  style={{
-                                    fontFamily: `'${slide.style?.font || 'Inter'}', sans-serif`,
-                                    fontSize: `${((slide.style?.size || 90) / 19.2).toFixed(3)}cqw`,
-                                    fontWeight: { 'normal': 400, 'semibold': 600, 'bold': 700, 'extrabold': 800 }[slide.style?.weight] || slide.style?.weight || 700,
-                                    lineHeight: slide.style?.lineHeight || 1.4,
-                                    letterSpacing: `${slide.style?.letterSpacing || 0}px`,
-                                    color: slide.style?.color || '#ffffff',
-                                    textAlign: slide.style?.align || 'center',
-                                    justifyContent: slide.style?.vertical === 'top' ? 'flex-start' : slide.style?.vertical === 'bottom' ? 'flex-end' : 'center',
-                                    whiteSpace: 'pre-wrap'
+                                  onClick={(e) => {
+                                    if (e.ctrlKey || e.metaKey || e.shiftKey) {
+                                      if (selectedSlideIndexes.includes(index)) {
+                                        if (selectedSlideIndexes.length > 1) {
+                                          setSelectedSlideIndexes(selectedSlideIndexes.filter(i => i !== index));
+                                        }
+                                      } else {
+                                        setSelectedSlideIndexes([...selectedSlideIndexes, index]);
+                                      }
+                                    } else {
+                                      setSelectedSlideIndexes([index]);
+                                      handleSelectSlide(index, slides);
+                                    }
                                   }}
-                                  className="z-10 flex-1 flex flex-col my-1 text-center whitespace-pre-line leading-tight projector-text-shadow"
+                                  className={`aspect-video rounded-lg relative overflow-hidden flex flex-col justify-between p-3 cursor-pointer group transition-all duration-200 border-2 bg-black ${getSlideCardBorderClass(slide.label, isActive, isSelected)}`}
+                                  style={{
+                                    containerType: 'inline-size',
+                                    width: `${slidePreviewSize * 2.8}px`,
+                                    minWidth: '140px',
+                                    maxWidth: '560px'
+                                  }}
                                 >
-                                  {!slide.bgAsset && slide.text}
+                                  {/* Solid Color Background Layer */}
+                                  {slide.style?.background && isBgColor(slide.style.background) && (
+                                    <div 
+                                      style={{
+                                        position: 'absolute',
+                                        left: 0,
+                                        right: 0,
+                                        height: slide.style?.bgHeight || '100%',
+                                        top: '50%',
+                                        transform: 'translateY(-50%)',
+                                        backgroundColor: slide.style?.background || '#000000',
+                                        zIndex: 0
+                                      }}
+                                    />
+                                  )}
+
+                                  {/* bgAsset: full-cover slide image (PowerPoint/PDF imports) */}
+                                  {slide.bgAsset && (
+                                    <div className="absolute inset-0 z-0 w-full h-full">
+                                      <img 
+                                        src={`file:///${slide.bgAsset.replace(/\\/g, '/')}`}
+                                        className="w-full h-full object-cover" 
+                                        alt=""
+                                      />
+                                    </div>
+                                  )}
+                                  {/* style.background overlay: shared video/image background for songs */}
+                                  {!slide.bgAsset && (slide.style && slide.style.background) && !isBgColor(slide.style.background) && (
+                                    <div 
+                                      className="absolute inset-x-0 z-0 w-full"
+                                      style={{
+                                        height: slide.style?.bgHeight || '100%',
+                                        top: '50%',
+                                        transform: 'translateY(-50%)'
+                                      }}
+                                    >
+                                      {/\.(mp4|webm|mov|avi)($|\?)/i.test(slide.style.background) ? (
+                                        <video 
+                                          src={slide.style.background} 
+                                          muted 
+                                          loop 
+                                          autoPlay 
+                                          playsInline 
+                                          className="w-full h-full object-cover opacity-40 group-hover:opacity-50 transition-opacity" 
+                                        />
+                                      ) : (
+                                        <img 
+                                          src={slide.style.background} 
+                                          className="w-full h-full object-cover opacity-40 group-hover:opacity-50 transition-opacity" 
+                                          alt="" 
+                                        />
+                                      )}
+                                    </div>
+                                  )}
+                                  <div className="z-10 flex justify-between">
+                                    <span className="bg-black/70 px-1.5 py-0.5 rounded text-[8px] font-mono text-textMuted">{index + 1}</span>
+                                    {!slide.bgAsset && <span className={`px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase tracking-wider ${getLabelBadgeStyle(slide.label).bg} ${getLabelBadgeStyle(slide.label).text}`}>{slide.label}</span>}
+                                  </div>
+                                  <div 
+                                    style={{
+                                      fontFamily: `'${slide.style?.font || 'Inter'}', sans-serif`,
+                                      fontSize: `${((slide.style?.size || 90) / 19.2).toFixed(3)}cqw`,
+                                      fontWeight: { 'normal': 400, 'semibold': 600, 'bold': 700, 'extrabold': 800 }[slide.style?.weight] || slide.style?.weight || 700,
+                                      lineHeight: slide.style?.lineHeight || 1.4,
+                                      letterSpacing: `${slide.style?.letterSpacing || 0}px`,
+                                      color: slide.style?.color || '#ffffff',
+                                      textAlign: slide.style?.align || 'center',
+                                      justifyContent: slide.style?.vertical === 'top' ? 'flex-start' : slide.style?.vertical === 'bottom' ? 'flex-end' : 'center',
+                                      whiteSpace: 'pre-wrap'
+                                    }}
+                                    className="z-10 flex-1 flex flex-col my-1 text-center whitespace-pre-line leading-tight projector-text-shadow"
+                                  >
+                                    {!slide.bgAsset && slide.text}
+                                  </div>
                                 </div>
-                              </div>
+                              </React.Fragment>
                             );
                           })}
                         </div>
