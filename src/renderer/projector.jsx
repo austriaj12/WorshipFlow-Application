@@ -265,13 +265,24 @@ function ProjectorScreen() {
     const paddingX = slide.style.bgPaddingX !== undefined ? slide.style.bgPaddingX : 48;
     const paddingY = slide.style.bgPaddingY !== undefined ? slide.style.bgPaddingY : 24;
 
-    return {
+    const baseStyle = {
       backgroundColor: `rgba(${r}, ${g}, ${b}, ${opacity / 100})`,
       borderRadius: `${radius}px`,
       padding: `${paddingY}px ${paddingX}px`,
       willChange: 'transform, opacity',
       transform: 'translate3d(0,0,0)'
     };
+    
+    if (slide.style.bgWidth) baseStyle.width = slide.style.bgWidth;
+    if (slide.style.bgHeight) {
+      baseStyle.height = slide.style.bgHeight;
+      baseStyle.display = 'flex';
+      baseStyle.flexDirection = 'column';
+      baseStyle.justifyContent = 'center';
+      baseStyle.alignItems = 'center';
+    }
+    
+    return baseStyle;
   };
 
   const getTransitionDuration = () => {
@@ -324,7 +335,7 @@ function ProjectorScreen() {
         <div 
           className="absolute inset-x-0 w-full"
           style={{
-            height: slide.style?.bgHeight || '100%',
+            height: '100%',
             top: '50%',
             transform: 'translate3d(0, -50%, 0)',
             zIndex: 1,
@@ -350,7 +361,7 @@ function ProjectorScreen() {
         <div 
           className="absolute inset-x-0 w-full"
           style={{
-            height: slide.style?.bgHeight || '100%',
+            height: '100%',
             top: '50%',
             transform: 'translate3d(0, -50%, 0)',
             zIndex: 2,
@@ -377,7 +388,7 @@ function ProjectorScreen() {
         <div 
           className="absolute inset-x-0 w-full z-3"
           style={{
-            height: slide.style?.bgHeight || '100%',
+            height: '100%',
             top: '50%',
             transform: 'translate3d(0, -50%, 0)'
           }}
@@ -397,7 +408,7 @@ function ProjectorScreen() {
             position: 'absolute',
             left: 0,
             right: 0,
-            height: slide.style?.bgHeight || '100%',
+            height: '100%',
             top: '50%',
             transform: 'translateY(-50%)',
             backgroundColor: slide.bgAsset && isBgColor(slide.bgAsset) ? slide.bgAsset : slide.style?.background || '#000000',
@@ -507,12 +518,12 @@ function ProjectorScreen() {
             boxSizing: 'border-box'
           }}
         >
-          {slide.countdownBgAsset && (
+          {(slide.countdownBgMedia || slide.countdownBgAsset) && (
             <div className="absolute inset-0 z-0 overflow-hidden">
-              {/\.(mp4|webm|mov|avi)($|\?)/i.test(slide.countdownBgAsset) ? (
-                <video src={slide.countdownBgAsset} autoPlay muted loop playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              {/\.(mp4|webm|mov|avi)($|\?)/i.test(slide.countdownBgMedia || slide.countdownBgAsset) ? (
+                <video src={slide.countdownBgMedia || slide.countdownBgAsset} autoPlay muted loop playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               ) : (
-                <img src={slide.countdownBgAsset} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
+                <img src={slide.countdownBgMedia || slide.countdownBgAsset} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
               )}
             </div>
           )}
@@ -550,11 +561,22 @@ function ProjectorScreen() {
             boxSizing: 'border-box'
           }}
         >
-          <div style={{ fontSize: `${slide.timerTitleSize || 56}px`, opacity: 0.85, textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '24px', fontWeight: 'bold' }}>
-            {slide.timerTitle || 'Timer'}
-          </div>
-          <div style={{ fontSize: `${slide.timerTimeSize || 180}px`, fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1, margin: '20px 0', color: slide.timerTextColor || '#ffffff' }}>
-            {slide.timerTime || '00:00'}
+          {slide.timerBgMedia && (
+            <div className="absolute inset-0 z-0 overflow-hidden">
+              {/\.(mp4|webm|mov|avi)($|\?)/i.test(slide.timerBgMedia) ? (
+                <video src={slide.timerBgMedia} autoPlay muted loop playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                <img src={slide.timerBgMedia} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
+              )}
+            </div>
+          )}
+          <div className="z-10 flex flex-col items-center">
+            <div style={{ fontSize: `${slide.timerTitleSize || 56}px`, opacity: 0.85, textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '24px', fontWeight: 'bold' }}>
+              {slide.timerTitle || 'Timer'}
+            </div>
+            <div style={{ fontSize: `${slide.timerTimeSize || 180}px`, fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1, margin: '20px 0', color: slide.timerTextColor || '#ffffff' }}>
+              {slide.timerTime || '00:00'}
+            </div>
           </div>
         </div>
       )}

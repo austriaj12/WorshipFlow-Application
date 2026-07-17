@@ -255,6 +255,7 @@ function OperatorDashboard() {
   const [countdownTimeSize, setCountdownTimeSize] = useState(160);
   const [countdownSubtextSize, setCountdownSubtextSize] = useState(36);
   const [countdownBgColor, setCountdownBgColor] = useState("#000000");
+  const [countdownBgMedia, setCountdownBgMedia] = useState(null); // image or video path
   const [countdownTextColor, setCountdownTextColor] = useState("#ffffff");
   const [countdownActive, setCountdownActive] = useState(false);
   const [bibleFontSize, setBibleFontSize] = useState(() => parseInt(localStorage.getItem('bibleFontSize') || '48'));
@@ -269,6 +270,7 @@ function OperatorDashboard() {
   const [timerTitleSize, setTimerTitleSize] = useState(56);
   const [timerTimeSize, setTimerTimeSize] = useState(160);
   const [timerBgColor, setTimerBgColor] = useState("#000000");
+  const [timerBgMedia, setTimerBgMedia] = useState(null);
   const [timerTextColor, setTimerTextColor] = useState("#ffffff");
   const [timerActive, setTimerActive] = useState(false);
 
@@ -407,6 +409,9 @@ function OperatorDashboard() {
   const [songVertical, setSongVertical] = useState('center');
   const [songAnimation, setSongAnimation] = useState('Zoom In/Out');
   const [songSpeed, setSongSpeed] = useState('Medium (0.6s)');
+  const [songBgHeight, setSongBgHeight] = useState(100);
+  const [songBgWidth, setSongBgWidth] = useState(100);
+  const [songBgRadius, setSongBgRadius] = useState(4);
 
   // Form Cursor/Focus synchronization indexes for real-time preview highlight
   const [activeAddPreviewIdx, setActiveAddPreviewIdx] = useState(0);
@@ -1415,6 +1420,7 @@ function OperatorDashboard() {
               countdownTitle,
               countdownSubtext,
               countdownBgColor,
+              countdownBgMedia: countdownBgMedia ? formatBgPath(countdownBgMedia) : null,
               countdownTextColor,
               countdownTitleSize,
               countdownTimeSize,
@@ -1428,6 +1434,7 @@ function OperatorDashboard() {
               timerTime: timerTimeStr,
               timerTitle,
               timerBgColor,
+              timerBgMedia: timerBgMedia ? formatBgPath(timerBgMedia) : null,
               timerTextColor,
               timerTitleSize,
               timerTimeSize,
@@ -1478,7 +1485,7 @@ function OperatorDashboard() {
     timerActive, timerMinutes, timerSeconds, timerTitle, timerBgColor, timerTextColor, timerTitleSize, timerTimeSize, timerShowOn,
     stageTopLineColor, stageMiddleLineColor, stageMainLineColor, stageUpNextLineColor,
     mediaPlaying, mediaLoop, mediaVolume, isLiveActive,
-    slideTransitions, stageMainFontSize, bibleFontSize, bibleRefColor
+    slideTransitions, stageMainFontSize, bibleFontSize, bibleRefColor, countdownBgMedia, timerBgMedia
   ]);
 
   // Sync operator volume element ref
@@ -1821,9 +1828,15 @@ function OperatorDashboard() {
     const g = parseInt(hex.slice(3, 5), 16) || 0;
     const b = parseInt(hex.slice(5, 7), 16) || 0;
     
+    const heightVal = activeSlideStyle.bgHeight !== undefined ? activeSlideStyle.bgHeight : '100%';
+    const widthVal = activeSlideStyle.bgWidth !== undefined ? activeSlideStyle.bgWidth : '100%';
+    const radiusVal = activeSlideStyle.bgRadius !== undefined ? `${activeSlideStyle.bgRadius}px` : '4px';
+
     return {
       backgroundColor: `rgba(${r}, ${g}, ${b}, ${opacity / 100})`,
-      borderRadius: '4px',
+      borderRadius: radiusVal,
+      height: heightVal,
+      width: widthVal,
       padding: '0.2rem 0.4rem'
     };
   };
@@ -1852,7 +1865,16 @@ function OperatorDashboard() {
       const r = parseInt(hex.slice(1, 3), 16) || 0;
       const g = parseInt(hex.slice(3, 5), 16) || 0;
       const b = parseInt(hex.slice(5, 7), 16) || 0;
-      return { backgroundColor: `rgba(${r}, ${g}, ${b}, ${opacity / 100})`, borderRadius: '4px', padding: '0.2rem 0.4rem' };
+      const heightVal = activeSlideStyle.bgHeight !== undefined ? activeSlideStyle.bgHeight : '100%';
+      const widthVal = activeSlideStyle.bgWidth !== undefined ? activeSlideStyle.bgWidth : '100%';
+      const radiusVal = activeSlideStyle.bgRadius !== undefined ? `${activeSlideStyle.bgRadius}px` : '4px';
+      return { 
+        backgroundColor: `rgba(${r}, ${g}, ${b}, ${opacity / 100})`, 
+        borderRadius: radiusVal, 
+        height: heightVal,
+        width: widthVal,
+        padding: '0.2rem 0.4rem' 
+      };
     })();
 
     const anim = activeSlideStyle?.animation || 'Zoom In/Out';
@@ -1987,7 +2009,10 @@ function OperatorDashboard() {
       align: songAlign,
       vertical: songVertical,
       animation: songAnimation,
-      speed: songSpeed
+      speed: songSpeed,
+      bgHeight: songBgHeight,
+      bgWidth: songBgWidth,
+      bgRadius: songBgRadius
     };
 
     const parsedSlides = parseSlidesFromRaw(newSongSlidesRaw, activeStyle, addSlideStyleOverrides);
@@ -2045,6 +2070,9 @@ function OperatorDashboard() {
       setSongVertical(s.vertical || 'center');
       setSongAnimation(s.animation || 'Zoom In/Out');
       setSongSpeed(s.speed || 'Medium (0.6s)');
+      setSongBgHeight(s.bgHeight !== undefined ? parseInt(s.bgHeight) : 100);
+      setSongBgWidth(s.bgWidth !== undefined ? parseInt(s.bgWidth) : 100);
+      setSongBgRadius(s.bgRadius !== undefined ? parseInt(s.bgRadius) : 4);
     }
     
     setIsEditSongOpen(true);
@@ -2066,7 +2094,10 @@ function OperatorDashboard() {
       align: songAlign,
       vertical: songVertical,
       animation: songAnimation,
-      speed: songSpeed
+      speed: songSpeed,
+      bgHeight: songBgHeight,
+      bgWidth: songBgWidth,
+      bgRadius: songBgRadius
     };
 
     const existingSlides = selectedSong.content_json ? JSON.parse(selectedSong.content_json) : [];
@@ -2173,7 +2204,10 @@ function OperatorDashboard() {
       align: songAlign,
       vertical: songVertical,
       animation: songAnimation,
-      speed: songSpeed
+      speed: songSpeed,
+      bgHeight: songBgHeight,
+      bgWidth: songBgWidth,
+      bgRadius: songBgRadius
     };
 
     return parseSlidesFromRaw(rawText, activeStyle, styleOverrides);
@@ -2498,21 +2532,21 @@ function OperatorDashboard() {
                     detectedType === 'Section' ? (
                       <div 
                         key={item.id}
-                        className="group py-2 px-1 border-t border-b border-[var(--border-app)] text-textMain font-bold text-xs tracking-wider uppercase font-sans flex items-center justify-between select-none mt-4 first:mt-0"
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setPlaylistContextMenu({
+                            x: e.clientX,
+                            y: e.clientY,
+                            itemId: item.id,
+                            itemName: item.name,
+                            itemIndex: index,
+                            isSection: true
+                          });
+                        }}
+                        className="py-2 px-1 text-textMain font-bold text-xs tracking-wider uppercase font-sans flex items-center justify-between select-none mt-4 first:mt-0 cursor-context-menu"
                       >
                         <span>{item.name}</span>
-                        <button
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            if (confirm(`Remove section "${item.name}"?`)) {
-                              await removeFromPlaylist(item.id);
-                            }
-                          }}
-                          className="opacity-0 group-hover:opacity-100 text-textMuted hover:text-liveDanger transition-opacity"
-                          title="Remove Section"
-                        >
-                          <Trash className="h-3.5 w-3.5" />
-                        </button>
                       </div>
                     ) : (
                     <div 
@@ -2546,13 +2580,13 @@ function OperatorDashboard() {
                       <div className="flex items-center gap-2 min-w-0 flex-1">
                         <GripVertical className="h-3 w-3 text-textMuted/60 cursor-grab group-hover:text-textMuted transition" />
                         
-                        {/* Render Icon before the title */}
-                        {detectedType === 'PowerPoint' && <PPTIcon className="h-4 w-4 text-orange-500 flex-shrink-0" />}
+                        {/* Render Icon before the title with distinct colors */}
+                        {detectedType === 'PowerPoint' && <PPTIcon className="h-4 w-4 text-amber-500 flex-shrink-0" />}
                         {detectedType === 'PDF' && <PDFIcon className="h-4 w-4 text-red-500 flex-shrink-0" />}
                         {detectedType !== 'PowerPoint' && detectedType !== 'PDF' && (
-                          detectedType === 'Video' ? <Film className="h-4 w-4 text-brand flex-shrink-0" /> : 
-                          detectedType === 'Image' ? <Image className="h-4 w-4 text-brand flex-shrink-0" /> :
-                          <Music className="h-4 w-4 text-brand flex-shrink-0" />
+                          detectedType === 'Video' ? <Film className="h-4 w-4 text-indigo-400 flex-shrink-0" /> : 
+                          detectedType === 'Image' ? <Image className="h-4 w-4 text-sky-400 flex-shrink-0" /> :
+                          <Music className="h-4 w-4 text-emerald-500 flex-shrink-0" />
                         )}
                         
                         <div className="flex flex-col min-w-0 flex-1">
@@ -2612,83 +2646,131 @@ function OperatorDashboard() {
                     {playlistContextMenu.itemName}
                   </div>
                   
-                  {/* Move to Top / Bottom */}
-                  <button
-                    onClick={() => {
-                      const fromIdx = playlistContextMenu.itemIndex;
-                      if (fromIdx > 0) {
-                        const newList = [...playlist];
-                        const [moved] = newList.splice(fromIdx, 1);
-                        newList.unshift(moved);
-                        reorderPlaylist(newList);
-                      }
-                      setPlaylistContextMenu(null);
-                    }}
-                    className="w-full px-3 py-1.5 text-left text-textMain hover:bg-brand/10 hover:text-brand transition flex items-center gap-2"
-                  >
-                    <ArrowUp className="h-3 w-3" /> Move to Top
-                  </button>
-                  <button
-                    onClick={() => {
-                      const fromIdx = playlistContextMenu.itemIndex;
-                      if (fromIdx < playlist.length - 1) {
-                        const newList = [...playlist];
-                        const [moved] = newList.splice(fromIdx, 1);
-                        newList.push(moved);
-                        reorderPlaylist(newList);
-                      }
-                      setPlaylistContextMenu(null);
-                    }}
-                    className="w-full px-3 py-1.5 text-left text-textMain hover:bg-brand/10 hover:text-brand transition flex items-center gap-2"
-                  >
-                    <ChevronDown className="h-3 w-3" /> Move to Bottom
-                  </button>
-
-                  {/* Move to Section Submenu */}
-                  {playlist.filter(p => detectPlaylistItemType(p) === 'Section').length > 0 && (
+                  {playlistContextMenu.isSection ? (
                     <>
+                      {/* Section Context Menu Options */}
+                      <button
+                        onClick={async () => {
+                          if (confirm(`Are you sure you want to remove section "${playlistContextMenu.itemName}"?`)) {
+                            await removeFromPlaylist(playlistContextMenu.itemId);
+                          }
+                          setPlaylistContextMenu(null);
+                        }}
+                        className="w-full px-3 py-1.5 text-left text-liveDanger hover:bg-liveDanger/10 transition flex items-center gap-2"
+                      >
+                        <Trash className="h-3 w-3" /> Remove Section
+                      </button>
+
+                      {playlist.filter((p, i) => detectPlaylistItemType(p) === 'Section' && i !== playlistContextMenu.itemIndex).length > 0 && (
+                        <>
+                          <div className="border-t border-[var(--border-app)] my-1" />
+                          <div className="px-3 py-1 text-[9px] text-textMuted uppercase font-mono tracking-wider">Swap Section with</div>
+                          {playlist.map((p, idx) => {
+                            if (detectPlaylistItemType(p) !== 'Section' || idx === playlistContextMenu.itemIndex) return null;
+                            return (
+                              <button
+                                key={p.id}
+                                onClick={() => {
+                                  // Swapping sections involves swapping their items as well, or just swapping the header positions.
+                                  // Let's swap the specific header elements in the lineup.
+                                  const newList = [...playlist];
+                                  const temp = newList[playlistContextMenu.itemIndex];
+                                  newList[playlistContextMenu.itemIndex] = newList[idx];
+                                  newList[idx] = temp;
+                                  reorderPlaylist(newList);
+                                  setPlaylistContextMenu(null);
+                                }}
+                                className="w-full px-3 py-1.5 pl-5 text-left text-textMain hover:bg-brand/10 hover:text-brand transition flex items-center gap-2 truncate"
+                              >
+                                <Layers className="h-3 w-3 text-[#1E4E79]" />
+                                {p.name}
+                              </button>
+                            );
+                          })}
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {/* Move to Top / Bottom */}
+                      <button
+                        onClick={() => {
+                          const fromIdx = playlistContextMenu.itemIndex;
+                          if (fromIdx > 0) {
+                            const newList = [...playlist];
+                            const [moved] = newList.splice(fromIdx, 1);
+                            newList.unshift(moved);
+                            reorderPlaylist(newList);
+                          }
+                          setPlaylistContextMenu(null);
+                        }}
+                        className="w-full px-3 py-1.5 text-left text-textMain hover:bg-brand/10 hover:text-brand transition flex items-center gap-2"
+                      >
+                        <ArrowUp className="h-3 w-3" /> Move to Top
+                      </button>
+                      <button
+                        onClick={() => {
+                          const fromIdx = playlistContextMenu.itemIndex;
+                          if (fromIdx < playlist.length - 1) {
+                            const newList = [...playlist];
+                            const [moved] = newList.splice(fromIdx, 1);
+                            newList.push(moved);
+                            reorderPlaylist(newList);
+                          }
+                          setPlaylistContextMenu(null);
+                        }}
+                        className="w-full px-3 py-1.5 text-left text-textMain hover:bg-brand/10 hover:text-brand transition flex items-center gap-2"
+                      >
+                        <ChevronDown className="h-3 w-3" /> Move to Bottom
+                      </button>
+
+                      {/* Move to Section Submenu */}
+                      {playlist.filter(p => detectPlaylistItemType(p) === 'Section').length > 0 && (
+                        <>
+                          <div className="border-t border-[var(--border-app)] my-1" />
+                          <div className="px-3 py-1 text-[9px] text-textMuted uppercase font-mono tracking-wider">Move to Section</div>
+                          {playlist.map((p, pIdx) => {
+                            if (detectPlaylistItemType(p) !== 'Section') return null;
+                            return (
+                              <button
+                                key={p.id}
+                                onClick={() => {
+                                  const fromIdx = playlistContextMenu.itemIndex;
+                                  if (fromIdx !== pIdx && fromIdx !== pIdx + 1) {
+                                    const newList = [...playlist];
+                                    const [moved] = newList.splice(fromIdx, 1);
+                                    // Insert right after the section header
+                                    const targetInsertIdx = fromIdx < pIdx ? pIdx : pIdx + 1;
+                                    newList.splice(targetInsertIdx, 0, moved);
+                                    reorderPlaylist(newList);
+                                  }
+                                  setPlaylistContextMenu(null);
+                                }}
+                                className="w-full px-3 py-1.5 pl-5 text-left text-textMain hover:bg-[#1E4E79]/20 hover:text-[#5BA3D9] transition flex items-center gap-2 truncate"
+                              >
+                                <Layers className="h-3 w-3 text-[#1E4E79]" />
+                                {p.name}
+                              </button>
+                            );
+                          })}
+                        </>
+                      )}
+
+                      {/* Remove */}
                       <div className="border-t border-[var(--border-app)] my-1" />
-                      <div className="px-3 py-1 text-[9px] text-textMuted uppercase font-mono tracking-wider">Move to Section</div>
-                      {playlist.map((p, pIdx) => {
-                        if (detectPlaylistItemType(p) !== 'Section') return null;
-                        return (
-                          <button
-                            key={p.id}
-                            onClick={() => {
-                              const fromIdx = playlistContextMenu.itemIndex;
-                              if (fromIdx !== pIdx && fromIdx !== pIdx + 1) {
-                                const newList = [...playlist];
-                                const [moved] = newList.splice(fromIdx, 1);
-                                // Insert right after the section header
-                                const targetInsertIdx = fromIdx < pIdx ? pIdx : pIdx + 1;
-                                newList.splice(targetInsertIdx, 0, moved);
-                                reorderPlaylist(newList);
-                              }
-                              setPlaylistContextMenu(null);
-                            }}
-                            className="w-full px-3 py-1.5 pl-5 text-left text-textMain hover:bg-[#1E4E79]/20 hover:text-[#5BA3D9] transition flex items-center gap-2 truncate"
-                          >
-                            <Layers className="h-3 w-3 text-[#1E4E79]" />
-                            {p.name}
-                          </button>
-                        );
-                      })}
+                      <button
+                        onClick={async () => {
+                          if (confirm(`Remove "${playlistContextMenu.itemName}" from Presentation Flow?`)) {
+                            await removeFromPlaylist(playlistContextMenu.itemId);
+                          }
+                          setPlaylistContextMenu(null);
+                        }}
+                        className="w-full px-3 py-1.5 text-left text-liveDanger hover:bg-liveDanger/10 transition flex items-center gap-2"
+                      >
+                        <Trash className="h-3 w-3" /> Remove from Flow
+                      </button>
                     </>
                   )}
-
-                  {/* Remove */}
-                  <div className="border-t border-[var(--border-app)] my-1" />
-                  <button
-                    onClick={async () => {
-                      if (confirm(`Remove "${playlistContextMenu.itemName}" from Presentation Flow?`)) {
-                        await removeFromPlaylist(playlistContextMenu.itemId);
-                      }
-                      setPlaylistContextMenu(null);
-                    }}
-                    className="w-full px-3 py-1.5 text-left text-liveDanger hover:bg-liveDanger/10 transition flex items-center gap-2"
-                  >
-                    <Trash className="h-3 w-3" /> Remove from Flow
-                  </button>
                 </div>
               </div>
             )}
@@ -2728,7 +2810,16 @@ function OperatorDashboard() {
                           className="w-24 h-1 bg-[#10141D] rounded-lg appearance-none cursor-pointer accent-brand"
                           title="Slide Preview Size Control"
                         />
-                        <span className="text-[10px] font-mono text-textMuted w-10 text-right">{slidePreviewSize}%</span>
+                        <input 
+                          type="number"
+                          min="30"
+                          max="300"
+                          value={slidePreviewSize}
+                          onChange={(e) => setSlidePreviewSize(Math.min(300, Math.max(30, parseInt(e.target.value) || 100)))}
+                          className="w-12 p-0.5 text-center bg-appBg border border-[var(--border-app)] rounded text-textMain text-[10px] focus:outline-none focus:border-brand font-mono"
+                          title="Slide Preview Size Input"
+                        />
+                        <span className="text-[10px] font-mono text-textMuted select-none">%</span>
                       </div>
 
                       {selectedSong.author !== 'PowerPoint Import' && selectedSong.author !== 'PDF Import' && (
@@ -4018,6 +4109,41 @@ function OperatorDashboard() {
                         />
                       </div>
                     </div>
+                    {/* Background Media (Image/Video) Picker */}
+                    <div className="bg-appPanel/40 border border-[var(--border-app)] p-5 rounded-xl flex flex-col gap-3 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-textMain font-medium font-mono uppercase">Countdown BG Media</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!window.api || !window.api.selectFile) return;
+                              const filePath = await window.api.selectFile();
+                              if (filePath) {
+                                setCountdownBgMedia(filePath);
+                              }
+                            }}
+                            className="px-2.5 py-1 bg-brand text-white font-mono text-[10px] font-bold uppercase rounded hover:bg-brand/80 transition"
+                          >
+                            Select BG Media
+                          </button>
+                          {countdownBgMedia && (
+                            <button
+                              type="button"
+                              onClick={() => setCountdownBgMedia(null)}
+                              className="px-2.5 py-1 bg-liveDanger text-white font-mono text-[10px] font-bold uppercase rounded hover:bg-liveDanger/80 transition"
+                            >
+                              Clear
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {countdownBgMedia && (
+                        <div className="font-mono text-[9px] text-textMuted break-all bg-appBg/50 p-2 rounded border border-[var(--border-app)]">
+                          {countdownBgMedia}
+                        </div>
+                      )}
+                    </div>
                     {/* Text Color */}
                     <div className="bg-appPanel/40 border border-[var(--border-app)] p-5 rounded-xl flex items-center justify-between text-xs">
                       <span className="text-textMain font-medium font-mono uppercase">Countdown Time Text Color</span>
@@ -4069,6 +4195,15 @@ function OperatorDashboard() {
                       style={{ backgroundColor: countdownBgColor }}
                       className="w-full aspect-video rounded-xl border border-[var(--border-app)] p-6 relative overflow-hidden flex flex-col justify-center items-center text-center select-none shadow-2xl transition-colors duration-500"
                     >
+                      {countdownBgMedia && (
+                        <div className="absolute inset-0 z-0 w-full h-full">
+                          {/\.(mp4|webm|mov|avi)($|\?)/i.test(countdownBgMedia) ? (
+                            <video src={formatBgPath(countdownBgMedia)} autoPlay muted loop playsInline className="w-full h-full object-cover" />
+                          ) : (
+                            <img src={formatBgPath(countdownBgMedia)} className="w-full h-full object-cover" alt="" />
+                          )}
+                        </div>
+                      )}
                       <div className="space-y-1">
                         <p style={{ fontSize: `${countdownTitleSize * 0.22}px`, color: 'rgba(255,255,255,0.75)' }} className="font-sans font-medium uppercase tracking-widest leading-tight">
                           {countdownTitle || 'Countdown'}
@@ -4225,6 +4360,41 @@ function OperatorDashboard() {
                         />
                       </div>
                     </div>
+                    {/* Background Media (Image/Video) Picker */}
+                    <div className="bg-appPanel/40 border border-[var(--border-app)] p-5 rounded-xl flex flex-col gap-3 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-textMain font-medium font-mono uppercase">Timer BG Media</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!window.api || !window.api.selectFile) return;
+                              const filePath = await window.api.selectFile();
+                              if (filePath) {
+                                setTimerBgMedia(filePath);
+                              }
+                            }}
+                            className="px-2.5 py-1 bg-brand text-white font-mono text-[10px] font-bold uppercase rounded hover:bg-brand/80 transition"
+                          >
+                            Select BG Media
+                          </button>
+                          {timerBgMedia && (
+                            <button
+                              type="button"
+                              onClick={() => setTimerBgMedia(null)}
+                              className="px-2.5 py-1 bg-liveDanger text-white font-mono text-[10px] font-bold uppercase rounded hover:bg-liveDanger/80 transition"
+                            >
+                              Clear
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {timerBgMedia && (
+                        <div className="font-mono text-[9px] text-textMuted break-all bg-appBg/50 p-2 rounded border border-[var(--border-app)]">
+                          {timerBgMedia}
+                        </div>
+                      )}
+                    </div>
                     {/* Text Color */}
                     <div className="bg-appPanel/40 border border-[var(--border-app)] p-5 rounded-xl flex items-center justify-between text-xs">
                       <span className="text-textMain font-medium font-mono uppercase">Timer Text Color</span>
@@ -4247,6 +4417,15 @@ function OperatorDashboard() {
                       style={{ backgroundColor: timerBgColor }}
                       className="w-full aspect-video rounded-xl border border-[var(--border-app)] p-6 relative overflow-hidden flex flex-col justify-center items-center text-center select-none shadow-2xl transition-colors duration-500"
                     >
+                      {timerBgMedia && (
+                        <div className="absolute inset-0 z-0 w-full h-full">
+                          {/\.(mp4|webm|mov|avi)($|\?)/i.test(timerBgMedia) ? (
+                            <video src={formatBgPath(timerBgMedia)} autoPlay muted loop playsInline className="w-full h-full object-cover" />
+                          ) : (
+                            <img src={formatBgPath(timerBgMedia)} className="w-full h-full object-cover" alt="" />
+                          )}
+                        </div>
+                      )}
                       <div className="space-y-1">
                         <p style={{ fontSize: `${timerTitleSize * 0.22}px`, color: 'rgba(255,255,255,0.75)' }} className="font-sans font-medium uppercase tracking-widest leading-tight">
                           {timerTitle || 'Timer'}
@@ -4341,7 +4520,7 @@ function OperatorDashboard() {
                     <input
                       type="range"
                       min="24"
-                      max="140"
+                      max="200"
                       value={stageMainFontSize}
                       onChange={(e) => {
                         const v = parseInt(e.target.value);
@@ -4359,7 +4538,7 @@ function OperatorDashboard() {
                     <input
                       type="range"
                       min="14"
-                      max="48"
+                      max="200"
                       value={stageUpNextFontSize}
                       onChange={(e) => {
                         const v = parseInt(e.target.value);
@@ -4494,26 +4673,43 @@ function OperatorDashboard() {
                   : (!blackout && activeBgAsset && isBgColor(activeBgAsset) ? { backgroundColor: activeBgAsset } : {}))
             }}
           >
-            {/* Background media (only when not in overlay mode) */}
-            {!(countdownActive || timerActive) && !blackout && activeBgAsset && !isBgColor(activeBgAsset) && (
+            {/* Background media */}
+            {!blackout && (
               <div className="absolute inset-0 z-0 w-full h-full">
-                {/\.(mp4|webm|mov|avi)($|\?)/i.test(activeBgAsset) ? (
-                  <video 
-                    src={activeBgAsset} 
-                    autoPlay 
-                    muted 
-                    loop 
-                    playsInline 
-                    className="w-full h-full object-cover" 
-                    style={{ opacity: (slides[activeSlideIndex]?.bgAsset || selectedSong?.author === 'Media') ? 1.0 : 0.6 }} 
-                  />
+                {countdownActive && countdownBgMedia ? (
+                  /\.(mp4|webm|mov|avi)($|\?)/i.test(countdownBgMedia) ? (
+                    <video src={formatBgPath(countdownBgMedia)} autoPlay muted loop playsInline className="w-full h-full object-cover" />
+                  ) : (
+                    <img src={formatBgPath(countdownBgMedia)} className="w-full h-full object-cover" alt="" />
+                  )
+                ) : timerActive && timerBgMedia ? (
+                  /\.(mp4|webm|mov|avi)($|\?)/i.test(timerBgMedia) ? (
+                    <video src={formatBgPath(timerBgMedia)} autoPlay muted loop playsInline className="w-full h-full object-cover" />
+                  ) : (
+                    <img src={formatBgPath(timerBgMedia)} className="w-full h-full object-cover" alt="" />
+                  )
                 ) : (
-                  <img 
-                    src={activeBgAsset} 
-                    className="w-full h-full object-cover" 
-                    style={{ opacity: (slides[activeSlideIndex]?.bgAsset || selectedSong?.author === 'Media') ? 1.0 : 0.6 }} 
-                    alt="" 
-                  />
+                  // Regular slide background
+                  !countdownActive && !timerActive && activeBgAsset && !isBgColor(activeBgAsset) && (
+                    /\.(mp4|webm|mov|avi)($|\?)/i.test(activeBgAsset) ? (
+                      <video 
+                        src={activeBgAsset} 
+                        autoPlay 
+                        muted 
+                        loop 
+                        playsInline 
+                        className="w-full h-full object-cover" 
+                        style={{ opacity: (slides[activeSlideIndex]?.bgAsset || selectedSong?.author === 'Media') ? 1.0 : 0.6 }} 
+                      />
+                    ) : (
+                      <img 
+                        src={activeBgAsset} 
+                        className="w-full h-full object-cover" 
+                        style={{ opacity: (slides[activeSlideIndex]?.bgAsset || selectedSong?.author === 'Media') ? 1.0 : 0.6 }} 
+                        alt="" 
+                      />
+                    )
+                  )
                 )}
               </div>
             )}
@@ -4608,6 +4804,15 @@ function OperatorDashboard() {
               className="w-full aspect-video rounded-lg border border-red-500/40 relative overflow-hidden flex flex-col items-center justify-center text-center p-3"
               style={{ backgroundColor: countdownBgColor || '#000000' }}
             >
+              {countdownBgMedia && (
+                <div className="absolute inset-0 z-0 w-full h-full">
+                  {/\.(mp4|webm|mov|avi)($|\?)/i.test(countdownBgMedia) ? (
+                    <video src={formatBgPath(countdownBgMedia)} autoPlay muted loop playsInline className="w-full h-full object-cover" />
+                  ) : (
+                    <img src={formatBgPath(countdownBgMedia)} className="w-full h-full object-cover" alt="" />
+                  )}
+                </div>
+              )}
               {countdownTitle && (
                 <div style={{ fontSize: `${Math.max(7, (countdownTitleSize || 56) * 0.065)}px`, fontWeight: 'bold', textTransform: 'uppercase', opacity: 0.85, color: '#fff', marginBottom: '4px', lineHeight: 1.2 }}>
                   {countdownTitle}
@@ -5255,6 +5460,42 @@ function OperatorDashboard() {
                     </select>
                   </div>
 
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">BG Height (%)</label>
+                    <input 
+                      type="number" 
+                      min="10"
+                      max="100"
+                      value={songBgHeight} 
+                      onChange={e => setSongBgHeight(parseInt(e.target.value) || 100)}
+                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">BG Width (%)</label>
+                    <input 
+                      type="number" 
+                      min="10"
+                      max="100"
+                      value={songBgWidth} 
+                      onChange={e => setSongBgWidth(parseInt(e.target.value) || 100)}
+                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">BG Radius (px)</label>
+                    <input 
+                      type="number" 
+                      min="0"
+                      max="100"
+                      value={songBgRadius} 
+                      onChange={e => setSongBgRadius(parseInt(e.target.value) || 0)}
+                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                    />
+                  </div>
+
                   <div className="flex flex-col gap-1 col-span-2">
                     <label className="text-[9px] text-textMuted uppercase font-mono">Anim & Speed</label>
                     <div className="flex gap-2">
@@ -5326,19 +5567,20 @@ function OperatorDashboard() {
                         id={`edit-preview-card-${idx}`}
                         onClick={() => {
                           setActiveEditPreviewIdx(idx);
-                          // Sync text cursor position in the textarea
+                          // Sync text cursor position and highlight block in the textarea
                           const textarea = document.querySelector('form textarea');
                           if (textarea) {
                             const textVal = textarea.value;
                             const blocks = textVal.split('\n\n');
-                            let targetCharPos = 0;
+                            let startPos = 0;
                             for (let i = 0; i < idx && i < blocks.length; i++) {
-                              targetCharPos += blocks[i].length + 2; // block length plus double newline
+                              startPos += blocks[i].length + 2; // block length plus double newline
                             }
+                            const endPos = startPos + (blocks[idx] ? blocks[idx].length : 0);
                             textarea.focus();
-                            textarea.setSelectionRange(targetCharPos, targetCharPos);
+                            textarea.setSelectionRange(startPos, endPos);
                             // Scroll the textarea to line up
-                            const lineCount = textVal.substring(0, targetCharPos).split('\n').length;
+                            const lineCount = textVal.substring(0, startPos).split('\n').length;
                             textarea.scrollTop = (lineCount - 1) * 20;
                           }
                         }}
@@ -5372,7 +5614,9 @@ function OperatorDashboard() {
                             className="z-10"
                             style={{
                               backgroundColor: rgbaBg,
-                              borderRadius: '4px',
+                              borderRadius: slide.style?.bgRadius !== undefined ? `${slide.style.bgRadius}px` : '4px',
+                              height: slide.style?.bgHeight !== undefined ? `${slide.style.bgHeight}%` : '100%',
+                              width: slide.style?.bgWidth !== undefined ? `${slide.style.bgWidth}%` : '100%',
                               padding: opacity > 0 ? '0.25rem 0.5rem' : '0'
                             }}
                           >
@@ -5416,7 +5660,7 @@ function OperatorDashboard() {
               <button 
                 type="submit" 
                 form="edit-song-form"
-                className="px-5 py-2 bg-brand hover:bg-brand/80 text-white font-semibold rounded flex items-center gap-1.5 transition font-mono text-xs shadow-md"
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded flex items-center gap-1.5 transition font-mono text-xs shadow-md"
               >
                 <Save className="h-4 w-4" />
                 Save Changes
