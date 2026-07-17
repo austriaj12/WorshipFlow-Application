@@ -254,9 +254,11 @@ function OperatorDashboard() {
   const [countdownTitleSize, setCountdownTitleSize] = useState(56);
   const [countdownTimeSize, setCountdownTimeSize] = useState(160);
   const [countdownSubtextSize, setCountdownSubtextSize] = useState(36);
-  const [countdownBgColor, setCountdownBgColor] = useState("#0f172a");
+  const [countdownBgColor, setCountdownBgColor] = useState("#000000");
   const [countdownTextColor, setCountdownTextColor] = useState("#ffffff");
   const [countdownActive, setCountdownActive] = useState(false);
+  const [bibleFontSize, setBibleFontSize] = useState(() => parseInt(localStorage.getItem('bibleFontSize') || '48'));
+  const [bibleRefColor, setBibleRefColor] = useState(() => localStorage.getItem('bibleRefColor') || '#ef4444');
 
   // Count-up Timer State
   const [timerMinutes, setTimerMinutes] = useState(0);
@@ -266,7 +268,7 @@ function OperatorDashboard() {
   const [timerShowOn, setTimerShowOn] = useState("both"); // "both" | "main" | "stage"
   const [timerTitleSize, setTimerTitleSize] = useState(56);
   const [timerTimeSize, setTimerTimeSize] = useState(160);
-  const [timerBgColor, setTimerBgColor] = useState("#0f172a");
+  const [timerBgColor, setTimerBgColor] = useState("#000000");
   const [timerTextColor, setTimerTextColor] = useState("#ffffff");
   const [timerActive, setTimerActive] = useState(false);
 
@@ -441,6 +443,7 @@ function OperatorDashboard() {
   const [stagePanelVisibility, setStagePanelVisibility] = useState({ nextLyrics: true, message: true, scripture: true, presenterNotes: true });
   const [stagePanelHeights, setStagePanelHeights] = useState({ nextLyrics: 35, message: 35, scripture: 15, presenterNotes: 15 });
   const [stageUpNextFontSize, setStageUpNextFontSize] = useState(parseInt(localStorage.getItem('stageUpNextFontSize') || '20'));
+  const [stageMainFontSize, setStageMainFontSize] = useState(() => parseInt(localStorage.getItem('stageMainFontSize') || '90'));
   const [stageTopLineColor, setStageTopLineColor] = useState(() => localStorage.getItem('stageTopLineColor') || '#334155');
   const [stageMiddleLineColor, setStageMiddleLineColor] = useState(() => localStorage.getItem('stageMiddleLineColor') || '#0284c7');
   const [stageMainLineColor, setStageMainLineColor] = useState(() => localStorage.getItem('stageMainLineColor') || '#7dd3fc');
@@ -1119,6 +1122,11 @@ function OperatorDashboard() {
           const now = new Date();
           setCountdownMinutes(now.getHours());
           setCountdownSeconds(now.getMinutes());
+          // We can use countdownSeconds to track minutes, but to show hh:mm:ss let's store hours in minutes and minutes in seconds, or let's inspect how the display formats it.
+          // Since the display does:
+          // {String(countdownMinutes).padStart(2, '0')}:{String(countdownSeconds).padStart(2, '0')}
+          // Let's set countdownMinutes = hours, and countdownSeconds = minutes, and maybe we can show hours:minutes.
+          // If the user wants 24h format clock display, we can use now.getHours() and now.getMinutes().
         } else if (countdownMode === 'target') {
           const parts = countdownTargetTime.split(':');
           const target = new Date();
@@ -1315,7 +1323,15 @@ function OperatorDashboard() {
   // Automatically push real-time stage & projector updates on any slide/countdown/message/projector state changes
   useEffect(() => {
     if (window.api) {
-      const countdownTimeStr = `${String(countdownMinutes).padStart(2, '0')}:${String(countdownSeconds).padStart(2, '0')}`;
+      const countdownTimeStr = countdownMode === 'current'
+        ? (() => {
+            const now = new Date();
+            const hrs = String(now.getHours()).padStart(2, '0');
+            const mins = String(now.getMinutes()).padStart(2, '0');
+            const secs = String(now.getSeconds()).padStart(2, '0');
+            return `${hrs}:${mins}:${secs}`;
+          })()
+        : `${String(countdownMinutes).padStart(2, '0')}:${String(countdownSeconds).padStart(2, '0')}`;
       const timerTimeStr = `${String(timerMinutes).padStart(2, '0')}:${String(timerSeconds).padStart(2, '0')}`;
       
       // 1. Send Stage updates - show countdown/timer only if enabled for stage display and running
@@ -1358,7 +1374,10 @@ function OperatorDashboard() {
             topLineColor: stageTopLineColor,
             middleLineColor: stageMiddleLineColor,
             mainLineColor: stageMainLineColor,
-            upNextLineColor: stageUpNextLineColor
+            upNextLineColor: stageUpNextLineColor,
+            bibleFontSize: bibleFontSize,
+            bibleRefColor: bibleRefColor,
+            stageMainFontSize: stageMainFontSize
           };
           window.api.sendStageUpdate(JSON.parse(JSON.stringify(payload)));
         } catch (err) {
@@ -1459,7 +1478,7 @@ function OperatorDashboard() {
     timerActive, timerMinutes, timerSeconds, timerTitle, timerBgColor, timerTextColor, timerTitleSize, timerTimeSize, timerShowOn,
     stageTopLineColor, stageMiddleLineColor, stageMainLineColor, stageUpNextLineColor,
     mediaPlaying, mediaLoop, mediaVolume, isLiveActive,
-    slideTransitions
+    slideTransitions, stageMainFontSize, bibleFontSize, bibleRefColor
   ]);
 
   // Sync operator volume element ref
@@ -2128,8 +2147,16 @@ function OperatorDashboard() {
     
     if (isAddSong) {
       setActiveAddPreviewIdx(activeSlideIdx);
+      setTimeout(() => {
+        const el = document.getElementById(`add-preview-card-${activeSlideIdx}`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 50);
     } else {
       setActiveEditPreviewIdx(activeSlideIdx);
+      setTimeout(() => {
+        const el = document.getElementById(`edit-preview-card-${activeSlideIdx}`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 50);
     }
   };
 
@@ -2374,7 +2401,7 @@ function OperatorDashboard() {
                 </span>
                 <button
                   onClick={() => setIsAddingSectionInline(true)}
-                  className="px-2 py-0.5 bg-brand/10 text-brand rounded text-[10px] font-bold hover:bg-brand/20 transition font-mono uppercase"
+                  className="px-2 py-0.5 border border-[var(--border-app)] text-textMuted hover:text-textMain rounded text-[10px] font-bold transition font-mono uppercase"
                   title="Add Section Name Divider"
                 >
                   + Section
@@ -2471,7 +2498,7 @@ function OperatorDashboard() {
                     detectedType === 'Section' ? (
                       <div 
                         key={item.id}
-                        className="py-1 px-2.5 bg-[#10141D] border-y border-[var(--border-app)] text-[#1E4E79] font-bold text-[10px] tracking-wider uppercase font-sans flex items-center justify-between select-none"
+                        className="group py-2 px-1 border-t border-b border-[var(--border-app)] text-textMain font-bold text-xs tracking-wider uppercase font-sans flex items-center justify-between select-none mt-4 first:mt-0"
                       >
                         <span>{item.name}</span>
                         <button
@@ -2481,10 +2508,10 @@ function OperatorDashboard() {
                               await removeFromPlaylist(item.id);
                             }
                           }}
-                          className="text-textMuted hover:text-liveDanger transition-colors"
+                          className="opacity-0 group-hover:opacity-100 text-textMuted hover:text-liveDanger transition-opacity"
                           title="Remove Section"
                         >
-                          <Trash className="h-3 w-3" />
+                          <Trash className="h-3.5 w-3.5" />
                         </button>
                       </div>
                     ) : (
@@ -2519,27 +2546,17 @@ function OperatorDashboard() {
                       <div className="flex items-center gap-2 min-w-0 flex-1">
                         <GripVertical className="h-3 w-3 text-textMuted/60 cursor-grab group-hover:text-textMuted transition" />
                         
+                        {/* Render Icon before the title */}
+                        {detectedType === 'PowerPoint' && <PPTIcon className="h-4 w-4 text-orange-500 flex-shrink-0" />}
+                        {detectedType === 'PDF' && <PDFIcon className="h-4 w-4 text-red-500 flex-shrink-0" />}
+                        {detectedType !== 'PowerPoint' && detectedType !== 'PDF' && (
+                          detectedType === 'Video' ? <Film className="h-4 w-4 text-brand flex-shrink-0" /> : 
+                          detectedType === 'Image' ? <Image className="h-4 w-4 text-brand flex-shrink-0" /> :
+                          <Music className="h-4 w-4 text-brand flex-shrink-0" />
+                        )}
+                        
                         <div className="flex flex-col min-w-0 flex-1">
                           <span className="font-semibold text-xs truncate leading-snug">{item.name}</span>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            {detectedType === 'PowerPoint' && (
-                              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-orange-500/10 border border-orange-500/30 text-orange-400 text-[8px] font-mono font-bold tracking-wider uppercase">
-                                <PPTIcon className="h-2.5 w-2.5" />
-                                PPTX
-                              </span>
-                            )}
-                            {detectedType === 'PDF' && (
-                              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-500/10 border border-red-500/30 text-red-400 text-[8px] font-mono font-bold tracking-wider uppercase">
-                                <PDFIcon className="h-2.5 w-2.5" />
-                                PDF
-                              </span>
-                            )}
-                            {detectedType !== 'PowerPoint' && detectedType !== 'PDF' && (
-                              <span className="text-[9px] text-textMuted uppercase font-mono tracking-wider font-bold">
-                                {detectedType}
-                              </span>
-                            )}
-                          </div>
                         </div>
                       </div>
 
@@ -2862,7 +2879,7 @@ function OperatorDashboard() {
                     <div className="flex-1 overflow-y-auto p-4">
                       {slides.length > 0 ? (
                         /* Use flex wrap with custom slide card width matching slidePreviewSize setting */
-                        <div className="flex flex-wrap items-start justify-start" style={{ gap: '4px' }}>
+                        <div className="flex flex-wrap items-start justify-start gap-2.5">
                           {slides.map((slide, index) => {
                             const isActive = (bibleLiveSlides !== null || (liveSong && selectedSong && liveSong.id === selectedSong.id)) && index === activeSlideIndex;
                             const isSelected = selectedSlideIndexes.includes(index);
@@ -2873,8 +2890,8 @@ function OperatorDashboard() {
                                 {/* Transition Hotspot Zone between slides */}
                                 {index > 0 && (
                                   <div 
-                                    className="flex flex-col items-center justify-center self-stretch relative"
-                                    style={{ width: '20px', minHeight: '60px' }}
+                                    className="flex flex-col items-center justify-center self-stretch relative -mx-1"
+                                    style={{ width: '8px', minHeight: '60px' }}
                                     onMouseEnter={() => setHoveredTransitionGap(index)}
                                     onMouseLeave={() => setHoveredTransitionGap(null)}
                                   >
@@ -3397,8 +3414,6 @@ function OperatorDashboard() {
                         >
                           <FolderOpen className="h-4 w-4 text-slate-600" />
                         </button>
-                        <button className="p-1 hover:bg-slate-200 rounded transition" title="Aspect Ratio Adjust"><Monitor className="h-4 w-4 text-slate-600" /></button>
-                        <button className="p-1 hover:bg-slate-200 rounded transition" title="Zoom View"><Maximize2 className="h-4 w-4 text-slate-600" /></button>
                       </div>
 
                       </div>
@@ -3727,6 +3742,10 @@ function OperatorDashboard() {
             onGoLiveBible={handleGoLiveBible}
             bibleLiveSlides={bibleLiveSlides}
             onExitLiveBible={handleExitLiveBible}
+            bibleFontSize={bibleFontSize}
+            setBibleFontSize={setBibleFontSize}
+            bibleRefColor={bibleRefColor}
+            setBibleRefColor={setBibleRefColor}
             songFont={songFont}
             songSize={songSize}
             songWeight={songWeight}
@@ -4055,7 +4074,16 @@ function OperatorDashboard() {
                           {countdownTitle || 'Countdown'}
                         </p>
                         <p style={{ fontSize: `${countdownTimeSize * 0.22}px`, color: '#ffffff' }} className="font-mono font-bold leading-none py-1">
-                          {String(countdownMinutes).padStart(2, '0')}:{String(countdownSeconds).padStart(2, '0')}
+                          {countdownMode === 'current'
+                             ? (() => {
+                                 const now = new Date();
+                                 const hrs = String(now.getHours()).padStart(2, '0');
+                                 const mins = String(now.getMinutes()).padStart(2, '0');
+                                 const secs = String(now.getSeconds()).padStart(2, '0');
+                                 return `${hrs}:${mins}:${secs}`;
+                               })()
+                             : `${String(countdownMinutes).padStart(2, '0')}:${String(countdownSeconds).padStart(2, '0')}`
+                           }
                         </p>
                         {countdownSubtext && (
                           <p style={{ fontSize: `${countdownSubtextSize * 0.22}px`, color: 'rgba(255,255,255,0.5)' }} className="font-sans italic leading-tight">
@@ -4307,6 +4335,24 @@ function OperatorDashboard() {
                   </div>
                   <div className="flex flex-col gap-2 py-2 border-b border-[var(--border-app)]/30 text-sm">
                     <div className="flex justify-between">
+                      <span className="text-textMain font-medium">Main Lyrics Font Size</span>
+                      <span className="font-mono text-brand font-bold text-sm">{stageMainFontSize}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="24"
+                      max="140"
+                      value={stageMainFontSize}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value);
+                        setStageMainFontSize(v);
+                        localStorage.setItem('stageMainFontSize', v.toString());
+                      }}
+                      className="w-full h-1.5 bg-appBg rounded-lg appearance-none cursor-pointer accent-brand"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2 py-2 border-b border-[var(--border-app)]/30 text-sm">
+                    <div className="flex justify-between">
                       <span className="text-textMain font-medium">Up Next Font Size</span>
                       <span className="font-mono text-brand font-bold text-sm">{stageUpNextFontSize}px</span>
                     </div>
@@ -4481,7 +4527,16 @@ function OperatorDashboard() {
                   </div>
                 )}
                 <div style={{ fontSize: `${Math.max(14, (countdownTimeSize || 160) * 0.1)}px`, fontWeight: 'bold', fontFamily: 'monospace', color: '#fff', lineHeight: 1 }}>
-                  {`${String(countdownMinutes).padStart(2, '0')}:${String(countdownSeconds).padStart(2, '0')}`}
+                  {countdownMode === 'current'
+                    ? (() => {
+                        const now = new Date();
+                        const hrs = String(now.getHours()).padStart(2, '0');
+                        const mins = String(now.getMinutes()).padStart(2, '0');
+                        const secs = String(now.getSeconds()).padStart(2, '0');
+                        return `${hrs}:${mins}:${secs}`;
+                      })()
+                    : `${String(countdownMinutes).padStart(2, '0')}:${String(countdownSeconds).padStart(2, '0')}`
+                  }
                 </div>
                 {countdownSubtext && (
                   <div style={{ fontSize: `${Math.max(5, (countdownSubtextSize || 36) * 0.065)}px`, opacity: 0.6, color: '#fff', fontStyle: 'italic', marginTop: '4px' }}>
@@ -4559,7 +4614,16 @@ function OperatorDashboard() {
                 </div>
               )}
               <div style={{ fontSize: `${Math.max(16, (countdownTimeSize || 160) * 0.1)}px`, fontWeight: 'bold', fontFamily: 'monospace', color: '#fff', lineHeight: 1 }}>
-                {`${String(countdownMinutes).padStart(2, '0')}:${String(countdownSeconds).padStart(2, '0')}`}
+                {countdownMode === 'current'
+                  ? (() => {
+                      const now = new Date();
+                      const hrs = String(now.getHours()).padStart(2, '0');
+                      const mins = String(now.getMinutes()).padStart(2, '0');
+                      const secs = String(now.getSeconds()).padStart(2, '0');
+                      return `${hrs}:${mins}:${secs}`;
+                    })()
+                  : `${String(countdownMinutes).padStart(2, '0')}:${String(countdownSeconds).padStart(2, '0')}`
+                }
               </div>
               {countdownSubtext && (
                 <div style={{ fontSize: `${Math.max(6, (countdownSubtextSize || 36) * 0.065)}px`, opacity: 0.6, color: '#fff', fontStyle: 'italic', marginTop: '4px' }}>
@@ -5020,6 +5084,7 @@ function OperatorDashboard() {
               
               {/* Left Column: Form inputs (7 cols) */}
               <form 
+                id="edit-song-form"
                 onSubmit={handleSaveEditSong} 
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
@@ -5229,23 +5294,6 @@ function OperatorDashboard() {
                     className="p-2.5 bg-appBg border border-t-0 border-[var(--border-app)] rounded-b-lg focus:border-brand focus:outline-none font-mono leading-relaxed text-textMain"
                   ></textarea>
                 </div>
-
-                <div className="pt-2 flex justify-end gap-2 border-t border-[var(--border-app)]">
-                  <button 
-                    type="button" 
-                    onClick={() => setIsEditSongOpen(false)}
-                    className="px-4 py-2 border border-[var(--border-app)] text-textMuted hover:text-textMain hover:bg-appBg rounded transition font-mono"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    type="submit" 
-                    className="px-4 py-2 bg-brand hover:bg-brand/80 text-white font-semibold rounded flex items-center gap-1.5 transition font-mono"
-                  >
-                    <Save className="h-4 w-4" />
-                    Save Changes
-                  </button>
-                </div>
               </form>
 
               {/* Right Column: Live Slide Previewer (5 cols) */}
@@ -5276,7 +5324,25 @@ function OperatorDashboard() {
                       <div 
                         key={idx} 
                         id={`edit-preview-card-${idx}`}
-                        className={`space-y-1 bg-appPanel/30 p-2 rounded border transition-all duration-200 ${getSlideCardBorderClass(slide.label, isCurrent, false, true)}`}
+                        onClick={() => {
+                          setActiveEditPreviewIdx(idx);
+                          // Sync text cursor position in the textarea
+                          const textarea = document.querySelector('form textarea');
+                          if (textarea) {
+                            const textVal = textarea.value;
+                            const blocks = textVal.split('\n\n');
+                            let targetCharPos = 0;
+                            for (let i = 0; i < idx && i < blocks.length; i++) {
+                              targetCharPos += blocks[i].length + 2; // block length plus double newline
+                            }
+                            textarea.focus();
+                            textarea.setSelectionRange(targetCharPos, targetCharPos);
+                            // Scroll the textarea to line up
+                            const lineCount = textVal.substring(0, targetCharPos).split('\n').length;
+                            textarea.scrollTop = (lineCount - 1) * 20;
+                          }
+                        }}
+                        className={`space-y-1 bg-appPanel/30 p-2 rounded border cursor-pointer hover:bg-appPanel/50 transition-all duration-200 ${getSlideCardBorderClass(slide.label, isCurrent, false, true)}`}
                       >
                         <div className="flex justify-between items-center text-[9px] font-mono text-textMuted uppercase font-semibold">
                           <span className={`px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase tracking-wider ${getLabelBadgeStyle(slide.label).bg} ${getLabelBadgeStyle(slide.label).text}`}>
@@ -5337,6 +5403,24 @@ function OperatorDashboard() {
                 )}
               </div>
 
+            </div>
+            
+            <div className="p-4 border-t border-[var(--border-app)] flex justify-end gap-2 bg-appPanel rounded-b-lg">
+              <button 
+                type="button" 
+                onClick={() => setIsEditSongOpen(false)}
+                className="px-4 py-2 border border-[var(--border-app)] text-textMuted hover:text-textMain hover:bg-appBg rounded transition font-mono text-xs"
+              >
+                Cancel
+              </button>
+              <button 
+                type="submit" 
+                form="edit-song-form"
+                className="px-5 py-2 bg-brand hover:bg-brand/80 text-white font-semibold rounded flex items-center gap-1.5 transition font-mono text-xs shadow-md"
+              >
+                <Save className="h-4 w-4" />
+                Save Changes
+              </button>
             </div>
           </div>
         </div>
