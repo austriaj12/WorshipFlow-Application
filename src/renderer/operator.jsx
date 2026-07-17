@@ -227,7 +227,7 @@ function OperatorDashboard() {
   const [newSectionNameInline, setNewSectionNameInline] = useState('');
 
   // Slide Transition Hotspot State
-  const [slideTransitions, setSlideTransitions] = useState({}); // { [slideIndex]: 'fade' | 'none' }
+
   const [hoveredTransitionGap, setHoveredTransitionGap] = useState(null); // index of the gap being hovered
 
   // Right-click context menu for playlist items
@@ -1449,7 +1449,7 @@ function OperatorDashboard() {
               bgAsset: activeBgAsset,
               style: activeSlideStyle,
               isImportedSlide: !!(slides && slides[activeSlideIndex] && slides[activeSlideIndex].bgAsset),
-              transitionToNext: (activeSlideIndex > 0 && slideTransitions[activeSlideIndex - 1] === 'fade') ? 'fade' : 'none',
+              transitionToNext: (activeSlideIndex > 0 && slides && slides[activeSlideIndex - 1]?.transitionToNext === 'fade') ? 'fade' : 'none',
               countdownActive: false,
               timerActive: false,
               blackout,
@@ -1485,7 +1485,7 @@ function OperatorDashboard() {
     timerActive, timerMinutes, timerSeconds, timerTitle, timerBgColor, timerTextColor, timerTitleSize, timerTimeSize, timerShowOn,
     stageTopLineColor, stageMiddleLineColor, stageMainLineColor, stageUpNextLineColor,
     mediaPlaying, mediaLoop, mediaVolume, isLiveActive,
-    slideTransitions, stageMainFontSize, bibleFontSize, bibleRefColor, countdownBgMedia, timerBgMedia
+    stageMainFontSize, bibleFontSize, bibleRefColor, countdownBgMedia, timerBgMedia
   ]);
 
   // Sync operator volume element ref
@@ -2974,8 +2974,8 @@ function OperatorDashboard() {
                           {slides.map((slide, index) => {
                             const isActive = (bibleLiveSlides !== null || (liveSong && selectedSong && liveSong.id === selectedSong.id)) && index === activeSlideIndex;
                             const isSelected = selectedSlideIndexes.includes(index);
-                            const hasTransition = slideTransitions[index] === 'fade';
-                            const prevHasTransition = index > 0 && slideTransitions[index - 1] === 'fade';
+                            const hasTransition = slide?.transitionToNext === 'fade';
+                            const prevHasTransition = index > 0 && slides[index - 1]?.transitionToNext === 'fade';
                             return (
                               <React.Fragment key={index}>
                                 {/* Transition Hotspot Zone between slides */}
@@ -2995,20 +2995,33 @@ function OperatorDashboard() {
                                     {/* Hover reveal button */}
                                     {hoveredTransitionGap === index && (
                                       <button
-                                        onClick={(e) => {
+                                        onClick={async (e) => {
                                           e.stopPropagation();
+                                          if (!selectedSong || bibleLiveSlides) return;
                                           const prevIdx = index - 1;
-                                          setSlideTransitions(prev => ({
-                                            ...prev,
-                                            [prevIdx]: prev[prevIdx] === 'fade' ? 'none' : 'fade'
-                                          }));
+                                          const updatedSlides = [...slides];
+                                          const current = updatedSlides[prevIdx].transitionToNext;
+                                          updatedSlides[prevIdx].transitionToNext = current === 'fade' ? 'none' : 'fade';
+                                          const contentJson = JSON.stringify(updatedSlides);
+                                          try {
+                                            await saveSong({
+                                              id: selectedSong.id,
+                                              title: selectedSong.title,
+                                              author: selectedSong.author || 'WorshipFlow',
+                                              key: selectedSong.key || '',
+                                              tempo: selectedSong.tempo || '',
+                                              contentJson
+                                            });
+                                          } catch (err) {
+                                            console.error('Failed to save transition', err);
+                                          }
                                         }}
                                         className={`z-20 p-1 rounded-full border shadow-lg transition-all duration-150 ${
-                                          slideTransitions[index - 1] === 'fade'
+                                          slides[index - 1]?.transitionToNext === 'fade'
                                             ? 'bg-emerald-500/30 border-emerald-400/60 text-emerald-300 shadow-emerald-500/20'
                                             : 'bg-appPanel/90 border-[var(--border-app)] text-textMuted hover:text-brand hover:border-brand/50'
                                         }`}
-                                        title={slideTransitions[index - 1] === 'fade' ? 'Remove Fade Transition' : 'Add Fade Transition'}
+                                        title={slides[index - 1]?.transitionToNext === 'fade' ? 'Remove Fade Transition' : 'Add Fade Transition'}
                                       >
                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
                                           <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 2a5 5 0 0 1 0 10V3z" />
