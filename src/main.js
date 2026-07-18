@@ -1222,8 +1222,8 @@ ipcMain.handle('system:check-update', async () => {
 // Download and install update installer
 ipcMain.handle('system:install-update', async (event, { downloadUrl, fileName }) => {
   return new Promise((resolve) => {
-    const tempDir = app.getPath('temp');
-    const localFilePath = path.join(tempDir, fileName || 'worshipflow-setup.exe');
+    const targetDir = app.getPath('downloads');
+    const localFilePath = path.join(targetDir, fileName || 'worshipflow-setup.exe');
 
     const request = net.request({
       method: 'GET',
@@ -1268,6 +1268,18 @@ ipcMain.handle('system:install-update', async (event, { downloadUrl, fileName })
               stdio: 'ignore'
             });
             child.unref();
+
+            // Destroy windows directly to bypass exit confirmation dialogs
+            if (operatorWindow && !operatorWindow.isDestroyed()) {
+              operatorWindow.destroy();
+            }
+            if (projectorWindow && !projectorWindow.isDestroyed()) {
+              projectorWindow.destroy();
+            }
+            if (stageWindow && !stageWindow.isDestroyed()) {
+              stageWindow.destroy();
+            }
+
             app.quit();
             resolve({ success: true });
           } catch (e) {
