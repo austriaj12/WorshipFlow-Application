@@ -172,12 +172,16 @@
     </div>
 
     <div class="footer">
-      <div class="version">v1.0.5</div>
+      <div class="version">v1.0.0</div>
       <div class="credits">Developed by TLSCF Tech Team</div>
     </div>
   </div>
 
   <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const version = urlParams.get('version') || '1.0.0';
+    document.querySelector('.version').innerText = 'v' + version;
+
     const statuses = [
       "Initializing local database...",
       "Loading user configurations...",

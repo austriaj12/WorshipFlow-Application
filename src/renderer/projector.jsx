@@ -285,9 +285,15 @@ function ProjectorScreen() {
       transform: 'translate3d(0,0,0)'
     };
     
-    if (slide.style.bgWidth) baseStyle.width = slide.style.bgWidth;
+    if (slide.style.bgWidth) {
+      baseStyle.width = typeof slide.style.bgWidth === 'number' || !slide.style.bgWidth.toString().endsWith('%') 
+        ? `${slide.style.bgWidth}%` 
+        : slide.style.bgWidth;
+    }
     if (slide.style.bgHeight) {
-      baseStyle.height = slide.style.bgHeight;
+      baseStyle.height = typeof slide.style.bgHeight === 'number' || !slide.style.bgHeight.toString().endsWith('%') 
+        ? `${slide.style.bgHeight}%` 
+        : slide.style.bgHeight;
       baseStyle.display = 'flex';
       baseStyle.flexDirection = 'column';
       baseStyle.justifyContent = 'center';
@@ -603,7 +609,11 @@ function ProjectorScreen() {
   );
 }
 
-const root = ReactDOM.createRoot(document.getElementById('root'));
+let root = window._projectorRoot;
+if (!root) {
+  root = ReactDOM.createRoot(document.getElementById('root'));
+  window._projectorRoot = root;
+}
 root.render(
   <React.StrictMode>
     <ProjectorScreen />

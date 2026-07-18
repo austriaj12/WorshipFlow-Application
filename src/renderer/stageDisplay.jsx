@@ -21,6 +21,7 @@ function StageDisplay() {
     isBible: false,
     stageMainFontSize: 90,
     stageUpNextFontSize: 60,
+    stageLabelFontSize: 18,
     bibleFontSize: 48,
     bibleRefColor: '#ef4444'
   });
@@ -120,6 +121,7 @@ function StageDisplay() {
           isBible: data.isBible || false,
           stageMainFontSize: data.stageMainFontSize || prev.stageMainFontSize,
           stageUpNextFontSize: data.stageUpNextFontSize || prev.stageUpNextFontSize,
+          stageLabelFontSize: data.stageLabelFontSize || prev.stageLabelFontSize || 18,
           bibleFontSize: data.bibleFontSize || prev.bibleFontSize,
           bibleRefColor: data.bibleRefColor || prev.bibleRefColor
         }));
@@ -162,6 +164,7 @@ function StageDisplay() {
               isBible: data.isBible || false,
               stageMainFontSize: data.stageMainFontSize || prev.stageMainFontSize,
               stageUpNextFontSize: data.stageUpNextFontSize || prev.stageUpNextFontSize,
+              stageLabelFontSize: data.stageLabelFontSize || prev.stageLabelFontSize || 18,
               bibleFontSize: data.bibleFontSize || prev.bibleFontSize,
               bibleRefColor: data.bibleRefColor || prev.bibleRefColor
             }));
@@ -383,8 +386,8 @@ function StageDisplay() {
             </div>
           )}
 
-          <div style={{ position: 'absolute', top: '24px', left: '24px', display: 'inline-flex', alignItems: 'center', gap: '10px', textTransform: 'uppercase', color: '#f8fafc', fontSize: '18px', fontWeight: 800, letterSpacing: '0.2em', zIndex: 10 }}>
-            <span style={{ width: '10px', height: '28px', borderRadius: '999px', background: stageData.mainLineColor || '#7dd3fc' }} />
+          <div style={{ position: 'absolute', top: '24px', left: '24px', display: 'inline-flex', alignItems: 'center', gap: '10px', textTransform: 'uppercase', color: '#f8fafc', fontSize: `${stageData.stageLabelFontSize || 18}px`, fontWeight: 800, letterSpacing: '0.2em', zIndex: 10 }}>
+            <span style={{ width: `${(stageData.stageLabelFontSize || 18) * 0.5}px`, height: `${(stageData.stageLabelFontSize || 18) * 1.5}px`, borderRadius: '999px', background: stageData.mainLineColor || '#7dd3fc' }} />
             <span>{stageData.label ? stageData.label.toUpperCase() : 'MAIN'}</span>
           </div>
 
@@ -449,8 +452,8 @@ function StageDisplay() {
             </div>
           )}
 
-          <div style={{ position: 'absolute', top: '24px', left: '24px', display: 'inline-flex', alignItems: 'center', gap: '10px', textTransform: 'uppercase', color: '#f8fafc', fontSize: '18px', fontWeight: 800, letterSpacing: '0.2em', zIndex: 10 }}>
-            <span style={{ width: '10px', height: '28px', borderRadius: '999px', background: stageData.upNextLineColor || '#f97316' }} />
+          <div style={{ position: 'absolute', top: '24px', left: '24px', display: 'inline-flex', alignItems: 'center', gap: '10px', textTransform: 'uppercase', color: '#f8fafc', fontSize: `${stageData.stageLabelFontSize || 18}px`, fontWeight: 800, letterSpacing: '0.2em', zIndex: 10 }}>
+            <span style={{ width: `${(stageData.stageLabelFontSize || 18) * 0.5}px`, height: `${(stageData.stageLabelFontSize || 18) * 1.5}px`, borderRadius: '999px', background: stageData.upNextLineColor || '#f97316' }} />
             <span>{stageData.nextSlideLabel ? stageData.nextSlideLabel.toUpperCase() : 'UP NEXT'}</span>
           </div>
           <div style={{ width: '100%', textAlign: 'center', maxWidth: '92%', zIndex: 10 }}>
@@ -472,7 +475,11 @@ function StageDisplay() {
   );
 }
 
-const root = ReactDOM.createRoot(document.getElementById('root'));
+let root = window._stageRoot;
+if (!root) {
+  root = ReactDOM.createRoot(document.getElementById('root'));
+  window._stageRoot = root;
+}
 root.render(
   <React.StrictMode>
     <StageDisplay />

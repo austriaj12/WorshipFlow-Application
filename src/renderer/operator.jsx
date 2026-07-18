@@ -61,7 +61,78 @@ if (typeof URL.parse !== 'function') {
   };
 }
 
-// Inline SVG icon components for format badges
+const formatBgPath = (pathStr) => {
+  if (!pathStr) return '';
+  if (pathStr.startsWith('#') || pathStr.startsWith('rgb') || pathStr.startsWith('hsl') || pathStr === 'transparent') {
+    return pathStr;
+  }
+  if (pathStr.startsWith('file:///') || pathStr.startsWith('http://') || pathStr.startsWith('https://') || pathStr.startsWith('worshipflow-asset://')) {
+    return pathStr;
+  }
+  const cleanPath = pathStr.replace(/\\/g, '/');
+  return `file:///${cleanPath.startsWith('/') ? cleanPath.slice(1) : cleanPath}`;
+};
+
+const sharedVideoCache = {};
+
+const getOrCreateSharedVideo = (src) => {
+  if (!src) return null;
+  const formatted = formatBgPath(src);
+  if (!sharedVideoCache[formatted]) {
+    const video = document.createElement('video');
+    video.src = formatted;
+    video.muted = true;
+    video.loop = true;
+    video.autoplay = true;
+    video.playsInline = true;
+    video.style.position = 'absolute';
+    video.style.width = '0px';
+    video.style.height = '0px';
+    video.style.pointerEvents = 'none';
+    video.style.opacity = '0';
+    document.body.appendChild(video);
+    
+    video.play().catch(() => {});
+    sharedVideoCache[formatted] = video;
+  }
+  return sharedVideoCache[formatted];
+};
+
+const SharedVideoCanvas = ({ className, style, src }) => {
+  const canvasRef = React.useRef(null);
+
+  React.useEffect(() => {
+    let animationFrameId;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    
+    const video = getOrCreateSharedVideo(src);
+    if (!video) return;
+
+    const render = () => {
+      if (video && video.src && !video.paused && !video.ended) {
+        if (canvas.width !== video.videoWidth && video.videoWidth > 0) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+        }
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      } else {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+      animationFrameId = requestAnimationFrame(render);
+    };
+
+    render();
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, [src]);
+
+  return <canvas ref={canvasRef} className={className} style={style} />;
+};
+
 const PPTIcon = ({ className }) => (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={className}>
     <path d="M6 2a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6H6zm7 1.5L18.5 9H13V3.5zM9 13h2a2 2 0 1 1 0 4H10v2H9v-6zm1 3h1a1 1 0 1 0 0-2h-1v2z"/>
@@ -219,6 +290,7 @@ function OperatorDashboard() {
   const [presentationFilePath, setPresentationFilePath] = useState(null);
   const [isFileDropdownOpen, setIsFileDropdownOpen] = useState(false);
   const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
+
   const [checklistSlideIndexes, setChecklistSlideIndexes] = useState([]);
   const [stagedBgAsset, setStagedBgAsset] = useState(null); // null = nothing selected, "" = no background, string = file path
   const [bgActionStatus, setBgActionStatus] = useState('idle'); // 'idle' | 'success'
@@ -449,6 +521,7 @@ function OperatorDashboard() {
   const [stagePanelHeights, setStagePanelHeights] = useState({ nextLyrics: 35, message: 35, scripture: 15, presenterNotes: 15 });
   const [stageUpNextFontSize, setStageUpNextFontSize] = useState(parseInt(localStorage.getItem('stageUpNextFontSize') || '20'));
   const [stageMainFontSize, setStageMainFontSize] = useState(() => parseInt(localStorage.getItem('stageMainFontSize') || '90'));
+  const [stageLabelFontSize, setStageLabelFontSize] = useState(() => parseInt(localStorage.getItem('stageLabelFontSize') || '18'));
   const [stageTopLineColor, setStageTopLineColor] = useState(() => localStorage.getItem('stageTopLineColor') || '#334155');
   const [stageMiddleLineColor, setStageMiddleLineColor] = useState(() => localStorage.getItem('stageMiddleLineColor') || '#0284c7');
   const [stageMainLineColor, setStageMainLineColor] = useState(() => localStorage.getItem('stageMainLineColor') || '#7dd3fc');
@@ -1221,21 +1294,11 @@ function OperatorDashboard() {
     }
   }, [activeEditPreviewIdx, isEditSongOpen]);
 
-  // Format background file path safely for Electron browser windows
-  const formatBgPath = (pathStr) => {
-    if (!pathStr) return '';
-    if (pathStr.startsWith('#') || pathStr.startsWith('rgb') || pathStr.startsWith('hsl') || pathStr === 'transparent') {
-      return pathStr;
-    }
-    if (pathStr.startsWith('file:///') || pathStr.startsWith('http://') || pathStr.startsWith('https://') || pathStr.startsWith('worshipflow-asset://')) {
-      return pathStr;
-    }
-    const cleanPath = pathStr.replace(/\\/g, '/');
-    return `file:///${cleanPath.startsWith('/') ? cleanPath.slice(1) : cleanPath}`;
-  };
 
   // Sync state selection to trigger live preview text updates
   const handleSelectSlide = (index, slidesList, songObject = selectedSong) => {
+    setCountdownActive(false);
+    setTimerActive(false);
     setActiveSlideIndex(index);
     const activeSlide = slidesList && slidesList[index];
     if (activeSlide) {
@@ -1266,6 +1329,8 @@ function OperatorDashboard() {
   };
 
   const handleGoLiveBible = (slidesList) => {
+    setCountdownActive(false);
+    setTimerActive(false);
     if (!bibleLiveSlides) {
       setSavedPresentationState({
         songId: selectedSong ? selectedSong.id : null,
@@ -1382,7 +1447,8 @@ function OperatorDashboard() {
             upNextLineColor: stageUpNextLineColor,
             bibleFontSize: bibleFontSize,
             bibleRefColor: bibleRefColor,
-            stageMainFontSize: stageMainFontSize
+            stageMainFontSize: stageMainFontSize,
+            stageLabelFontSize: stageLabelFontSize
           };
           window.api.sendStageUpdate(JSON.parse(JSON.stringify(payload)));
         } catch (err) {
@@ -1485,7 +1551,7 @@ function OperatorDashboard() {
     timerActive, timerMinutes, timerSeconds, timerTitle, timerBgColor, timerTextColor, timerTitleSize, timerTimeSize, timerShowOn,
     stageTopLineColor, stageMiddleLineColor, stageMainLineColor, stageUpNextLineColor,
     mediaPlaying, mediaLoop, mediaVolume, isLiveActive,
-    stageMainFontSize, bibleFontSize, bibleRefColor, countdownBgMedia, timerBgMedia
+    stageMainFontSize, stageLabelFontSize, bibleFontSize, bibleRefColor, countdownBgMedia, timerBgMedia
   ]);
 
   // Sync operator volume element ref
@@ -1963,12 +2029,14 @@ function OperatorDashboard() {
   const parseSlidesFromRaw = (rawText, customStyle, styleOverrides = {}, existingSlides = []) => {
     if (!rawText.trim()) return [];
     const blocks = rawText.split(/\n\n+/);
+    let lastLabel = 'VERSE';
     return blocks.map((block, idx) => {
       const lines = block.split('\n');
       const firstLine = lines[0].trim();
       const isHeader = /^(VERSE|CHORUS|BRIDGE|INTRO|OUTRO|TAG|PRE-CHORUS)/i.test(firstLine);
       
-      const label = isHeader ? firstLine.toUpperCase() : 'VERSE';
+      const label = isHeader ? firstLine.toUpperCase() : lastLabel;
+      lastLabel = label;
       const text = (isHeader ? lines.slice(1) : lines).join('\n').trim();
       
       const existing = existingSlides[idx];
@@ -1990,7 +2058,13 @@ function OperatorDashboard() {
 
   const formatSlidesToRaw = (slidesList) => {
     if (!slidesList) return '';
-    return slidesList.map(s => `${s.label}\n${s.text}`).join('\n\n');
+    let lastLabel = '';
+    return slidesList.map((s, idx) => {
+      const currentLabel = s.label || 'VERSE';
+      const writeLabel = (idx === 0 || currentLabel !== lastLabel);
+      lastLabel = currentLabel;
+      return writeLabel ? `${currentLabel}\n${s.text}` : s.text;
+    }).join('\n\n');
   };
 
   const handleAddSong = async (e) => {
@@ -3084,6 +3158,7 @@ function OperatorDashboard() {
                                       <img 
                                         src={`file:///${slide.bgAsset.replace(/\\/g, '/')}`}
                                         className="w-full h-full object-cover" 
+                                        loading="lazy"
                                         alt=""
                                       />
                                     </div>
@@ -3099,18 +3174,16 @@ function OperatorDashboard() {
                                       }}
                                     >
                                       {/\.(mp4|webm|mov|avi)($|\?)/i.test(slide.style.background) ? (
-                                        <video 
-                                          src={slide.style.background} 
-                                          muted 
-                                          loop 
-                                          autoPlay 
-                                          playsInline 
+                                        <SharedVideoCanvas 
+                                          src={slide.style.background}
                                           className="w-full h-full object-cover opacity-40 group-hover:opacity-50 transition-opacity" 
+                                          style={{ willChange: 'transform', transform: 'translate3d(0,0,0)' }}
                                         />
                                       ) : (
                                         <img 
                                           src={slide.style.background} 
                                           className="w-full h-full object-cover opacity-40 group-hover:opacity-50 transition-opacity" 
+                                          loading="lazy"
                                           alt="" 
                                         />
                                       )}
@@ -4545,18 +4618,18 @@ function OperatorDashboard() {
                   </div>
                   <div className="flex flex-col gap-2 py-2 border-b border-[var(--border-app)]/30 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-textMain font-medium">Up Next Font Size</span>
-                      <span className="font-mono text-brand font-bold text-sm">{stageUpNextFontSize}px</span>
+                      <span className="text-textMain font-medium">Slide Label Font Size</span>
+                      <span className="font-mono text-brand font-bold text-sm">{stageLabelFontSize}px</span>
                     </div>
                     <input
                       type="range"
-                      min="14"
+                      min="10"
                       max="200"
-                      value={stageUpNextFontSize}
+                      value={stageLabelFontSize}
                       onChange={(e) => {
                         const v = parseInt(e.target.value);
-                        setStageUpNextFontSize(v);
-                        localStorage.setItem('stageUpNextFontSize', v.toString());
+                        setStageLabelFontSize(v);
+                        localStorage.setItem('stageLabelFontSize', v.toString());
                       }}
                       className="w-full h-1.5 bg-appBg rounded-lg appearance-none cursor-pointer accent-brand"
                     />
@@ -4672,6 +4745,12 @@ function OperatorDashboard() {
             {timerActive && (
               <span className="text-[9px] px-1.5 py-0.5 rounded bg-brand text-white font-mono animate-pulse">TIMER</span>
             )}
+            {isCountdownRunning && !countdownActive && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-600/35 text-red-500 border border-red-500/25 font-mono animate-pulse">COUNTDOWN RUNNING</span>
+            )}
+            {isTimerRunning && !timerActive && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-600/35 text-amber-500 border border-amber-500/25 font-mono animate-pulse">TIMER RUNNING</span>
+            )}
           </h3>
           <div 
             className={`w-full bg-black rounded-lg border ${(countdownActive || timerActive) ? 'border-red-500/60' : 'border-[var(--border-app)]'} relative overflow-hidden flex flex-col p-3 transition-all duration-300 ${
@@ -4705,14 +4784,10 @@ function OperatorDashboard() {
                   // Regular slide background
                   !countdownActive && !timerActive && activeBgAsset && !isBgColor(activeBgAsset) && (
                     /\.(mp4|webm|mov|avi)($|\?)/i.test(activeBgAsset) ? (
-                      <video 
-                        src={activeBgAsset} 
-                        autoPlay 
-                        muted 
-                        loop 
-                        playsInline 
+                      <SharedVideoCanvas 
+                        src={activeBgAsset}
                         className="w-full h-full object-cover" 
-                        style={{ opacity: (slides[activeSlideIndex]?.bgAsset || selectedSong?.author === 'Media') ? 1.0 : 0.6 }} 
+                        style={{ opacity: (slides[activeSlideIndex]?.bgAsset || selectedSong?.author === 'Media') ? 1.0 : 0.6, willChange: 'transform', transform: 'translate3d(0,0,0)' }} 
                       />
                     ) : (
                       <img 
@@ -6170,12 +6245,15 @@ function OperatorDashboard() {
           </button>
         </div>
       )}
-
     </div>
   );
 }
 
-const root = ReactDOM.createRoot(document.getElementById('root'));
+let root = window._operatorRoot;
+if (!root) {
+  root = ReactDOM.createRoot(document.getElementById('root'));
+  window._operatorRoot = root;
+}
 root.render(
   <React.StrictMode>
     <OperatorDashboard />

@@ -3,12 +3,34 @@ const path = require('path');
 const fs = require('fs');
 const db = require('./database');
 
-// Ensure video/audio items can autoplay immediately and unmute without blocking
+const pkg = require(path.join(__dirname, '../package.json'));
+const appVersion = pkg.version;
+
+// Implement Single-Instance Application Constraint
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    // Focus the main operator window if it already exists
+    if (operatorWindow && !operatorWindow.isDestroyed()) {
+      if (operatorWindow.isMinimized()) operatorWindow.restore();
+      operatorWindow.focus();
+      operatorWindow.show();
+    }
+  });
+}
+
 // Enable Chromium Hardware Acceleration & GPU Optimizations
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('enable-zero-copy');
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+app.commandLine.appendSwitch('enable-accelerated-video-decode');
+app.commandLine.appendSwitch('enable-native-gpu-memory-buffers');
+app.commandLine.appendSwitch('enable-gpu-memory-buffer-video-frames');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('force_high_performance_gpu');
 
 let splashWindow = null;
 let operatorWindow = null;
@@ -37,7 +59,11 @@ function createSplashWindow() {
     }
   });
 
-  splashWindow.loadFile(path.join(__dirname, 'splash.html'));
+  splashWindow.loadFile(path.join(__dirname, 'splash.html'), {
+    query: { version: appVersion }
+  }).catch((err) => {
+    console.error('Failed to load splash screen:', err);
+  });
 
   splashWindow.on('closed', () => {
     splashWindow = null;
