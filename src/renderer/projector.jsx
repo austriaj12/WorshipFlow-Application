@@ -79,16 +79,16 @@ function ProjectorScreen() {
     const isVid = /\.(mp4|webm|mov|avi)($|\?)/i.test(targetBg);
     
     if (slide.blackout || !targetBg) {
-      setVideoA(prev => ({ ...prev, active: false, opacity: 0 }));
-      setVideoB(prev => ({ ...prev, active: false, opacity: 0 }));
+      setVideoA({ src: '', active: false, opacity: 0 });
+      setVideoB({ src: '', active: false, opacity: 0 });
       setActiveImage('');
       return;
     }
 
     if (!isVid) {
-      // It's an image or other static asset: fade out videos, set image
-      setVideoA(prev => ({ ...prev, active: false, opacity: 0 }));
-      setVideoB(prev => ({ ...prev, active: false, opacity: 0 }));
+      // It's an image or other static asset: clear/unload videos, set image
+      setVideoA({ src: '', active: false, opacity: 0 });
+      setVideoB({ src: '', active: false, opacity: 0 });
       setActiveImage(targetBg);
       if (videoRefA.current) videoRefA.current.pause();
       if (videoRefB.current) videoRefB.current.pause();
@@ -204,15 +204,27 @@ function ProjectorScreen() {
         const isFadeForced = slideData.transitionToNext === 'fade';
         const speedStr = (slideData.style && slideData.style.speed) || 'Medium (0.6s)';
         const anim = (slideData.style && slideData.style.animation) || 'Zoom In/Out';
-        const isInstant = !isFadeForced && (slideData.isImportedSlide || anim === 'None' || anim === 'Instant');
 
-        if (isInstant) {
+        if (!isFadeForced) {
+          // If no transition has been explicitly added, make it instant
           setSlide(slideData);
+          setIsFading(false);
           return;
         }
 
         // Trigger smooth fade transition
         setIsFading(true);
+        
+        // Immediately sync the background asset so it doesn't lag/revert
+        setSlide(prev => ({
+          ...prev,
+          bgAsset: slideData.bgAsset,
+          blackout: slideData.blackout,
+          mediaPlaying: slideData.mediaPlaying,
+          mediaLoop: slideData.mediaLoop,
+          mediaVolume: slideData.mediaVolume
+        }));
+
         const speedMs = parseSpeedToMs(speedStr) / 2;
         setTimeout(() => {
           setSlide(slideData);

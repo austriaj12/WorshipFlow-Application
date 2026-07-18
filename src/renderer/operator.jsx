@@ -4130,8 +4130,8 @@ function OperatorDashboard() {
                           <button
                             type="button"
                             onClick={async () => {
-                              if (!window.api || !window.api.selectFile) return;
-                              const filePath = await window.api.selectFile();
+                              if (!window.api || !window.api.selectLocalFile) return;
+                              const filePath = await window.api.selectLocalFile();
                               if (filePath) {
                                 setCountdownBgMedia(filePath);
                               }
@@ -4381,8 +4381,8 @@ function OperatorDashboard() {
                           <button
                             type="button"
                             onClick={async () => {
-                              if (!window.api || !window.api.selectFile) return;
-                              const filePath = await window.api.selectFile();
+                              if (!window.api || !window.api.selectLocalFile) return;
+                              const filePath = await window.api.selectLocalFile();
                               if (filePath) {
                                 setTimerBgMedia(filePath);
                               }
