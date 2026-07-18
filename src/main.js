@@ -10,6 +10,7 @@ const appVersion = pkg.version;
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
+  process.exit(0);
 } else {
   app.on('second-instance', (event, commandLine, workingDirectory) => {
     // Focus the main operator window if it already exists
