@@ -5332,7 +5332,25 @@ function OperatorDashboard() {
                       <div 
                         key={idx} 
                         id={`add-preview-card-${idx}`}
-                        className={`space-y-1 bg-appPanel/30 p-2 rounded border transition-all duration-200 ${getSlideCardBorderClass(slide.label, isCurrent, false, true)}`}
+                        onClick={() => {
+                          setActiveAddPreviewIdx(idx);
+                          const textarea = document.querySelector('form textarea');
+                          if (textarea) {
+                            const textVal = textarea.value;
+                            const blocks = textVal.split('\n\n');
+                            let startPos = 0;
+                            for (let i = 0; i < idx && i < blocks.length; i++) {
+                              startPos += blocks[i].length + 2;
+                            }
+                            const endPos = startPos + (blocks[idx] ? blocks[idx].length : 0);
+                            textarea.focus();
+                            textarea.setSelectionRange(startPos, endPos);
+                            const linesUpTo = textVal.substring(0, startPos).split('\n').length;
+                            const lineHeight = 24;
+                            textarea.scrollTop = (linesUpTo - 1) * lineHeight;
+                          }
+                        }}
+                        className={`space-y-1 bg-appPanel/30 p-2 rounded border cursor-pointer transition-all duration-200 ${getSlideCardBorderClass(slide.label, isCurrent, false, true)}`}
                       >
                         <div className="flex justify-between items-center text-[9px] font-mono text-textMuted uppercase font-semibold">
                           <span className={`px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase tracking-wider ${getLabelBadgeStyle(slide.label).bg} ${getLabelBadgeStyle(slide.label).text}`}>
