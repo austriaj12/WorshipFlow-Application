@@ -5034,6 +5034,7 @@ function OperatorDashboard() {
               
               {/* Left Column: Form inputs (7 cols) */}
               <form 
+                id="add-song-form"
                 onSubmit={handleAddSong} 
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
@@ -5285,23 +5286,6 @@ function OperatorDashboard() {
                     className="p-2.5 bg-appBg border border-t-0 border-[var(--border-app)] rounded-b-lg focus:border-brand focus:outline-none font-mono leading-relaxed"
                   ></textarea>
                 </div>
-
-                <div className="pt-2 flex justify-end gap-2 border-t border-[var(--border-app)]">
-                  <button 
-                    type="button" 
-                    onClick={() => setIsAddSongOpen(false)}
-                    className="px-4 py-2 border border-[var(--border-app)] text-textMuted hover:text-textMain hover:bg-appBg rounded transition font-mono"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    type="submit" 
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-slate-900 font-bold rounded flex items-center gap-1.5 transition font-mono"
-                  >
-                    <Save className="h-4 w-4" />
-                    Save Song
-                  </button>
-                </div>
               </form>
 
               {/* Right Column: Live Slide Previewer (5 cols) */}
@@ -5411,6 +5395,24 @@ function OperatorDashboard() {
                 )}
               </div>
 
+            </div>
+
+            <div className="p-4 border-t border-[var(--border-app)] flex justify-end gap-2 bg-appPanel">
+              <button 
+                type="button" 
+                onClick={() => setIsAddSongOpen(false)}
+                className="px-4 py-2 border border-[var(--border-app)] text-textMuted hover:text-textMain hover:bg-appBg rounded transition font-mono text-xs"
+              >
+                Cancel
+              </button>
+              <button 
+                type="submit" 
+                form="add-song-form"
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded flex items-center gap-1.5 transition font-mono text-xs shadow-md"
+              >
+                <Save className="h-4 w-4" />
+                Save Song
+              </button>
             </div>
           </div>
         </div>
