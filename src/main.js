@@ -617,8 +617,22 @@ ipcMain.handle('media:save-presentation', async (event, { playlistData, filePath
       }
       targetPath = result.filePath;
     }
+
+    const songIds = [...new Set(
+      playlistData
+        .filter(item => item.type === 'song' && item.song_id !== null && item.song_id !== undefined)
+        .map(item => item.song_id)
+    )];
+
+    const songs = await db.getSongsByIds(songIds);
+
+    const payload = {
+      version: 2,
+      playlist: playlistData,
+      songs: songs
+    };
     
-    await fs.promises.writeFile(targetPath, JSON.stringify(playlistData, null, 2), 'utf8');
+    await fs.promises.writeFile(targetPath, JSON.stringify(payload, null, 2), 'utf8');
     return { success: true, filePath: targetPath };
   } catch (err) {
     console.error('Failed to save presentation file:', err);

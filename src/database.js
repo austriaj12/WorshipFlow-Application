@@ -165,6 +165,19 @@ function getSongWithContent(songId) {
   });
 }
 
+function getSongsByIds(ids) {
+  return new Promise((resolve, reject) => {
+    if (!ids || ids.length === 0) {
+      return resolve([]);
+    }
+    const placeholders = ids.map(() => '?').join(',');
+    db.all(`SELECT * FROM songs WHERE id IN (${placeholders})`, ids, (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows || []);
+    });
+  });
+}
+
 function saveSong(id, title, author, key, tempo, contentJson) {
   return new Promise((resolve, reject) => {
     if (id) {
@@ -313,41 +326,93 @@ function clearPlaylist() {
   });
 }
 
-function importPlaylist(items) {
+function importPlaylist(data) {
   return new Promise((resolve, reject) => {
-    db.all('SELECT id FROM songs', (err, rows) => {
-      if (err) return reject(err);
-      const validSongIds = new Set(rows.map(row => row.id));
+    let items = [];
+    let songs = [];
+    
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+      items = data.playlist || [];
+      songs = data.songs || [];
+    } else if (Array.isArray(data)) {
+      items = data;
+    }
 
-      db.serialize(() => {
-        db.run('BEGIN TRANSACTION');
-        db.run('DELETE FROM playlist', (err) => {
-          if (err) {
-            db.run('ROLLBACK');
-            return reject(err);
-          }
-          
-          const stmt = db.prepare('INSERT INTO playlist (name, type, song_id, playlist_order) VALUES (?, ?, ?, ?)');
-          items.forEach((item, index) => {
-            let songId = item.song_id || (item.song_id === 0 ? 0 : null);
-            if (songId !== null && !validSongIds.has(songId)) {
-              songId = null;
-            }
-            stmt.run([item.name, item.type, songId, index + 1]);
+    db.serialize(() => {
+      db.run('BEGIN TRANSACTION');
+
+      // Helper to process songs and insert them if missing
+      const processSongs = async () => {
+        const idMapping = {};
+        for (const song of songs) {
+          if (!song || !song.title) continue;
+          await new Promise((resSong, rejSong) => {
+            db.get('SELECT id FROM songs WHERE title = ?', [song.title], (err, row) => {
+              if (err) return rejSong(err);
+              if (row) {
+                idMapping[song.id] = row.id;
+                resSong();
+              } else {
+                db.run(
+                  'INSERT INTO songs (title, author, [key], tempo, content_json) VALUES (?, ?, ?, ?, ?)',
+                  [song.title, song.author || '', song.key || '', song.tempo || '', song.content_json || '[]'],
+                  function (err) {
+                    if (err) return rejSong(err);
+                    idMapping[song.id] = this.lastID;
+                    resSong();
+                  }
+                );
+              }
+            });
           });
-          
-          stmt.finalize((err) => {
+        }
+        return idMapping;
+      };
+
+      processSongs()
+        .then((idMapping) => {
+          db.all('SELECT id FROM songs', (err, rows) => {
             if (err) {
               db.run('ROLLBACK');
               return reject(err);
             }
-            db.run('COMMIT', (err) => {
-              if (err) reject(err);
-              else resolve(true);
+            const validSongIds = new Set(rows.map(row => row.id));
+
+            db.run('DELETE FROM playlist', (err) => {
+              if (err) {
+                db.run('ROLLBACK');
+                return reject(err);
+              }
+              
+              const stmt = db.prepare('INSERT INTO playlist (name, type, song_id, playlist_order) VALUES (?, ?, ?, ?)');
+              items.forEach((item, index) => {
+                let songId = item.song_id || (item.song_id === 0 ? 0 : null);
+                if (songId !== null && idMapping[songId] !== undefined) {
+                  songId = idMapping[songId];
+                }
+                if (songId !== null && !validSongIds.has(songId)) {
+                  songId = null;
+                }
+                stmt.run([item.name, item.type, songId, index + 1]);
+              });
+              
+              stmt.finalize((err) => {
+                if (err) {
+                  db.run('ROLLBACK');
+                  return reject(err);
+                }
+                db.run('COMMIT', (err) => {
+                  if (err) reject(err);
+                  else resolve(true);
+                });
+              });
             });
           });
+        })
+        .catch((err) => {
+          db.run('ROLLBACK');
+          reject(err);
         });
-      });
     });
   });
 }
@@ -681,6 +746,7 @@ module.exports = {
   getAllSongs,
   searchSongs,
   getSongWithContent,
+  getSongsByIds,
   saveSong,
   deleteSong,
   queryBible,
