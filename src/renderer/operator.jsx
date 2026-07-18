@@ -5204,6 +5204,42 @@ function OperatorDashboard() {
                     </select>
                   </div>
 
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">BG Height (%)</label>
+                    <input 
+                      type="number" 
+                      min="10"
+                      max="100"
+                      value={songBgHeight} 
+                      onChange={e => setSongBgHeight(parseInt(e.target.value) || 100)}
+                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">BG Width (%)</label>
+                    <input 
+                      type="number" 
+                      min="10"
+                      max="100"
+                      value={songBgWidth} 
+                      onChange={e => setSongBgWidth(parseInt(e.target.value) || 100)}
+                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-textMuted uppercase font-mono">BG Radius (px)</label>
+                    <input 
+                      type="number" 
+                      min="0"
+                      max="100"
+                      value={songBgRadius} 
+                      onChange={e => setSongBgRadius(parseInt(e.target.value) || 0)}
+                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                    />
+                  </div>
+
                   <div className="flex flex-col gap-1 col-span-2">
                     <label className="text-[9px] text-textMuted uppercase font-mono">Anim & Speed</label>
                     <div className="flex gap-2">
