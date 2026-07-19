@@ -4634,6 +4634,24 @@ function OperatorDashboard() {
                       className="w-full h-1.5 bg-appBg rounded-lg appearance-none cursor-pointer accent-brand"
                     />
                   </div>
+                  <div className="flex flex-col gap-2 py-2 border-b border-[var(--border-app)]/30 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-textMain font-medium">Next Lyrics Font Size</span>
+                      <span className="font-mono text-brand font-bold text-sm">{stageUpNextFontSize}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="10"
+                      max="100"
+                      value={stageUpNextFontSize}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value);
+                        setStageUpNextFontSize(v);
+                        localStorage.setItem('stageUpNextFontSize', v.toString());
+                      }}
+                      className="w-full h-1.5 bg-appBg rounded-lg appearance-none cursor-pointer accent-brand"
+                    />
+                  </div>
 
                   <div className="flex justify-between items-center py-2 text-sm">
                     <span className="text-textMain font-medium">Text Transform</span>
