@@ -204,6 +204,7 @@ function OperatorDashboard() {
 
   // Local Search state
   const [searchQuery, setSearchQuery] = useState('');
+  const [librarySearchQuery, setLibrarySearchQuery] = useState('');
   
   // Custom aspect ratio configs (CSS flexible previews)
   const [aspectRatio, setAspectRatio] = useState('video'); // 'video' (16:9) | '[4/3]' (4:3)
@@ -1297,8 +1298,12 @@ function OperatorDashboard() {
 
   // Sync state selection to trigger live preview text updates
   const handleSelectSlide = (index, slidesList, songObject = selectedSong) => {
-    setCountdownActive(false);
-    setTimerActive(false);
+    if (countdownActive && (countdownShowOn === 'both' || countdownShowOn === 'main')) {
+      setCountdownShowOn('stage');
+    }
+    if (timerActive && (timerShowOn === 'both' || timerShowOn === 'main')) {
+      setTimerShowOn('stage');
+    }
     setActiveSlideIndex(index);
     const activeSlide = slidesList && slidesList[index];
     if (activeSlide) {
@@ -1329,8 +1334,6 @@ function OperatorDashboard() {
   };
 
   const handleGoLiveBible = (slidesList) => {
-    setCountdownActive(false);
-    setTimerActive(false);
     if (!bibleLiveSlides) {
       setSavedPresentationState({
         songId: selectedSong ? selectedSong.id : null,
@@ -1389,6 +1392,8 @@ function OperatorDashboard() {
 
   const slides = getSlidesArray();
   const isMediaItem = selectedSong && selectedSong.author === 'Media';
+  const showOnProjector = countdownActive && isCountdownRunning && (countdownShowOn === 'both' || countdownShowOn === 'main');
+  const showTimerOnProjector = timerActive && isTimerRunning && (timerShowOn === 'both' || timerShowOn === 'main');
 
   // Automatically push real-time stage & projector updates on any slide/countdown/message/projector state changes
   useEffect(() => {
@@ -1474,9 +1479,6 @@ function OperatorDashboard() {
 
       // 2. Send Projector updates - show countdown/timer only if enabled for main output display
       if (window.api.sendSlideUpdate) {
-        const showOnProjector = countdownActive && isCountdownRunning && (countdownShowOn === 'both' || countdownShowOn === 'main');
-        const showTimerOnProjector = timerActive && isTimerRunning && (timerShowOn === 'both' || timerShowOn === 'main');
-        
         try {
           let slidePayload = {};
           if (showOnProjector) {
@@ -1819,7 +1821,7 @@ function OperatorDashboard() {
       const targetSlides = curBibleSlides || curSlides;
       if (!targetSlides || targetSlides.length === 0) return;
 
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'Enter') {
         e.preventDefault();
         
         // If we are viewing a different song in the dashboard than the live song,
@@ -2597,7 +2599,7 @@ function OperatorDashboard() {
               )}
 
               {/* Sidebar Playlist (Presentation Flow) list */}
-              <div className="flex-1 overflow-y-auto p-2 space-y-1.5 scrollbar-thin">
+              <div className="flex-1 overflow-y-auto p-1.5 space-y-1 scrollbar-thin">
                 {playlist.map((item, index) => {
                   const isSelected = selectedSong && selectedSong.id === item.song_id;
                   const detectedType = detectPlaylistItemType(item);
@@ -2618,7 +2620,7 @@ function OperatorDashboard() {
                             isSection: true
                           });
                         }}
-                        className="py-2 px-1 text-textMain font-bold text-xs tracking-wider uppercase font-sans flex items-center justify-between select-none mt-4 first:mt-0 cursor-context-menu"
+                        className="py-1 px-1 text-textMain font-bold text-[10px] tracking-wider uppercase font-mono flex items-center justify-between select-none mt-2 first:mt-0 cursor-context-menu"
                       >
                         <span>{item.name}</span>
                       </div>
@@ -2645,26 +2647,26 @@ function OperatorDashboard() {
                           itemIndex: index
                         });
                       }}
-                      className={`p-2 rounded-lg cursor-grab active:cursor-grabbing group border transition flex items-center justify-between gap-2 ${
+                      className={`py-1 px-1.5 rounded-md cursor-grab active:cursor-grabbing group border transition flex items-center justify-between gap-1.5 min-h-[28px] ${
                         isSelected 
                           ? 'bg-brand/10 border-brand/40 text-textMain' 
                           : 'hover:bg-appBg/45 border-transparent text-textMuted hover:text-textMain'
                       }`}
                     >
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <GripVertical className="h-3 w-3 text-textMuted/60 cursor-grab group-hover:text-textMuted transition" />
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                        <GripVertical className="h-3 w-3 text-textMuted/50 cursor-grab group-hover:text-textMuted transition flex-shrink-0" />
                         
                         {/* Render Icon before the title with distinct colors */}
-                        {detectedType === 'PowerPoint' && <PPTIcon className="h-4 w-4 text-amber-500 flex-shrink-0" />}
-                        {detectedType === 'PDF' && <PDFIcon className="h-4 w-4 text-red-500 flex-shrink-0" />}
+                        {detectedType === 'PowerPoint' && <PPTIcon className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />}
+                        {detectedType === 'PDF' && <PDFIcon className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />}
                         {detectedType !== 'PowerPoint' && detectedType !== 'PDF' && (
-                          detectedType === 'Video' ? <Film className="h-4 w-4 text-indigo-400 flex-shrink-0" /> : 
-                          detectedType === 'Image' ? <Image className="h-4 w-4 text-sky-400 flex-shrink-0" /> :
-                          <Music className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+                          detectedType === 'Video' ? <Film className="h-3.5 w-3.5 text-indigo-400 flex-shrink-0" /> : 
+                          detectedType === 'Image' ? <Image className="h-3.5 w-3.5 text-sky-400 flex-shrink-0" /> :
+                          <Music className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
                         )}
                         
                         <div className="flex flex-col min-w-0 flex-1">
-                          <span className="font-semibold text-xs truncate leading-snug">{item.name}</span>
+                          <span className="font-semibold text-[11px] truncate leading-tight">{item.name}</span>
                         </div>
                       </div>
 
@@ -2683,10 +2685,10 @@ function OperatorDashboard() {
                             }
                           }
                         }}
-                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-liveDanger/10 hover:text-liveDanger text-textMuted rounded transition-all"
+                        className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-liveDanger/10 hover:text-liveDanger text-textMuted rounded transition-all"
                         title="Remove from Flow"
                       >
-                        <Trash className="h-3.5 w-3.5" />
+                        <Trash className="h-3 w-3" />
                       </button>
                     </div>
                   )
@@ -3613,63 +3615,133 @@ function OperatorDashboard() {
         {/* SONG LIBRARY EXPLORER VIEW */}
         {activeHeaderTab === 'songs' && (
           <section className="flex-1 flex flex-col p-6 bg-appBg overflow-y-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-lg font-bold text-textMain flex items-center gap-2">
-                <Music className="text-brand h-5 w-5" />
-                Song Library Manager
-              </h2>
-              <button 
-                onClick={() => setIsAddSongOpen(true)}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-slate-900 font-bold rounded text-xs flex items-center gap-2 transition"
-              >
-                <Plus className="h-4 w-4" />
-                Add New Song
-              </button>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
+                  <Music className="text-emerald-400 h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-extrabold text-textMain tracking-wide">
+                    Song Library Manager
+                  </h2>
+                  <p className="text-[11px] text-textMuted font-mono">
+                    {songs.filter(s => s.author !== 'Media').length} Worship Songs Available
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 w-full sm:w-auto">
+                {/* Search Bar */}
+                <div className="relative flex items-center flex-1 sm:w-64">
+                  <Search className="absolute left-3 text-textMuted h-3.5 w-3.5" />
+                  <input
+                    type="text"
+                    placeholder="Search songs..."
+                    value={librarySearchQuery}
+                    onChange={(e) => setLibrarySearchQuery(e.target.value)}
+                    className="w-full pl-8 pr-7 py-1.5 bg-appPanel border border-[var(--border-app)] rounded-lg text-xs text-textMain placeholder-textMuted focus:outline-none focus:border-brand transition"
+                  />
+                  {librarySearchQuery && (
+                    <button 
+                      onClick={() => setLibrarySearchQuery('')}
+                      className="absolute right-2.5 text-textMuted hover:text-textMain text-xs font-bold"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+
+                <button 
+                  onClick={() => setIsAddSongOpen(true)}
+                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold rounded-lg text-xs flex items-center gap-1.5 shadow transition active:scale-95 flex-shrink-0"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add New Song
+                </button>
+              </div>
             </div>
 
-            {songs.length > 0 ? (
-              <div className="bg-appPanel/40 border border-[var(--border-app)] rounded-lg overflow-hidden text-xs">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-[var(--border-app)] bg-appPanel/50 text-textMuted font-bold uppercase tracking-wider text-[10px] font-mono">
-                      <th className="p-4">Title</th>
-                      <th className="p-4 text-center">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {songs.filter(song => song.author !== 'Media').map((song) => (
-                      <tr key={song.id} className="border-b border-[var(--border-app)]/60 hover:bg-appPanel/20 text-textMain">
-                        <td className="p-4 font-bold text-textMain">{song.title}</td>
-                        <td className="p-4 text-center">
-                          <div className="flex items-center justify-center gap-2">
-                            <button 
-                              onClick={async () => {
-                                selectSong(song.id);
-                                await addToPlaylist(song.title, 'song', song.id);
-                                setActiveHeaderTab('presentation');
-                              }}
-                              className="px-2.5 py-1 bg-brand/10 text-brand hover:bg-brand/20 rounded border border-brand/40 text-[10px] font-semibold font-mono"
-                            >
-                              Load Presentation
-                            </button>
+            {songs.filter(s => s.author !== 'Media').length > 0 ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                {songs
+                  .filter(song => song.author !== 'Media' && (!librarySearchQuery.trim() || song.title.toLowerCase().includes(librarySearchQuery.toLowerCase())))
+                  .map((song) => (
+                    <div 
+                      key={song.id} 
+                      className="bg-appPanel/40 hover:bg-appPanel/80 border border-[var(--border-app)] hover:border-emerald-500/40 rounded-xl p-3 flex flex-col justify-between group transition-all duration-200 shadow-md hover:shadow-2xl relative overflow-hidden"
+                    >
+                      {/* Top Default Music Artwork Box */}
+                      <div className="w-full aspect-square bg-gradient-to-br from-emerald-950/80 via-slate-900 to-slate-950 border border-slate-800/80 rounded-lg flex flex-col items-center justify-center relative overflow-hidden group-hover:scale-[1.02] transition-transform duration-300 mb-2.5 shadow-inner">
+                        {/* Decorative background circles */}
+                        <div className="absolute inset-2 rounded-full border border-emerald-500/10 flex items-center justify-center pointer-events-none">
+                          <div className="w-1/2 h-1/2 rounded-full border border-emerald-500/10" />
+                        </div>
+
+                        {/* Default Music Logo Icon */}
+                        <Music className="h-10 w-10 text-emerald-400/75 group-hover:scale-110 group-hover:text-emerald-400 group-hover:drop-shadow-[0_0_14px_rgba(52,211,153,0.5)] transition-all duration-300" />
+                        
+                        {/* Hover Overlay with Big Play / Load Icon Button */}
+                        <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center gap-2">
+                          <button
+                            onClick={async () => {
+                              selectSong(song.id);
+                              await addToPlaylist(song.title, 'song', song.id);
+                              setActiveHeaderTab('presentation');
+                            }}
+                            className="p-3 rounded-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-xl transform scale-90 hover:scale-105 active:scale-95 transition-all"
+                            title="Load Presentation into Flow"
+                          >
+                            <Play className="h-5 w-5 fill-slate-950 translate-x-0.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Song Title & Icon Actions Bar */}
+                      <div className="flex flex-col gap-2 min-w-0">
+                        <div className="min-w-0">
+                          <h3 className="font-extrabold text-xs text-textMain truncate tracking-tight" title={song.title}>
+                            {song.title}
+                          </h3>
+                          <p className="text-[10px] text-textMuted font-mono truncate mt-0.5">
+                            {song.author && song.author !== 'WorshipFlow' ? song.author : 'Worship Song'}
+                          </p>
+                        </div>
+
+                        {/* Pure Icon Action Buttons Row inside the box */}
+                        <div className="flex items-center justify-between border-t border-[var(--border-app)]/50 pt-2">
+                          <button 
+                            onClick={async () => {
+                              selectSong(song.id);
+                              await addToPlaylist(song.title, 'song', song.id);
+                              setActiveHeaderTab('presentation');
+                            }}
+                            className="flex items-center gap-1 text-[10px] font-bold text-emerald-400 hover:text-emerald-300 transition"
+                            title="Load Presentation"
+                          >
+                            <Play className="h-3 w-3 fill-current" />
+                            <span>Load</span>
+                          </button>
+
+                          <div className="flex items-center gap-1">
                             <button 
                               onClick={() => { selectSong(song.id); handleOpenEdit(); }}
-                              className="p-1.5 hover:bg-appBg rounded text-textMuted hover:text-textMain"
+                              className="p-1 hover:bg-appBg rounded text-textMuted hover:text-textMain transition"
+                              title="Edit Song"
                             >
                               <Edit className="h-3.5 w-3.5" />
                             </button>
                             <button 
                               onClick={() => handleDeleteSongClick(song.id)}
-                              className="p-1.5 hover:bg-liveDanger/20 rounded text-liveDanger hover:text-red-300"
+                              className="p-1 hover:bg-liveDanger/20 rounded text-liveDanger hover:text-red-300 transition"
+                              title="Delete Song"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
               </div>
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center border border-[var(--border-app)] rounded-lg p-12 text-textMuted">
@@ -4771,14 +4843,14 @@ function OperatorDashboard() {
             )}
           </h3>
           <div 
-            className={`w-full bg-black rounded-lg border ${(countdownActive || timerActive) ? 'border-red-500/60' : 'border-[var(--border-app)]'} relative overflow-hidden flex flex-col p-3 transition-all duration-300 ${
+            className={`w-full bg-black rounded-lg border ${(showOnProjector || showTimerOnProjector) ? 'border-red-500/60' : 'border-[var(--border-app)]'} relative overflow-hidden flex flex-col p-3 transition-all duration-300 ${
               aspectRatio === 'video' ? 'aspect-video' : 'aspect-[4/3]'
-            } ${!(countdownActive || timerActive) ? getLivePreviewFlexAlignment() : 'items-center justify-center'}`}
+            } ${!(showOnProjector || showTimerOnProjector) ? getLivePreviewFlexAlignment() : 'items-center justify-center'}`}
             style={{
               containerType: 'inline-size',
-              ...(countdownActive 
+              ...(showOnProjector 
                 ? { backgroundColor: countdownBgColor || '#000000' } 
-                : timerActive 
+                : showTimerOnProjector 
                   ? { backgroundColor: timerBgColor || '#000000' }
                   : (!blackout && activeBgAsset && isBgColor(activeBgAsset) ? { backgroundColor: activeBgAsset } : {}))
             }}
@@ -4786,13 +4858,13 @@ function OperatorDashboard() {
             {/* Background media */}
             {!blackout && (
               <div className="absolute inset-0 z-0 w-full h-full">
-                {countdownActive && countdownBgMedia ? (
+                {showOnProjector && countdownBgMedia ? (
                   /\.(mp4|webm|mov|avi)($|\?)/i.test(countdownBgMedia) ? (
                     <video src={formatBgPath(countdownBgMedia)} autoPlay muted loop playsInline className="w-full h-full object-cover" />
                   ) : (
                     <img src={formatBgPath(countdownBgMedia)} className="w-full h-full object-cover" alt="" />
                   )
-                ) : timerActive && timerBgMedia ? (
+                ) : showTimerOnProjector && timerBgMedia ? (
                   /\.(mp4|webm|mov|avi)($|\?)/i.test(timerBgMedia) ? (
                     <video src={formatBgPath(timerBgMedia)} autoPlay muted loop playsInline className="w-full h-full object-cover" />
                   ) : (
@@ -4800,7 +4872,7 @@ function OperatorDashboard() {
                   )
                 ) : (
                   // Regular slide background
-                  !countdownActive && !timerActive && activeBgAsset && !isBgColor(activeBgAsset) && (
+                  !showOnProjector && !showTimerOnProjector && activeBgAsset && !isBgColor(activeBgAsset) && (
                     /\.(mp4|webm|mov|avi)($|\?)/i.test(activeBgAsset) ? (
                       <SharedVideoCanvas 
                         src={activeBgAsset}
@@ -4821,7 +4893,7 @@ function OperatorDashboard() {
             )}
             
             {/* Countdown overlay content */}
-            {countdownActive && !blackout ? (
+            {showOnProjector && !blackout ? (
               <div className="z-10 flex flex-col items-center justify-center text-center w-full px-2">
                 {countdownTitle && (
                   <div style={{ fontSize: `${Math.max(6, (countdownTitleSize || 56) * 0.065)}px`, fontWeight: 'bold', textTransform: 'uppercase', opacity: 0.85, color: '#fff', marginBottom: '4px', lineHeight: 1.2 }}>
@@ -4846,7 +4918,7 @@ function OperatorDashboard() {
                   </div>
                 )}
               </div>
-            ) : timerActive && !blackout ? (
+            ) : showTimerOnProjector && !blackout ? (
               /* Count-up Timer overlay content */
               <div className="z-10 flex flex-col items-center justify-center text-center w-full px-2">
                 {timerTitle && (
