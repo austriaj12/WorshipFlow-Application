@@ -110,6 +110,8 @@ function RemoteDisplay() {
         // Initial load
         if (activeTab === 'bible') {
           ws.send(JSON.stringify({ type: 'remote-get-bible-books', payload: { translation: bibleTranslation } }));
+        } else if (activeTab === 'library') {
+          ws.send(JSON.stringify({ type: 'remote-song-search', payload: { query: libraryQuery || '', translation: bibleTranslation } }));
         }
       };
       
@@ -161,13 +163,15 @@ function RemoteDisplay() {
     };
   }, [activeTab, bibleTranslation]);
 
-  // Request Bible Books on active tab or translation change
+  // Request Bible Books or Library Songs on active tab or translation change
   useEffect(() => {
     if (activeTab === 'bible' && socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
       socketRef.current.send(JSON.stringify({
         type: 'remote-get-bible-books',
         payload: { translation: bibleTranslation }
       }));
+    } else if (activeTab === 'library' && socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      handleSongSearch(libraryQuery || '');
     }
   }, [activeTab, bibleTranslation]);
 
@@ -252,6 +256,7 @@ function RemoteDisplay() {
 
   // Send a library song to live
   const handleSelectPlaylistSong = (songId) => {
+    if (!songId) return;
     sendCommand('select-playlist-item', { songId });
   };
 
@@ -271,38 +276,69 @@ function RemoteDisplay() {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-[#090d16] text-slate-100 font-sans select-none overflow-hidden pb-16 safe-bottom">
+    <div className="flex flex-col h-screen w-screen bg-[#131722] text-slate-100 font-sans select-none overflow-hidden pb-16 safe-bottom">
       
-      {/* --- PREMIUM APP-LIKE GLASSMORPHIC HEADER --- */}
-      <header className="flex-shrink-0 bg-[#0d1527]/90 border-b border-slate-800/80 px-4 py-3.5 flex flex-col gap-2.5 shadow-xl backdrop-blur-lg z-30">
+      {/* --- DARK GRAY HEADER --- */}
+      <header className="flex-shrink-0 bg-[#1a202c]/95 border-b border-slate-700/60 px-4 py-3 flex flex-col gap-2 shadow-xl backdrop-blur-md z-30">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className={`h-2.5 w-2.5 rounded-full ${socketStatus === 'connected' ? 'bg-emerald-500 animate-pulse shadow-md shadow-emerald-500/20' : 'bg-rose-500'}`} />
-            <span className="text-[10px] uppercase font-mono font-black tracking-wider text-slate-400">
-              {socketStatus === 'connected' ? 'WiFi Connected' : 'Connecting...'}
+            <div className={`h-2.5 w-2.5 rounded-full ${socketStatus === 'connected' ? 'bg-emerald-400 animate-pulse shadow-md shadow-emerald-400/20' : 'bg-rose-500'}`} />
+            <span className="text-xs font-black tracking-wider uppercase text-slate-200 font-mono flex items-center gap-1.5">
+              <Tv className="h-3.5 w-3.5 text-emerald-400" />
+              WorshipFlow Remote
             </span>
           </div>
         </div>
         
-        {/* Live Output Preview Box */}
-        <div className={`w-full rounded-xl p-3 text-center transition flex flex-col justify-center items-center shadow-inner relative overflow-hidden ${
-          slideData.blackout 
-            ? 'bg-black border border-rose-600/40 text-rose-500 font-bold font-mono text-xs uppercase' 
-            : 'bg-slate-900/40 border border-slate-800/60 text-white'
-        }`}>
+        {/* Live Output Preview Box with Background Media */}
+        <div 
+          className={`w-full aspect-video rounded-xl p-3 text-center transition flex flex-col justify-center items-center shadow-2xl relative overflow-hidden ${
+            slideData.blackout 
+              ? 'bg-black border border-rose-600/40 text-rose-500 font-bold font-mono text-xs uppercase' 
+              : 'border border-slate-700/80 text-white bg-slate-900/60'
+          }`}
+          style={{
+            ...(slideData.bgAsset && slideData.bgAsset.startsWith('#')
+              ? { backgroundColor: slideData.bgAsset }
+              : {})
+          }}
+        >
+          {/* Background image or video layer */}
+          {!slideData.blackout && slideData.bgAsset && !slideData.bgAsset.startsWith('#') && (
+            <div className="absolute inset-0 z-0 w-full h-full">
+              {/\.(mp4|webm|mov|avi)($|\?)/i.test(slideData.bgAsset) ? (
+                <video 
+                  src={formatRemoteBgUrl(slideData.bgAsset)} 
+                  autoPlay 
+                  muted 
+                  loop 
+                  playsInline 
+                  className="w-full h-full object-cover" 
+                />
+              ) : (
+                <img 
+                  src={formatRemoteBgUrl(slideData.bgAsset)} 
+                  className="w-full h-full object-cover" 
+                  alt="" 
+                />
+              )}
+              <div className="absolute inset-0 bg-black/40 z-[1]" />
+            </div>
+          )}
+
           {slideData.blackout ? (
-            '● BLACKOUT ACTIVE'
+            <span className="z-10 animate-pulse font-mono tracking-widest text-xs">● BLACKOUT ACTIVE</span>
           ) : (
-            <>
-              <p className="line-clamp-2 leading-relaxed whitespace-pre-line text-xs font-bold uppercase tracking-wide">
+            <div className="z-10 flex flex-col items-center justify-center w-full px-2">
+              <p className="line-clamp-3 leading-snug whitespace-pre-line text-xs font-black uppercase tracking-wide drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">
                 {slideData.clearLyrics ? '' : (slideData.text || '[ Screen Clear ]')}
               </p>
               {slideData.label && !slideData.clearLyrics && (
-                <span className="mt-1 px-2.5 py-0.5 rounded bg-brand/10 border border-brand/35 text-[8px] font-mono text-brand font-bold uppercase tracking-wider">
+                <span className="mt-1.5 px-2.5 py-0.5 rounded bg-brand/20 border border-brand/50 text-[9px] font-mono text-brand font-black uppercase tracking-wider backdrop-blur-md">
                   {slideData.label}
                 </span>
               )}
-            </>
+            </div>
           )}
         </div>
       </header>
@@ -316,26 +352,75 @@ function RemoteDisplay() {
             {/* Quick Overrides Row */}
             <div className="grid grid-cols-2 gap-3">
               <button
-                onClick={() => sendCommand('toggle-blackout')}
+                onClick={() => {
+                  setSlideData(prev => ({ ...prev, blackout: !prev.blackout }));
+                  sendCommand('toggle-blackout');
+                }}
                 className={`py-3.5 px-3 rounded-xl font-bold text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 border transition active:scale-95 touch-target ${
                   slideData.blackout 
                     ? 'bg-rose-600 border-rose-500 text-white shadow-lg' 
-                    : 'bg-slate-900 border-slate-800 text-rose-500'
+                    : 'bg-slate-800/80 border-slate-700/80 text-rose-400'
                 }`}
               >
                 <Tv className="h-4 w-4" /> {slideData.blackout ? 'Live Screen On' : 'Blackout Screen'}
               </button>
 
               <button
-                onClick={() => sendCommand('toggle-clear-lyrics')}
+                onClick={() => {
+                  setSlideData(prev => ({ ...prev, clearLyrics: !prev.clearLyrics }));
+                  sendCommand('toggle-clear-lyrics');
+                }}
                 className={`py-3.5 px-3 rounded-xl font-bold text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 border transition active:scale-95 touch-target ${
                   slideData.clearLyrics 
                     ? 'bg-amber-600 border-amber-500 text-white shadow-lg' 
-                    : 'bg-slate-900 border-slate-800 text-amber-500'
+                    : 'bg-slate-800/80 border-slate-700/80 text-amber-400'
                 }`}
               >
                 <Eye className="h-4 w-4" /> {slideData.clearLyrics ? 'Show Lyrics' : 'Clear Lyrics'}
               </button>
+            </div>
+
+            {/* Service Lineup Presentation items list (POSITIONED FIRST!) */}
+            <div className="space-y-2">
+              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono flex items-center gap-1.5">
+                <Music className="h-3.5 w-3.5 text-emerald-400" />
+                Service Lineup
+              </h4>
+              <div className="space-y-1.5">
+                {playlist.map((item) => {
+                  const isSection = item.type === 'section' || (!item.song_id && !item.filepath);
+                  const isCurrent = slideData.label === item.name;
+
+                  if (isSection) {
+                    return (
+                      <div 
+                        key={item.id} 
+                        className="pt-3 pb-1 px-1 text-emerald-400 font-extrabold text-[11px] tracking-wider uppercase font-mono border-b border-emerald-500/20 flex items-center justify-between select-none"
+                      >
+                        <span>{item.name}</span>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => handleSelectPlaylistSong(item.song_id)}
+                      className={`p-3.5 rounded-xl border cursor-pointer active:scale-[0.99] transition flex items-center justify-between gap-3 min-h-[48px] touch-target ${
+                        isCurrent 
+                          ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 shadow-md' 
+                          : 'bg-slate-800/60 border-slate-700/80 text-slate-200 hover:bg-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <Music className={`h-4 w-4 ${isCurrent ? 'text-emerald-400' : 'text-slate-400'}`} />
+                        <span className="text-xs font-bold truncate">{item.name}</span>
+                      </div>
+                      <ChevronRight className="h-4 w-4 text-slate-500" />
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Active Slides Grid */}
@@ -358,18 +443,18 @@ function RemoteDisplay() {
                         }}
                         className={`p-3 rounded-xl border text-center flex flex-col justify-between items-center cursor-pointer transition select-none active:scale-[0.98] min-h-[90px] relative overflow-hidden touch-target ${
                           isActive 
-                            ? 'border-brand ring-2 ring-brand/35 text-white' 
-                            : 'border-slate-800 text-slate-300'
+                            ? 'border-emerald-400 ring-2 ring-emerald-400/35 text-white' 
+                            : 'border-slate-700/80 text-slate-300'
                         }`}
                       >
-                        <div className={`absolute inset-0 z-0 transition ${isActive ? 'bg-[#0f172a]/70' : bgUrl ? 'bg-black/60' : 'bg-slate-900/60'}`} />
+                        <div className={`absolute inset-0 z-0 transition ${isActive ? 'bg-[#0f172a]/70' : bgUrl ? 'bg-black/60' : 'bg-slate-800/80'}`} />
                         <div className="flex-1 flex items-center justify-center z-10 w-full">
                           <p className="text-[9px] uppercase font-bold leading-relaxed line-clamp-3 whitespace-pre-wrap text-center w-full select-none text-slate-100">
                             {slide.text}
                           </p>
                         </div>
                         {slide.label && (
-                          <span className={`mt-1.5 px-2 py-0.5 rounded text-[8px] font-bold font-mono uppercase tracking-wider z-10 ${isActive ? 'bg-brand text-slate-900 font-extrabold' : 'bg-slate-800 text-slate-400'}`}>
+                          <span className={`mt-1.5 px-2 py-0.5 rounded text-[8px] font-bold font-mono uppercase tracking-wider z-10 ${isActive ? 'bg-emerald-500 text-slate-950 font-extrabold' : 'bg-slate-700 text-slate-300'}`}>
                             {slide.label}
                           </span>
                         )}
@@ -378,37 +463,10 @@ function RemoteDisplay() {
                   })}
                 </div>
               ) : (
-                <div className="p-8 rounded-xl border border-slate-800/60 bg-slate-900/10 text-center text-slate-500 text-xs">
-                  No active slides found. Select an item below.
+                <div className="p-6 rounded-xl border border-slate-700/60 bg-slate-800/30 text-center text-slate-400 text-xs">
+                  No active slides found. Select an item above from Service Lineup.
                 </div>
               )}
-            </div>
-
-            {/* Lineup Presentation items list */}
-            <div className="space-y-2">
-              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">Service Lineup</h4>
-              <div className="space-y-1.5">
-                {playlist.map((item) => {
-                  const isCurrent = slideData.label === item.name;
-                  return (
-                    <div
-                      key={item.id}
-                      onClick={() => handleSelectPlaylistSong(item.song_id)}
-                      className={`p-3.5 rounded-xl border cursor-pointer active:scale-[0.99] transition flex items-center justify-between gap-3 min-h-[48px] touch-target ${
-                        isCurrent 
-                          ? 'bg-brand/10 border-brand/40 text-brand' 
-                          : 'bg-slate-900/40 border-slate-800/80 text-slate-300'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <Music className={`h-4 w-4 ${isCurrent ? 'text-brand' : 'text-slate-500'}`} />
-                        <span className="text-xs font-bold truncate">{item.name}</span>
-                      </div>
-                      <ChevronRight className="h-4 w-4 text-slate-500" />
-                    </div>
-                  );
-                })}
-              </div>
             </div>
           </div>
         )}
@@ -418,40 +476,43 @@ function RemoteDisplay() {
           <div className="space-y-4 animate-in fade-in duration-200">
             {/* Search inputs */}
             <div className="relative">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
+              <Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
               <input 
                 type="text"
                 placeholder="Search Song Library..."
                 value={libraryQuery}
                 onChange={(e) => handleSongSearch(e.target.value)}
-                className="w-full bg-[#111827] border border-slate-800 rounded-lg pl-9 pr-3 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-brand min-h-[44px]"
+                className="w-full bg-[#1a202c] border border-slate-700/80 rounded-xl pl-9 pr-3 py-2.5 text-xs text-slate-200 placeholder-slate-400 focus:outline-none focus:border-emerald-400 min-h-[44px]"
               />
             </div>
 
             {/* Song details / slides overlay preview */}
             {selectedLibrarySong && (
-              <div className="p-4 rounded-xl border border-brand/35 bg-brand/5 space-y-3 relative">
+              <div className="p-4 rounded-xl border border-emerald-500/40 bg-emerald-500/10 space-y-3 relative shadow-lg">
                 <button 
                   onClick={() => setSelectedLibrarySong(null)} 
                   className="absolute top-2 right-2 p-1 text-slate-400 hover:text-white"
                 >
                   <X className="h-4 w-4" />
                 </button>
-                <h3 className="text-sm font-extrabold text-brand uppercase tracking-wide">
+                <h3 className="text-sm font-extrabold text-emerald-400 uppercase tracking-wide">
                   {selectedLibrarySong.title}
                 </h3>
                 
                 {/* Action buttons */}
                 <div className="grid grid-cols-2 gap-2">
                   <button 
-                    onClick={() => handleSelectPlaylistSong(selectedLibrarySong.id)}
-                    className="py-2 px-3 bg-brand text-slate-900 font-bold rounded text-[11px] uppercase tracking-wider flex items-center justify-center gap-1 min-h-[38px]"
+                    onClick={() => {
+                      handleSelectPlaylistSong(selectedLibrarySong.id);
+                      setActiveTab('lineup');
+                    }}
+                    className="py-2.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-[11px] uppercase tracking-wider flex items-center justify-center gap-1 min-h-[38px] shadow"
                   >
-                    <Play className="h-3.5 w-3.5" /> Cast to Live
+                    <Play className="h-3.5 w-3.5 fill-current" /> Cast to Live
                   </button>
                   <button 
                     onClick={() => handleAddSongToPlaylist(selectedLibrarySong)}
-                    className="py-2 px-3 bg-slate-900 border border-slate-800 text-slate-200 font-bold rounded text-[11px] uppercase tracking-wider flex items-center justify-center gap-1 min-h-[38px]"
+                    className="py-2.5 px-3 bg-slate-800 border border-slate-700 text-slate-200 font-bold rounded-lg text-[11px] uppercase tracking-wider flex items-center justify-center gap-1 min-h-[38px]"
                   >
                     <Plus className="h-3.5 w-3.5" /> Add to Lineup
                   </button>
@@ -467,22 +528,29 @@ function RemoteDisplay() {
                   <div
                     key={song.id}
                     onClick={() => setSelectedLibrarySong(song)}
-                    className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer active:bg-slate-800 transition min-h-[48px] ${
+                    className={`p-3.5 rounded-xl border flex items-center justify-between cursor-pointer active:bg-slate-800 transition min-h-[48px] ${
                       selectedLibrarySong?.id === song.id 
-                        ? 'border-brand/40 bg-slate-800/80' 
-                        : 'border-slate-800 bg-slate-900/30'
+                        ? 'border-emerald-500/50 bg-slate-800' 
+                        : 'border-slate-700/80 bg-slate-800/40 hover:bg-slate-800/70'
                     }`}
                   >
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold truncate text-slate-200">{song.title}</p>
-                      {song.author && <p className="text-[9px] text-slate-500 font-medium truncate mt-0.5">{song.author}</p>}
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                        <Music className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold truncate text-slate-100">{song.title}</p>
+                        <p className="text-[10px] text-slate-400 font-medium truncate mt-0.5">
+                          {song.author && song.author !== 'WorshipFlow' ? song.author : 'Worship Song'}
+                        </p>
+                      </div>
                     </div>
-                    <ChevronRight className="h-4 w-4 text-slate-600" />
+                    <ChevronRight className="h-4 w-4 text-slate-500" />
                   </div>
                 ))}
                 {libraryResults.length === 0 && (
-                  <div className="p-8 text-center text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl bg-slate-900/10">
-                    Search above to browse or select songs from database.
+                  <div className="p-8 text-center text-slate-400 text-xs border border-dashed border-slate-700 rounded-xl bg-slate-800/20">
+                    No songs loaded. Type a title above to search local database.
                   </div>
                 )}
               </div>
