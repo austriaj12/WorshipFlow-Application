@@ -143,66 +143,66 @@ function LyricsDisplay() {
   const currentSongTitle = selectedSongTitle || stageData.label || (slidesToRender.length > 0 ? (slidesToRender[0]?.label || 'Worship Song') : 'Worship Song');
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-white text-slate-900 font-sans select-none overflow-hidden pb-16">
+    <div className="flex flex-col h-screen w-screen bg-white text-slate-900 font-sans select-none overflow-hidden pb-14">
       
-      {/* --- CLEAN WHITE HEADER --- */}
-      <header className="flex-shrink-0 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between shadow-sm z-30">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 flex-shrink-0">
-            <Music className="h-5 w-5" />
+      {/* --- COMPRESSED CLEAN HEADER --- */}
+      <header className="flex-shrink-0 bg-white border-b border-slate-200 px-3 py-2 flex items-center justify-between shadow-sm z-30">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 flex-shrink-0">
+            <Music className="h-4 w-4" />
           </div>
           <div className="min-w-0">
-            <h1 className="text-base font-extrabold text-slate-900 truncate tracking-tight uppercase">
+            <h1 className="text-xs md:text-sm font-extrabold text-slate-900 truncate tracking-tight uppercase">
               {currentSongTitle}
             </h1>
-            <p className="text-[10px] text-slate-500 font-mono font-semibold flex items-center gap-1.5">
-              <span className={`h-2 w-2 rounded-full inline-block ${socketStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
-              {socketStatus === 'connected' ? 'Live Prompter Syncing' : 'Connecting...'}
+            <p className="text-[9px] text-slate-500 font-mono font-semibold flex items-center gap-1">
+              <span className={`h-1.5 w-1.5 rounded-full inline-block ${socketStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+              {socketStatus === 'connected' ? 'Prompter Live' : 'Connecting...'}
             </p>
           </div>
         </div>
 
         {/* Live Status Overrides */}
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-1.5 flex-shrink-0">
           {slideData.blackout && (
-            <span className="px-2.5 py-1 rounded-lg bg-rose-600 text-white font-mono font-bold text-[10px] uppercase tracking-wider animate-pulse">
+            <span className="px-2 py-0.5 rounded bg-rose-600 text-white font-mono font-bold text-[9px] uppercase tracking-wider animate-pulse">
               BLACKOUT
             </span>
           )}
           {slideData.clearLyrics && !slideData.blackout && (
-            <span className="px-2.5 py-1 rounded-lg bg-amber-500 text-white font-mono font-bold text-[10px] uppercase tracking-wider">
+            <span className="px-2 py-0.5 rounded bg-amber-500 text-white font-mono font-bold text-[9px] uppercase tracking-wider">
               CLEAR
             </span>
           )}
         </div>
       </header>
 
-      {/* --- MAIN 2-COLUMN GROUPED LYRICS CONTENT (NO BOX CONTAINERS ON SECTIONS) --- */}
-      <main className="flex-1 overflow-y-auto p-4 pb-20 scrollbar-thin bg-white">
+      {/* --- COMPRESSED 2-COLUMN GROUPED LYRICS CONTENT --- */}
+      <main className="flex-1 overflow-y-auto p-2.5 pb-16 scrollbar-thin bg-white">
         {groupedSections.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+          <div className="grid grid-cols-2 gap-3 items-start">
             {groupedSections.map((group, groupIdx) => {
               const isGroupActive = group.slideIndices.includes(activeIndex);
 
               return (
                 <div
                   key={groupIdx}
-                  className="flex flex-col p-2 bg-transparent border-0"
+                  className="flex flex-col p-1 bg-transparent border-0"
                 >
                   {/* Section Label Header */}
-                  <div className="flex items-center justify-between pb-2 mb-1 border-b border-slate-100">
-                    <span className={`px-2.5 py-0.5 rounded-md border text-[10px] font-mono font-extrabold uppercase tracking-wider ${getLabelBadgeStyle(group.label)}`}>
+                  <div className="flex items-center justify-between pb-1 mb-1 border-b border-slate-100">
+                    <span className={`px-2 py-0.5 rounded border text-[9px] font-mono font-extrabold uppercase tracking-wider ${getLabelBadgeStyle(group.label)}`}>
                       {group.label}
                     </span>
                     {isGroupActive && (
-                      <span className="text-[10px] font-mono font-extrabold text-emerald-600 uppercase tracking-wider flex items-center gap-1 animate-pulse">
+                      <span className="text-[9px] font-mono font-extrabold text-emerald-600 uppercase tracking-wider flex items-center gap-1 animate-pulse">
                         ● LIVE
                       </span>
                     )}
                   </div>
 
                   {/* Section Lyrics Text */}
-                  <div className="space-y-3 pt-1">
+                  <div className="space-y-1.5 pt-0.5">
                     {group.texts.map((item, textIdx) => {
                       const isSlideActive = item.slideIndex === activeIndex;
 
@@ -212,11 +212,11 @@ function LyricsDisplay() {
                           id={`lyrics-active-slide-${item.slideIndex}`}
                           className={`transition-all duration-200 ${
                             isSlideActive
-                              ? 'p-2 rounded-xl bg-emerald-500/10 border-l-4 border-emerald-600 pl-3'
-                              : 'p-1'
+                              ? 'p-1 rounded bg-emerald-500/10 border-l-4 border-emerald-600 pl-2'
+                              : 'py-0.5 px-0.5'
                           }`}
                         >
-                          <p className="text-sm md:text-base font-extrabold text-slate-900 leading-relaxed whitespace-pre-line uppercase tracking-wide font-sans">
+                          <p className="text-[11px] sm:text-xs md:text-sm font-extrabold text-slate-900 leading-snug whitespace-pre-line uppercase tracking-normal font-sans">
                             {item.text}
                           </p>
                         </div>
@@ -228,20 +228,20 @@ function LyricsDisplay() {
             })}
           </div>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-2xl p-12 text-center my-8">
-            <Music className="h-12 w-12 text-slate-300 mb-3 stroke-1" />
-            <h3 className="text-sm font-bold text-slate-700">No Song Selected in Presentation</h3>
-            <p className="text-xs text-slate-400 mt-1 max-w-sm">
+          <div className="flex-1 flex flex-col items-center justify-center border border-dashed border-slate-200 rounded-xl p-8 text-center my-4">
+            <Music className="h-8 w-8 text-slate-300 mb-2 stroke-1" />
+            <h3 className="text-xs font-bold text-slate-700">No Song Selected in Presentation</h3>
+            <p className="text-[10px] text-slate-400 mt-1 max-w-xs">
               Select a song from the bottom lineup bar below or wait for the operator to trigger a presentation.
             </p>
           </div>
         )}
       </main>
 
-      {/* --- FIXED BOTTOM LINEUP SONG SELECTOR BAR --- */}
-      <footer className="fixed bottom-0 inset-x-0 bg-slate-900 text-white border-t border-slate-800 p-2.5 flex items-center gap-2 overflow-x-auto scrollbar-none z-40">
-        <div className="flex items-center gap-1 px-2 text-slate-400 text-[10px] font-mono font-bold uppercase tracking-wider flex-shrink-0 border-r border-slate-800 pr-3">
-          <Layers className="h-3.5 w-3.5 text-emerald-400" />
+      {/* --- COMPRESSED FIXED BOTTOM LINEUP BAR --- */}
+      <footer className="fixed bottom-0 inset-x-0 bg-slate-900 text-white border-t border-slate-800 p-2 flex items-center gap-1.5 overflow-x-auto scrollbar-none z-40">
+        <div className="flex items-center gap-1 px-1.5 text-slate-400 text-[9px] font-mono font-bold uppercase tracking-wider flex-shrink-0 border-r border-slate-800 pr-2">
+          <Layers className="h-3 w-3 text-emerald-400" />
           <span>Lineup:</span>
         </div>
 
@@ -251,7 +251,7 @@ function LyricsDisplay() {
 
           if (isSection) {
             return (
-              <span key={item.id} className="text-[10px] font-mono font-extrabold uppercase text-emerald-400 px-2 flex-shrink-0">
+              <span key={item.id} className="text-[9px] font-mono font-extrabold uppercase text-emerald-400 px-1.5 flex-shrink-0">
                 // {item.name}
               </span>
             );
@@ -261,20 +261,20 @@ function LyricsDisplay() {
             <button
               key={item.id}
               onClick={() => handleSelectPlaylistSong(item)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold font-sans uppercase tracking-wide flex-shrink-0 transition active:scale-95 flex items-center gap-1.5 ${
+              className={`px-2.5 py-1 rounded text-[10px] font-bold font-sans uppercase tracking-wide flex-shrink-0 transition active:scale-95 flex items-center gap-1 ${
                 isCurrent
-                  ? 'bg-emerald-500 text-slate-950 shadow-md ring-2 ring-emerald-400/30'
+                  ? 'bg-emerald-500 text-slate-950 shadow ring-1 ring-emerald-400/30'
                   : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/60'
               }`}
             >
-              <Music className="h-3.5 w-3.5" />
-              <span className="truncate max-w-[120px]">{item.name}</span>
+              <Music className="h-3 w-3" />
+              <span className="truncate max-w-[100px]">{item.name}</span>
             </button>
           );
         })}
 
         {playlist.length === 0 && (
-          <span className="text-xs text-slate-500 italic px-2">Lineup is empty</span>
+          <span className="text-[10px] text-slate-500 italic px-2">Lineup is empty</span>
         )}
       </footer>
 
