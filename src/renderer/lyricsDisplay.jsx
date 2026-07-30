@@ -41,6 +41,7 @@ function LyricsDisplay() {
 
   const socketRef = useRef(null);
   const touchStartRef = useRef({ x: 0, y: 0 });
+  const stageDataRef = useRef(null);
 
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -61,8 +62,16 @@ function LyricsDisplay() {
         try {
           const message = JSON.parse(event.data);
           if (message.type === 'stage-update') {
-            setStageData(message.payload);
-            setCustomViewSong(null); // When operator triggers a new slide/song on desktop, snap back to live!
+            const prev = stageDataRef.current;
+            const next = message.payload;
+
+            // ONLY clear custom view if operator actually changed slide or song on desktop!
+            if (prev && (prev.activeSlideIndex !== next.activeSlideIndex || prev.songTitle !== next.songTitle)) {
+              setCustomViewSong(null);
+            }
+
+            setStageData(next);
+            stageDataRef.current = next;
           } else if (message.type === 'slide-update') {
             setSlideData(message.payload);
           } else if (message.type === 'playlist-update') {
@@ -158,6 +167,26 @@ function LyricsDisplay() {
   // Select playlist song from bottom bar for INDEPENDENT viewing on mobile (Does NOT change Projector!)
   const handleSelectPlaylistSong = (item) => {
     if (!item) return;
+
+    // 1. INSTANT LOCAL PARSE if content_json is attached to the playlist item
+    if (item.content_json) {
+      try {
+        const parsedSlides = typeof item.content_json === 'string'
+          ? JSON.parse(item.content_json)
+          : item.content_json;
+        if (Array.isArray(parsedSlides) && parsedSlides.length > 0) {
+          setCustomViewSong({
+            id: item.song_id || item.id,
+            title: item.name || item.song_title || 'Worship Song',
+            slides: parsedSlides
+          });
+        }
+      } catch (err) {
+        console.error('Failed parsing instant playlist content_json:', err);
+      }
+    }
+
+    // 2. Fetch from backend WebSocket to ensure fresh song content
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
       socketRef.current.send(JSON.stringify({
         type: 'remote-get-song',
@@ -270,7 +299,7 @@ function LyricsDisplay() {
           {isCustomView && (
             <button
               onClick={handleReturnToLive}
-              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-mono font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 shadow-sm transition active:scale-95"
+              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-mono font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 shadow-sm transition active:scale-95 animate-pulse"
             >
               <RotateCcw className="h-3 w-3" />
               <span>Sync Live</span>

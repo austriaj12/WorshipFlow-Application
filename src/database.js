@@ -231,7 +231,12 @@ function queryBible(translation, bookName, chapter, startVerse, endVerse) {
 
 function getPlaylist() {
   return new Promise((resolve, reject) => {
-    db.all('SELECT * FROM playlist ORDER BY playlist_order ASC', (err, rows) => {
+    db.all(`
+      SELECT p.*, s.content_json, s.title as song_title 
+      FROM playlist p 
+      LEFT JOIN songs s ON p.song_id = s.id 
+      ORDER BY p.playlist_order ASC
+    `, (err, rows) => {
       if (err) reject(err);
       else resolve(rows);
     });
