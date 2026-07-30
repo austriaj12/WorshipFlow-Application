@@ -542,8 +542,26 @@ function OperatorDashboard() {
   }, [stageUpNextLineColor]);
 
   const [displays, setDisplays] = useState([]);
-  const [selectedProjectorDisplay, setSelectedProjectorDisplay] = useState(1);
-  const [selectedStageDisplay, setSelectedStageDisplay] = useState(2);
+  const [selectedProjectorDisplay, setSelectedProjectorDisplay] = useState(() => {
+    const saved = localStorage.getItem('selectedProjectorDisplay');
+    return saved !== null ? (saved === 'auto' ? 'auto' : parseInt(saved)) : 1;
+  });
+  const [selectedStageDisplay, setSelectedStageDisplay] = useState(() => {
+    const saved = localStorage.getItem('selectedStageDisplay');
+    return saved !== null ? (saved === 'auto' ? 'auto' : parseInt(saved)) : 2;
+  });
+
+  useEffect(() => {
+    if (selectedProjectorDisplay !== undefined && selectedProjectorDisplay !== null) {
+      localStorage.setItem('selectedProjectorDisplay', selectedProjectorDisplay);
+    }
+  }, [selectedProjectorDisplay]);
+
+  useEffect(() => {
+    if (selectedStageDisplay !== undefined && selectedStageDisplay !== null) {
+      localStorage.setItem('selectedStageDisplay', selectedStageDisplay);
+    }
+  }, [selectedStageDisplay]);
 
   const fetchDisplays = async () => {
     if (window.api && window.api.getDisplays) {
@@ -551,19 +569,28 @@ function OperatorDashboard() {
         const list = await window.api.getDisplays();
         setDisplays(list || []);
         
-        // Auto select secondary screen if available and not set
-        if (list && list.length > 1) {
-          const secondary = list.find(d => !d.isPrimary);
-          if (secondary) {
-            setSelectedProjectorDisplay(secondary.index);
-            const stageTarget = list.find(d => d.index !== secondary.index);
-            if (stageTarget) {
-              setSelectedStageDisplay(stageTarget.index);
+        // Only set initial defaults if user hasn't selected a display or if list is non-empty
+        if (list && list.length > 0) {
+          const hasSavedProj = localStorage.getItem('selectedProjectorDisplay') !== null;
+          const hasSavedStage = localStorage.getItem('selectedStageDisplay') !== null;
+
+          if (!hasSavedProj) {
+            const secondary = list.find(d => !d.isPrimary);
+            if (secondary) {
+              setSelectedProjectorDisplay(secondary.index);
+            } else {
+              setSelectedProjectorDisplay(list[0].index);
             }
           }
-        } else if (list && list.length === 1) {
-          setSelectedProjectorDisplay(list[0].index);
-          setSelectedStageDisplay(list[0].index);
+          if (!hasSavedStage) {
+            const secondary = list.find(d => !d.isPrimary);
+            const stageTarget = secondary ? list.find(d => d.index !== secondary.index) : list[0];
+            if (stageTarget) {
+              setSelectedStageDisplay(stageTarget.index);
+            } else {
+              setSelectedStageDisplay(list[0].index);
+            }
+          }
         }
       } catch (err) {
         console.error('Failed to get displays:', err);
@@ -1296,6 +1323,18 @@ function OperatorDashboard() {
   }, [activeEditPreviewIdx, isEditSongOpen]);
 
 
+  const getEffectiveSlideBg = (activeSlide, slidesList) => {
+    if (!activeSlide) return '';
+    if (activeSlide.bgAsset) return activeSlide.bgAsset;
+    if (activeSlide.style && activeSlide.style.background) return activeSlide.style.background;
+    if (slidesList && slidesList.length > 0) {
+      const firstSlide = slidesList[0];
+      if (firstSlide.bgAsset) return firstSlide.bgAsset;
+      if (firstSlide.style && firstSlide.style.background) return firstSlide.style.background;
+    }
+    return '';
+  };
+
   // Sync state selection to trigger live preview text updates
   const handleSelectSlide = (index, slidesList, songObject = selectedSong) => {
     if (countdownActive && (countdownShowOn === 'both' || countdownShowOn === 'main')) {
@@ -1311,7 +1350,7 @@ function OperatorDashboard() {
       setLiveSlides(slidesList);
       setLiveActiveIndex(index);
 
-      const rawBg = activeSlide.bgAsset || (activeSlide.style && activeSlide.style.background) || '';
+      const rawBg = getEffectiveSlideBg(activeSlide, slidesList);
       const bgPath = formatBgPath(rawBg);
       
       // Determine if it is a Bible slide
@@ -5455,7 +5494,11 @@ function OperatorDashboard() {
                             style={{
                               backgroundColor: rgbaBg,
                               borderRadius: '4px',
-                              padding: opacity > 0 ? '0.25rem 0.5rem' : '0'
+                              padding: opacity > 0 ? '0.25rem 0.5rem' : '0',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              justifyContent: slide.style?.vertical === 'top' ? 'flex-start' : slide.style?.vertical === 'bottom' ? 'flex-end' : 'center',
+                              alignItems: slide.style?.align === 'left' ? 'flex-start' : slide.style?.align === 'right' ? 'flex-end' : 'center'
                             }}
                           >
                             <p 
@@ -5851,7 +5894,11 @@ function OperatorDashboard() {
                               borderRadius: slide.style?.bgRadius !== undefined ? `${slide.style.bgRadius}px` : '4px',
                               height: slide.style?.bgHeight !== undefined ? `${slide.style.bgHeight}%` : '100%',
                               width: slide.style?.bgWidth !== undefined ? `${slide.style.bgWidth}%` : '100%',
-                              padding: opacity > 0 ? '0.25rem 0.5rem' : '0'
+                              padding: opacity > 0 ? '0.25rem 0.5rem' : '0',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              justifyContent: slide.style?.vertical === 'top' ? 'flex-start' : slide.style?.vertical === 'bottom' ? 'flex-end' : 'center',
+                              alignItems: slide.style?.align === 'left' ? 'flex-start' : slide.style?.align === 'right' ? 'flex-end' : 'center'
                             }}
                           >
                             <p 

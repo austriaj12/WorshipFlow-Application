@@ -28,3 +28,8 @@ Thumbs.db
 
 # Internal Codex/agent metadata
 .github/agents/
+
+# Junk / Redirect outputs
+NULL/
+NULL
+
