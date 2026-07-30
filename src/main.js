@@ -1004,6 +1004,9 @@ function startStageServer(port = 5174) {
             console.error('Failed to get song detail for remote:', err);
           }
         }
+        else if (message.type === 'client-update-notes') {
+          broadcastStagePayload('notes-update', message.payload || {});
+        }
         else if (message.type === 'client-update-chords') {
           const { songId, chordsText, key } = message.payload || {};
           if (songId) {

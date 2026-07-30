@@ -6,6 +6,9 @@ import {
   RotateCcw,
   Maximize2,
   Edit3,
+  FileText,
+  StickyNote,
+  Trash2,
   X
 } from 'lucide-react';
 import './index.css';
@@ -44,6 +47,7 @@ function LyricsDisplay() {
   
   // Independent Song View states for Mobile (allows worship leader/singer to view ahead without changing projector)
   const [customViewSong, setCustomViewSong] = useState(null); // { id, title, slides, chords_text }
+  const isCustomView = !!customViewSong;
 
   // Musician Chords & Transposition states
   const [showChords, setShowChords] = useState(() => {
@@ -58,6 +62,27 @@ function LyricsDisplay() {
   const [transposeSteps, setTransposeSteps] = useState(0);
   const [isEditChordsOpen, setIsEditChordsOpen] = useState(false);
   const [editingChordsText, setEditingChordsText] = useState('');
+
+  // Leader Notes state
+  const [leaderNotes, setLeaderNotes] = useState('');
+  const [isEditNotesOpen, setIsEditNotesOpen] = useState(false);
+  const [editingNotesText, setEditingNotesText] = useState('');
+
+  const activeSongId = isCustomView ? (customViewSong?.id || customViewSong?.title) : (stageData.songId || stageData.id || stageData.songTitle || stageData.label);
+
+  // Load Leader Notes from localStorage whenever active song changes
+  useEffect(() => {
+    if (!activeSongId) {
+      setLeaderNotes('');
+      return;
+    }
+    try {
+      const saved = localStorage.getItem(`worshipflow_notes_${activeSongId}`);
+      setLeaderNotes(saved || '');
+    } catch (e) {
+      setLeaderNotes('');
+    }
+  }, [activeSongId]);
 
   const toggleChords = () => {
     setShowChords(prev => {
@@ -84,7 +109,6 @@ function LyricsDisplay() {
   };
 
   const handleSaveMobileChords = () => {
-    const activeSongId = isCustomView ? customViewSong?.id : (stageData.songId || stageData.id);
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
       socketRef.current.send(JSON.stringify({
         type: 'client-update-chords',
@@ -103,6 +127,56 @@ function LyricsDisplay() {
     }
 
     setIsEditChordsOpen(false);
+  };
+
+  const handleOpenMobileEditNotes = () => {
+    setEditingNotesText(leaderNotes || '');
+    setIsEditNotesOpen(true);
+  };
+
+  const handleSaveMobileNotes = () => {
+    if (activeSongId) {
+      try {
+        localStorage.setItem(`worshipflow_notes_${activeSongId}`, editingNotesText);
+      } catch (e) {}
+    }
+    setLeaderNotes(editingNotesText);
+
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({
+        type: 'client-update-notes',
+        payload: {
+          songId: activeSongId,
+          notes: editingNotesText
+        }
+      }));
+    }
+
+    setIsEditNotesOpen(false);
+  };
+
+  const handleDeleteMobileNotes = () => {
+    if (window.confirm("Are you sure you want to delete the leader notes for this song?")) {
+      if (activeSongId) {
+        try {
+          localStorage.removeItem(`worshipflow_notes_${activeSongId}`);
+        } catch (e) {}
+      }
+      setLeaderNotes('');
+      setEditingNotesText('');
+
+      if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+        socketRef.current.send(JSON.stringify({
+          type: 'client-update-notes',
+          payload: {
+            songId: activeSongId,
+            notes: ''
+          }
+        }));
+      }
+
+      setIsEditNotesOpen(false);
+    }
   };
 
   const socketRef = useRef(null);
@@ -187,7 +261,6 @@ function LyricsDisplay() {
     };
   }, []);
 
-  const isCustomView = !!customViewSong;
   const slidesToRender = isCustomView ? customViewSong.slides : (stageData.slides || []);
   const activeIndex = isCustomView ? -1 : (stageData.activeSlideIndex !== undefined ? stageData.activeSlideIndex : 0);
   const activeSongKey = isCustomView ? (customViewSong?.key || 'C') : (stageData.songKey || 'C');
@@ -558,49 +631,72 @@ function LyricsDisplay() {
             ))}
           </div>
         ) : groupedSections.length > 0 ? (
-          /* --- CHORDS: OFF (STANDARD 2-COLUMN PRESENTATION LYRICS) --- */
-          <div className="columns-1 md:columns-2 gap-3 sm:gap-4 space-y-2.5 sm:space-y-3">
-            {groupedSections.map((group, groupIdx) => {
-              return (
-                <div
-                  key={groupIdx}
-                  className="break-inside-avoid flex flex-col p-1 bg-transparent border-0 mb-2 sm:mb-2.5"
-                >
-                  {/* Section Label Header */}
-                  <div className="flex items-center justify-between pb-0.5 mb-0.5 border-b border-slate-100">
-                    <span className={`px-2 py-0.5 rounded border text-[9px] font-mono font-extrabold uppercase tracking-wider ${getLabelBadgeStyle(group.label)}`}>
-                      {group.label}
-                    </span>
-                  </div>
+          <div className="flex flex-col">
+            <div className="columns-1 md:columns-2 gap-3 sm:gap-4 space-y-2.5 sm:space-y-3">
+              {groupedSections.map((group, groupIdx) => {
+                return (
+                  <div
+                    key={groupIdx}
+                    className="break-inside-avoid flex flex-col p-1 bg-transparent border-0 mb-2 sm:mb-2.5"
+                  >
+                    {/* Section Label Header */}
+                    <div className="flex items-center justify-between pb-0.5 mb-0.5 border-b border-slate-100">
+                      <span className={`px-2 py-0.5 rounded border text-[9px] font-mono font-extrabold uppercase tracking-wider ${getLabelBadgeStyle(group.label)}`}>
+                        {group.label}
+                      </span>
+                    </div>
 
-                  {/* Section Lyrics Text */}
-                  <div className="space-y-1.5 pt-0.5">
-                    {group.texts.map((item, textIdx) => {
-                      const isSlideActive = item.slideIndex === activeIndex;
-                      const rawLines = (item.text || '').split('\n').filter(l => l.trim().length > 0);
+                    {/* Section Lyrics Text */}
+                    <div className="space-y-1.5 pt-0.5">
+                      {group.texts.map((item, textIdx) => {
+                        const isSlideActive = item.slideIndex === activeIndex;
+                        const rawLines = (item.text || '').split('\n').filter(l => l.trim().length > 0);
 
-                      return (
-                        <div
-                          key={textIdx}
-                          id={`lyrics-active-slide-${item.slideIndex}`}
-                          className={`scroll-mt-16 transition-all duration-200 flex flex-col ${
-                            isSlideActive
-                              ? 'p-1 rounded bg-emerald-500/10 border-l-4 border-emerald-600 pl-2'
-                              : 'py-0.5 px-0.5'
-                          }`}
-                        >
-                          {rawLines.map((lineStr, lineIdx) => (
-                            <p key={lineIdx} className="text-[10px] sm:text-[11px] md:text-xs font-extrabold text-slate-900 leading-tight uppercase tracking-normal font-sans mb-1 last:mb-0">
-                              {lineStr}
-                            </p>
-                          ))}
-                        </div>
-                      );
-                    })}
+                        return (
+                          <div
+                            key={textIdx}
+                            id={`lyrics-active-slide-${item.slideIndex}`}
+                            className={`scroll-mt-16 transition-all duration-200 flex flex-col ${
+                              isSlideActive
+                                ? 'p-1 rounded bg-emerald-500/10 border-l-4 border-emerald-600 pl-2'
+                                : 'py-0.5 px-0.5'
+                            }`}
+                          >
+                            {rawLines.map((lineStr, lineIdx) => (
+                              <p key={lineIdx} className="text-[10px] sm:text-[11px] md:text-xs font-extrabold text-slate-900 leading-tight uppercase tracking-normal font-sans mb-1 last:mb-0">
+                                {lineStr}
+                              </p>
+                            ))}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
+                );
+              })}
+            </div>
+
+            {/* LEADER NOTES CARD AT THE BOTTOM OF THE SONG SECTIONS */}
+            {leaderNotes && leaderNotes.trim() && (
+              <div className="mt-6 mb-2 p-3.5 sm:p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-slate-900 font-sans shadow-sm break-inside-avoid">
+                <div className="flex items-center justify-between pb-2 mb-2 border-b border-amber-500/20">
+                  <div className="flex items-center gap-2 font-mono font-black text-xs uppercase text-amber-700 tracking-wider">
+                    <FileText className="h-4 w-4 text-amber-600 flex-shrink-0" />
+                    <span>Leader Notes / Service Cues</span>
+                  </div>
+                  <button 
+                    onClick={handleOpenMobileEditNotes}
+                    className="p-1 rounded-lg text-amber-700 hover:text-amber-900 hover:bg-amber-500/20 transition active:scale-95"
+                    title="Edit Notes"
+                  >
+                    <Edit3 className="h-4 w-4" />
+                  </button>
                 </div>
-              );
-            })}
+                <p className="text-xs sm:text-sm font-semibold whitespace-pre-wrap leading-relaxed text-slate-800 font-sans">
+                  {leaderNotes}
+                </p>
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center border border-dashed border-slate-200 rounded-xl p-8 text-center my-4">
@@ -612,6 +708,81 @@ function LyricsDisplay() {
           </div>
         )}
       </main>
+
+      {/* Floating Action Button (FAB) for Leader Notes */}
+      <button
+        onClick={handleOpenMobileEditNotes}
+        className="fixed bottom-14 right-3 z-40 p-2.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg border border-emerald-400/30 active:scale-95 transition flex items-center justify-center"
+        title="Open Worship Leader Notes"
+      >
+        <FileText className="h-4 w-4" />
+      </button>
+
+      {/* --- ULTRA-MODERN MINIMALIST LEADER NOTES MODAL --- */}
+      {isEditNotesOpen && (
+        <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-md flex items-center justify-center z-50 p-4 transition-all">
+          <div className="bg-white text-slate-900 w-full max-w-md rounded-2xl border border-slate-100 shadow-2xl p-5 flex flex-col gap-4">
+            
+            {/* Modal Header */}
+            <div className="flex justify-between items-center pb-1">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                  <FileText className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm text-slate-900 tracking-tight leading-none">Leader Notes</h3>
+                  <p className="text-[11px] font-medium text-slate-400 mt-1 truncate max-w-[220px]">{currentSongTitle}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsEditNotesOpen(false)} 
+                className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-400 hover:text-slate-700 flex items-center justify-center transition"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Textarea Input */}
+            <textarea
+              rows="6"
+              value={editingNotesText}
+              onChange={e => setEditingNotesText(e.target.value)}
+              placeholder="Add leader notes, arrangement cues, or key changes for this song..."
+              className="w-full p-3.5 bg-slate-50 border border-slate-200/80 rounded-xl font-sans text-xs sm:text-sm text-slate-800 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 focus:outline-none transition leading-relaxed resize-none"
+            ></textarea>
+
+            {/* Modal Footer Actions */}
+            <div className="flex justify-between items-center pt-2">
+              {leaderNotes && leaderNotes.trim() ? (
+                <button
+                  onClick={handleDeleteMobileNotes}
+                  className="w-8 h-8 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 flex items-center justify-center transition active:scale-95 border border-rose-100"
+                  title="Delete Leader Notes"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              ) : (
+                <div />
+              )}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsEditNotesOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:bg-slate-100 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveMobileNotes}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl shadow-sm transition active:scale-95 flex items-center gap-1.5"
+                >
+                  Save Notes
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
 
       {/* --- EDIT CHORDS MODAL FOR MOBILE / TABLET (WHITE THEME MATCHING LYRICS.HTML) --- */}
       {isEditChordsOpen && (
