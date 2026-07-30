@@ -73,7 +73,7 @@ function ProjectorScreen() {
   const videoRefA = React.useRef(null);
   const videoRefB = React.useRef(null);
 
-  // Single-fire background asset sync effect with double buffering preloading logic
+  // Single-fire background asset sync effect with instant activation and double buffering
   useEffect(() => {
     const targetBg = slide.blackout ? '' : (slide.bgAsset || '');
     const isVid = /\.(mp4|webm|mov|avi)($|\?)/i.test(targetBg);
@@ -86,7 +86,7 @@ function ProjectorScreen() {
     }
 
     if (!isVid) {
-      // It's an image or other static asset: clear/unload videos, set image
+      // It's an image or static asset: clear/unload videos, set image
       setVideoA({ src: '', active: false, opacity: 0 });
       setVideoB({ src: '', active: false, opacity: 0 });
       setActiveImage(targetBg);
@@ -95,34 +95,23 @@ function ProjectorScreen() {
       return;
     }
 
-    // It's a video. Determine which buffer to load.
-    // If Video A is currently active/visible, load into B. Otherwise load into A.
+    // It's a video: instant switch with double buffering
     setActiveImage('');
     const useB = videoA.active || videoA.opacity > 0;
 
     if (useB) {
-      if (videoB.src !== targetBg) {
-        setVideoB({ src: targetBg, active: false, opacity: 0 });
-      } else {
-        // Already loaded or loading in B, force activate
-        setVideoB(prev => ({ ...prev, active: true, opacity: 1 }));
-        setVideoA(prev => ({ ...prev, active: false, opacity: 0 }));
-        if (videoRefA.current) videoRefA.current.pause();
-        if (videoRefB.current) {
-          videoRefB.current.play().catch(() => {});
-        }
+      setVideoB({ src: targetBg, active: true, opacity: 1 });
+      setVideoA(prev => ({ ...prev, active: false, opacity: 0 }));
+      if (videoRefA.current) videoRefA.current.pause();
+      if (videoRefB.current) {
+        videoRefB.current.play().catch(() => {});
       }
     } else {
-      if (videoA.src !== targetBg) {
-        setVideoA({ src: targetBg, active: false, opacity: 0 });
-      } else {
-        // Already loaded or loading in A, force activate
-        setVideoA(prev => ({ ...prev, active: true, opacity: 1 }));
-        setVideoB(prev => ({ ...prev, active: false, opacity: 0 }));
-        if (videoRefB.current) videoRefB.current.pause();
-        if (videoRefA.current) {
-          videoRefA.current.play().catch(() => {});
-        }
+      setVideoA({ src: targetBg, active: true, opacity: 1 });
+      setVideoB(prev => ({ ...prev, active: false, opacity: 0 }));
+      if (videoRefB.current) videoRefB.current.pause();
+      if (videoRefA.current) {
+        videoRefA.current.play().catch(() => {});
       }
     }
   }, [slide.bgAsset, slide.blackout]);
@@ -239,7 +228,15 @@ function ProjectorScreen() {
     const baseSize = slide.style.size || 90;
     const fontVal = slide.style.font || 'Inter';
     const colorVal = slide.style.color || '#ffffff';
-    
+
+    // Auto-scale font size for long lines so words never break onto unexpected extra lines
+    const textLines = (slide.text || '').split('\n').filter(Boolean);
+    const maxLineLen = textLines.reduce((max, l) => Math.max(max, l.length), 0);
+    let effectiveSize = baseSize;
+    if (maxLineLen > 28) {
+      effectiveSize = Math.max(58, Math.round(baseSize * (28 / maxLineLen)));
+    }
+
     const weightMap = {
       'normal': 400,
       'semibold': 600,
@@ -250,13 +247,15 @@ function ProjectorScreen() {
     
     return {
       fontFamily: `'${fontVal}', sans-serif`,
-      fontSize: `${baseSize}px`,
+      fontSize: `${effectiveSize}px`,
       fontWeight: weightVal,
       color: colorVal,
       textAlign: slide.style.align || 'center',
-      lineHeight: slide.style.lineHeight || 1.4,
+      lineHeight: slide.style.lineHeight || 1.35,
       letterSpacing: `${slide.style.letterSpacing || 0}px`,
       whiteSpace: 'pre-wrap',
+      wordBreak: 'keep-all',
+      overflowWrap: 'break-word',
       willChange: 'transform, opacity',
       transform: 'translate3d(0,0,0)'
     };
@@ -336,8 +335,8 @@ function ProjectorScreen() {
       opacity: (slide.clearLyrics || isFading) ? 0 : 1,
       transform: transformVal,
       willChange: 'transform, opacity',
-      width: '100%',
-      maxWidth: '1760px',
+      width: '96%',
+      maxWidth: '1850px',
       display: 'flex',
       flexDirection: 'column',
       alignItems: slide.style?.align === 'left' ? 'flex-start' : slide.style?.align === 'right' ? 'flex-end' : 'center'
@@ -348,16 +347,13 @@ function ProjectorScreen() {
 
   return (
     <div className="w-screen h-screen bg-black overflow-hidden relative flex items-center justify-center">
-      {/* Double Buffering Video Layers with will-change GPU Layer Promotion */}
+      {/* Double Buffering Video Layers with 100% Fullscreen Cover */}
       {videoA.src && (
         <div 
-          className="absolute inset-x-0 w-full"
+          className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none"
           style={{
-            height: '100%',
-            top: '50%',
-            transform: 'translate3d(0, -50%, 0)',
             zIndex: 1,
-            transition: 'opacity 500ms ease-in-out',
+            transition: 'opacity 300ms ease-in-out',
             opacity: videoA.opacity,
             willChange: 'opacity'
           }}
@@ -368,22 +364,20 @@ function ProjectorScreen() {
             preload="auto"
             muted={slide.mediaPlaying !== undefined ? false : true}
             playsInline 
+            autoPlay
             onCanPlayThrough={() => handleVideoCanPlay('A')}
             onLoadedData={() => handleVideoCanPlay('A')}
-            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', willChange: 'transform', transform: 'translate3d(0,0,0)' }} 
+            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', margin: 0, padding: 0 }} 
           />
         </div>
       )}
 
       {videoB.src && (
         <div 
-          className="absolute inset-x-0 w-full"
+          className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none"
           style={{
-            height: '100%',
-            top: '50%',
-            transform: 'translate3d(0, -50%, 0)',
             zIndex: 2,
-            transition: 'opacity 500ms ease-in-out',
+            transition: 'opacity 300ms ease-in-out',
             opacity: videoB.opacity,
             willChange: 'opacity'
           }}
@@ -394,22 +388,18 @@ function ProjectorScreen() {
             preload="auto"
             muted={slide.mediaPlaying !== undefined ? false : true}
             playsInline 
+            autoPlay
             onCanPlayThrough={() => handleVideoCanPlay('B')}
             onLoadedData={() => handleVideoCanPlay('B')}
-            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', willChange: 'transform', transform: 'translate3d(0,0,0)' }} 
+            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', margin: 0, padding: 0 }} 
           />
         </div>
       )}
 
-      {/* Image Layer */}
+      {/* Image Layer with 100% Fullscreen Cover */}
       {activeImage && (
         <div 
-          className="absolute inset-x-0 w-full z-3"
-          style={{
-            height: '100%',
-            top: '50%',
-            transform: 'translate3d(0, -50%, 0)'
-          }}
+          className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-3"
         >
           <img 
             src={activeImage} 

@@ -2861,87 +2861,147 @@ function OperatorDashboard() {
                         </>
                       )}
                     </>
-                  ) : (
-                    <>
-                      {/* Move to Top / Bottom */}
-                      <button
-                        onClick={() => {
-                          const fromIdx = playlistContextMenu.itemIndex;
-                          if (fromIdx > 0) {
-                            const newList = [...playlist];
-                            const [moved] = newList.splice(fromIdx, 1);
-                            newList.unshift(moved);
-                            reorderPlaylist(newList);
-                          }
-                          setPlaylistContextMenu(null);
-                        }}
-                        className="w-full px-3 py-1.5 text-left text-textMain hover:bg-brand/10 hover:text-brand transition flex items-center gap-2"
-                      >
-                        <ArrowUp className="h-3 w-3" /> Move to Top
-                      </button>
-                      <button
-                        onClick={() => {
-                          const fromIdx = playlistContextMenu.itemIndex;
-                          if (fromIdx < playlist.length - 1) {
-                            const newList = [...playlist];
-                            const [moved] = newList.splice(fromIdx, 1);
-                            newList.push(moved);
-                            reorderPlaylist(newList);
-                          }
-                          setPlaylistContextMenu(null);
-                        }}
-                        className="w-full px-3 py-1.5 text-left text-textMain hover:bg-brand/10 hover:text-brand transition flex items-center gap-2"
-                      >
-                        <ChevronDown className="h-3 w-3" /> Move to Bottom
-                      </button>
+                  ) : (() => {
+                      const fromIdx = playlistContextMenu.itemIndex;
+                      let startSectionIdx = 0;
+                      let endSectionIdx = playlist.length;
 
-                      {/* Move to Section Submenu */}
-                      {playlist.filter(p => detectPlaylistItemType(p) === 'Section').length > 0 && (
+                      // Find section header above fromIdx
+                      for (let i = fromIdx - 1; i >= 0; i--) {
+                        if (detectPlaylistItemType(playlist[i]) === 'Section') {
+                          startSectionIdx = i + 1;
+                          break;
+                        }
+                      }
+                      // Find next section header after fromIdx
+                      for (let i = fromIdx + 1; i < playlist.length; i++) {
+                        if (detectPlaylistItemType(playlist[i]) === 'Section') {
+                          endSectionIdx = i;
+                          break;
+                        }
+                      }
+
+                      const canMoveUp = fromIdx > startSectionIdx;
+                      const canMoveDown = fromIdx < endSectionIdx - 1;
+
+                      return (
                         <>
-                          <div className="border-t border-[var(--border-app)] my-1" />
-                          <div className="px-3 py-1 text-[9px] text-textMuted uppercase font-mono tracking-wider">Move to Section</div>
-                          {playlist.map((p, pIdx) => {
-                            if (detectPlaylistItemType(p) !== 'Section') return null;
-                            return (
-                              <button
-                                key={p.id}
-                                onClick={() => {
-                                  const fromIdx = playlistContextMenu.itemIndex;
-                                  if (fromIdx !== pIdx && fromIdx !== pIdx + 1) {
-                                    const newList = [...playlist];
-                                    const [moved] = newList.splice(fromIdx, 1);
-                                    // Insert right after the section header
-                                    const targetInsertIdx = fromIdx < pIdx ? pIdx : pIdx + 1;
-                                    newList.splice(targetInsertIdx, 0, moved);
-                                    reorderPlaylist(newList);
-                                  }
-                                  setPlaylistContextMenu(null);
-                                }}
-                                className="w-full px-3 py-1.5 pl-5 text-left text-textMain hover:bg-[#1E4E79]/20 hover:text-[#5BA3D9] transition flex items-center gap-2 truncate"
-                              >
-                                <Layers className="h-3 w-3 text-[#1E4E79]" />
-                                {p.name}
-                              </button>
-                            );
-                          })}
-                        </>
-                      )}
+                          {/* Step-by-Step Move Up / Move Down (Restricted to Section) */}
+                          <button
+                            disabled={!canMoveUp}
+                            onClick={() => {
+                              if (canMoveUp) {
+                                const newList = [...playlist];
+                                const temp = newList[fromIdx];
+                                newList[fromIdx] = newList[fromIdx - 1];
+                                newList[fromIdx - 1] = temp;
+                                reorderPlaylist(newList);
+                              }
+                              setPlaylistContextMenu(null);
+                            }}
+                            className="w-full px-3 py-1.5 text-left text-textMain hover:bg-brand/10 hover:text-brand transition flex items-center gap-2 disabled:opacity-30 disabled:pointer-events-none"
+                          >
+                            <ArrowUp className="h-3 w-3 text-sky-400" /> Move Up
+                          </button>
 
-                      {/* Remove */}
-                      <div className="border-t border-[var(--border-app)] my-1" />
-                      <button
-                        onClick={async () => {
-                          if (confirm(`Remove "${playlistContextMenu.itemName}" from Presentation Flow?`)) {
-                            await removeFromPlaylist(playlistContextMenu.itemId);
-                          }
-                          setPlaylistContextMenu(null);
-                        }}
-                        className="w-full px-3 py-1.5 text-left text-liveDanger hover:bg-liveDanger/10 transition flex items-center gap-2"
-                      >
-                        <Trash className="h-3 w-3" /> Remove from Flow
-                      </button>
-                    </>
-                  )}
+                          <button
+                            disabled={!canMoveDown}
+                            onClick={() => {
+                              if (canMoveDown) {
+                                const newList = [...playlist];
+                                const temp = newList[fromIdx];
+                                newList[fromIdx] = newList[fromIdx + 1];
+                                newList[fromIdx + 1] = temp;
+                                reorderPlaylist(newList);
+                              }
+                              setPlaylistContextMenu(null);
+                            }}
+                            className="w-full px-3 py-1.5 text-left text-textMain hover:bg-brand/10 hover:text-brand transition flex items-center gap-2 disabled:opacity-30 disabled:pointer-events-none"
+                          >
+                            <ChevronDown className="h-3 w-3 text-sky-400" /> Move Down
+                          </button>
+
+                          {/* Direct Move to Top / Bottom (Restricted to Section) */}
+                          <button
+                            disabled={!canMoveUp}
+                            onClick={() => {
+                              if (canMoveUp) {
+                                const newList = [...playlist];
+                                const [moved] = newList.splice(fromIdx, 1);
+                                newList.splice(startSectionIdx, 0, moved);
+                                reorderPlaylist(newList);
+                              }
+                              setPlaylistContextMenu(null);
+                            }}
+                            className="w-full px-3 py-1.5 text-left text-textMuted hover:bg-brand/10 hover:text-brand transition flex items-center gap-2 disabled:opacity-30 disabled:pointer-events-none text-xs"
+                          >
+                            <ArrowUp className="h-2.5 w-2.5 opacity-60" /> Move to Top of Section
+                          </button>
+
+                          <button
+                            disabled={!canMoveDown}
+                            onClick={() => {
+                              if (canMoveDown) {
+                                const newList = [...playlist];
+                                const [moved] = newList.splice(fromIdx, 1);
+                                newList.splice(endSectionIdx - 1, 0, moved);
+                                reorderPlaylist(newList);
+                              }
+                              setPlaylistContextMenu(null);
+                            }}
+                            className="w-full px-3 py-1.5 text-left text-textMuted hover:bg-brand/10 hover:text-brand transition flex items-center gap-2 disabled:opacity-30 disabled:pointer-events-none text-xs"
+                          >
+                            <ChevronDown className="h-2.5 w-2.5 opacity-60" /> Move to Bottom of Section
+                          </button>
+
+                          {/* Move to Section Submenu */}
+                          {playlist.filter(p => detectPlaylistItemType(p) === 'Section').length > 0 && (
+                            <>
+                              <div className="border-t border-[var(--border-app)] my-1" />
+                              <div className="px-3 py-1 text-[9px] text-textMuted uppercase font-mono tracking-wider">Move to Section</div>
+                              {playlist.map((p, pIdx) => {
+                                if (detectPlaylistItemType(p) !== 'Section') return null;
+                                return (
+                                  <button
+                                    key={p.id}
+                                    onClick={() => {
+                                      const fromIdx = playlistContextMenu.itemIndex;
+                                      if (fromIdx !== pIdx && fromIdx !== pIdx + 1) {
+                                        const newList = [...playlist];
+                                        const [moved] = newList.splice(fromIdx, 1);
+                                        // Insert right after the section header
+                                        const targetInsertIdx = fromIdx < pIdx ? pIdx : pIdx + 1;
+                                        newList.splice(targetInsertIdx, 0, moved);
+                                        reorderPlaylist(newList);
+                                      }
+                                      setPlaylistContextMenu(null);
+                                    }}
+                                    className="w-full px-3 py-1.5 pl-5 text-left text-textMain hover:bg-[#1E4E79]/20 hover:text-[#5BA3D9] transition flex items-center gap-2 truncate"
+                                  >
+                                    <Layers className="h-3 w-3 text-[#1E4E79]" />
+                                    {p.name}
+                                  </button>
+                                );
+                              })}
+                            </>
+                          )}
+
+                          {/* Remove */}
+                          <div className="border-t border-[var(--border-app)] my-1" />
+                          <button
+                            onClick={async () => {
+                              if (confirm(`Remove "${playlistContextMenu.itemName}" from Presentation Flow?`)) {
+                                await removeFromPlaylist(playlistContextMenu.itemId);
+                              }
+                              setPlaylistContextMenu(null);
+                            }}
+                            className="w-full px-3 py-1.5 text-left text-liveDanger hover:bg-liveDanger/10 transition flex items-center gap-2"
+                          >
+                            <Trash className="h-3 w-3" /> Remove from Flow
+                          </button>
+                        </>
+                      );
+                    })()}
                 </div>
               </div>
             )}
