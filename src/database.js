@@ -41,9 +41,15 @@ function createTables() {
           author TEXT,
           [key] TEXT,
           tempo TEXT,
-          content_json TEXT NOT NULL
+          content_json TEXT NOT NULL,
+          chords_text TEXT
         )
       `);
+
+      // Migration: Add chords_text column if missing from existing database
+      db.run("ALTER TABLE songs ADD COLUMN chords_text TEXT", (err) => {
+        // Ignore error if column already exists
+      });
 
       // 2. Bibles Table (Indexed for sub-millisecond lookup)
       db.run(`
@@ -178,26 +184,27 @@ function getSongsByIds(ids) {
   });
 }
 
-function saveSong(id, title, author, key, tempo, contentJson) {
+function saveSong(id, title, author, key, tempo, contentJson, chordsText = '') {
   return new Promise((resolve, reject) => {
+    const chordsVal = chordsText || '';
     if (id) {
       // Update existing song (using escaped [key] column name)
       db.run(
-        'UPDATE songs SET title = ?, author = ?, [key] = ?, tempo = ?, content_json = ? WHERE id = ?',
-        [title, author, key, tempo, contentJson, id],
+        'UPDATE songs SET title = ?, author = ?, [key] = ?, tempo = ?, content_json = ?, chords_text = ? WHERE id = ?',
+        [title, author, key, tempo, contentJson, chordsVal, id],
         function (err) {
           if (err) reject(err);
-          else resolve({ id, title, author, key, tempo, content_json: contentJson });
+          else resolve({ id, title, author, key, tempo, content_json: contentJson, chords_text: chordsVal });
         }
       );
     } else {
       // Insert new song (using escaped [key] column name)
       db.run(
-        'INSERT INTO songs (title, author, [key], tempo, content_json) VALUES (?, ?, ?, ?, ?)',
-        [title, author, key, tempo, contentJson],
+        'INSERT INTO songs (title, author, [key], tempo, content_json, chords_text) VALUES (?, ?, ?, ?, ?, ?)',
+        [title, author, key, tempo, contentJson, chordsVal],
         function (err) {
           if (err) reject(err);
-          else resolve({ id: this.lastID, title, author, key, tempo, content_json: contentJson });
+          else resolve({ id: this.lastID, title, author, key, tempo, content_json: contentJson, chords_text: chordsVal });
         }
       );
     }
@@ -232,7 +239,7 @@ function queryBible(translation, bookName, chapter, startVerse, endVerse) {
 function getPlaylist() {
   return new Promise((resolve, reject) => {
     db.all(`
-      SELECT p.*, s.content_json, s.title as song_title 
+      SELECT p.*, s.content_json, s.chords_text, s.title as song_title 
       FROM playlist p 
       LEFT JOIN songs s ON p.song_id = s.id 
       ORDER BY p.playlist_order ASC

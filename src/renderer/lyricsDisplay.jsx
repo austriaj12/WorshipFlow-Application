@@ -4,9 +4,12 @@ import {
   Music, 
   Layers,
   RotateCcw,
-  Maximize2
+  Maximize2,
+  Edit3,
+  X
 } from 'lucide-react';
 import './index.css';
+import { KEYS, getSemitoneDifference, parseChordChartToSections } from '../utils/chordUtils.js';
 
 // Label style helper for clean badges
 const getLabelBadgeStyle = (label = '') => {
@@ -28,7 +31,8 @@ function LyricsDisplay() {
     text: '',
     label: '',
     slides: [],
-    activeSlideIndex: 0
+    activeSlideIndex: 0,
+    chordsText: ''
   });
   const [slideData, setSlideData] = useState({
     text: '',
@@ -39,7 +43,67 @@ function LyricsDisplay() {
   const [playlist, setPlaylist] = useState([]);
   
   // Independent Song View states for Mobile (allows worship leader/singer to view ahead without changing projector)
-  const [customViewSong, setCustomViewSong] = useState(null); // { id, title, slides }
+  const [customViewSong, setCustomViewSong] = useState(null); // { id, title, slides, chords_text }
+
+  // Musician Chords & Transposition states
+  const [showChords, setShowChords] = useState(() => {
+    try {
+      return localStorage.getItem('prompter_show_chords') === 'true';
+    } catch (e) {
+      return false;
+    }
+  });
+
+  const [selectedKey, setSelectedKey] = useState('C');
+  const [transposeSteps, setTransposeSteps] = useState(0);
+  const [isEditChordsOpen, setIsEditChordsOpen] = useState(false);
+  const [editingChordsText, setEditingChordsText] = useState('');
+
+  const toggleChords = () => {
+    setShowChords(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('prompter_show_chords', String(next));
+      } catch (e) {}
+      return next;
+    });
+  };
+
+  // Handle Key Dropdown selection on mobile (Just like Operator Desktop)
+  const handleKeySelect = (targetKey) => {
+    setSelectedKey(targetKey);
+    const originalKey = isCustomView ? (customViewSong?.key || 'C') : (stageData.songKey || 'C');
+    const steps = getSemitoneDifference(originalKey, targetKey);
+    setTransposeSteps(steps);
+  };
+
+  const handleOpenMobileEditChords = () => {
+    const raw = isCustomView ? customViewSong?.chords_text : (stageData.chordsText || '');
+    setEditingChordsText(raw || '');
+    setIsEditChordsOpen(true);
+  };
+
+  const handleSaveMobileChords = () => {
+    const activeSongId = isCustomView ? customViewSong?.id : (stageData.songId || stageData.id);
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({
+        type: 'client-update-chords',
+        payload: {
+          songId: activeSongId,
+          chordsText: editingChordsText,
+          key: selectedKey
+        }
+      }));
+    }
+
+    if (isCustomView) {
+      setCustomViewSong(prev => prev ? { ...prev, chords_text: editingChordsText } : null);
+    } else {
+      setStageData(prev => ({ ...prev, chordsText: editingChordsText }));
+    }
+
+    setIsEditChordsOpen(false);
+  };
 
   const socketRef = useRef(null);
   const touchStartRef = useRef({ x: 0, y: 0 });
@@ -94,7 +158,8 @@ function LyricsDisplay() {
                 setCustomViewSong({
                   id: song.id,
                   title: song.title || song.name || 'Worship Song',
-                  slides: parsedSlides
+                  slides: parsedSlides,
+                  chords_text: song.chords_text || ''
                 });
               } catch (e) {
                 console.error('Failed parsing custom song JSON:', e);
@@ -125,6 +190,47 @@ function LyricsDisplay() {
   const isCustomView = !!customViewSong;
   const slidesToRender = isCustomView ? customViewSong.slides : (stageData.slides || []);
   const activeIndex = isCustomView ? -1 : (stageData.activeSlideIndex !== undefined ? stageData.activeSlideIndex : 0);
+  const activeSongKey = isCustomView ? (customViewSong?.key || 'C') : (stageData.songKey || 'C');
+
+  // Auto-sync Key dropdown value and reset transpose when switching songs
+  useEffect(() => {
+    setSelectedKey(activeSongKey || 'C');
+    setTransposeSteps(0);
+  }, [activeSongKey, stageData.songTitle, stageData.songId, customViewSong?.id]);
+
+  // Extract presentation lyrics text for fallback auto-merging
+  const presentationLyricsRaw = useMemo(() => {
+    if (!slidesToRender || slidesToRender.length === 0) return '';
+    return slidesToRender.map(s => s.text || '').join('\n');
+  }, [slidesToRender]);
+
+  // Parse Chords text into structured Image 1 & Image 2 sections
+  const rawChordsText = isCustomView ? customViewSong?.chords_text : (stageData.chordsText || '');
+  
+  const parsedChordSections = useMemo(() => {
+    if (!showChords || !rawChordsText) return [];
+    return parseChordChartToSections(rawChordsText, transposeSteps, presentationLyricsRaw);
+  }, [showChords, rawChordsText, transposeSteps, presentationLyricsRaw]);
+
+  // Create a smart map of (Lyric line text OR section-index) -> chord line text for embedding into presentation lyrics
+  const lyricToChordMap = useMemo(() => {
+    if (!showChords || !parsedChordSections) return {};
+    const map = {};
+    parsedChordSections.forEach(sec => {
+      sec.pairs.forEach((pair, pairIdx) => {
+        if (pair.chords) {
+          if (pair.lyrics) {
+            const cleanKey = pair.lyrics.trim().toUpperCase();
+            map[cleanKey] = pair.chords;
+          }
+          // Fallback mapping by section & index (e.g. "VERSE 1_0", "CHORUS_1")
+          const secKey = `${sec.label}_${pairIdx}`;
+          map[secKey] = pair.chords;
+        }
+      });
+    });
+    return map;
+  }, [showChords, parsedChordSections]);
 
   // Group consecutive slides that share the same section label (e.g. VERSE 1, CHORUS, POST-CHORUS, BRIDGE)
   const groupedSections = useMemo(() => {
@@ -157,7 +263,7 @@ function LyricsDisplay() {
     return groups;
   }, [slidesToRender]);
 
-  // Smart Auto-scroll: Only scroll the <main> container so top header & bottom navbar stay 100% fixed & consistent
+  // Smart Auto-scroll: Works for both Chords: ON and Chords: OFF
   useEffect(() => {
     if (activeIndex >= 0 && !isCustomView && mainRef.current) {
       const mainEl = mainRef.current;
@@ -190,7 +296,7 @@ function LyricsDisplay() {
         }
       }
     }
-  }, [activeIndex, isCustomView]);
+  }, [activeIndex, isCustomView, showChords]);
 
   // Select playlist song from bottom bar for INDEPENDENT viewing on mobile (Does NOT change Projector!)
   const handleSelectPlaylistSong = (item) => {
@@ -206,7 +312,9 @@ function LyricsDisplay() {
           setCustomViewSong({
             id: item.song_id || item.id,
             title: item.name || item.song_title || 'Worship Song',
-            slides: parsedSlides
+            slides: parsedSlides,
+            chords_text: item.chords_text || '',
+            key: item.key || 'C'
           });
         }
       } catch (err) {
@@ -293,6 +401,35 @@ function LyricsDisplay() {
     return stageData.label || 'WORSHIPFLOW SONG';
   }, [isCustomView, customViewSong, stageData.songTitle, stageData.label, playlist]);
 
+  // Smart Line-by-Line AI Chord Resolver
+  const getChordForLine = (sectionNormLabel, cleanLineText, textIdx, lineIdx) => {
+    if (!showChords || !rawChordsText || !rawChordsText.trim() || !parsedChordSections || parsedChordSections.length === 0) return '';
+
+    // 1. Try exact line text match across all parsed chord sections
+    for (const sec of parsedChordSections) {
+      for (const pair of sec.pairs) {
+        if (pair.lyrics && pair.lyrics.trim().toUpperCase() === cleanLineText) {
+          if (pair.chords) return pair.chords;
+        }
+      }
+    }
+
+    // 2. Try section-matching search
+    const secNorm = sectionNormLabel.replace(/\s*\d+$/, '').trim();
+    const matchedSec = parsedChordSections.find(sec => {
+      const sNorm = sec.label.replace(/\s*\d+$/, '').trim();
+      return sNorm === secNorm || sec.label.includes(secNorm) || secNorm.includes(sNorm);
+    }) || parsedChordSections[0];
+
+    if (matchedSec && matchedSec.pairs.length > 0) {
+      const flatIndex = textIdx * 2 + lineIdx;
+      const pair = matchedSec.pairs[flatIndex % matchedSec.pairs.length];
+      return pair ? pair.chords : '';
+    }
+
+    return '';
+  };
+
   return (
     <div 
       onTouchStart={handleTouchStart}
@@ -303,9 +440,9 @@ function LyricsDisplay() {
       {/* --- SLIM COMPACT RESPONSIVE HEADER FOR ALL PHONE / TABLET / IPAD DEVICES --- */}
       <header 
         style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}
-        className="flex-shrink-0 bg-white border-b border-slate-200 px-3 sm:px-5 py-2 sm:py-2.5 flex items-center justify-between shadow-sm z-30 gap-3 w-full"
+        className="flex-shrink-0 bg-white border-b border-slate-200 px-3 sm:px-5 py-2 sm:py-2.5 flex items-center justify-between shadow-sm z-30 gap-2.5 w-full"
       >
-        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
           <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 flex-shrink-0">
             <Music className="h-4 w-4 sm:h-5 sm:w-5" />
           </div>
@@ -325,8 +462,46 @@ function LyricsDisplay() {
           </div>
         </div>
 
-        {/* Sync Live Button & Fullscreen Toggle (Icon Only) */}
+        {/* Chords Toggle, Edit Chords & Key Selector Dropdown */}
         <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+          <button
+            onClick={toggleChords}
+            className={`px-2 py-1 rounded-lg text-[10px] sm:text-xs font-mono font-black flex items-center gap-1 transition active:scale-95 border ${
+              showChords 
+                ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm' 
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+            }`}
+            title="Toggle Chords Visibility for Musicians"
+          >
+            <Music className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+            <span>Chords: {showChords ? 'ON' : 'OFF'}</span>
+          </button>
+
+          {showChords && (
+            <>
+              {/* Key Selector Dropdown (Matches Operator Desktop) */}
+              <select
+                value={selectedKey}
+                onChange={(e) => handleKeySelect(e.target.value)}
+                className="bg-amber-500/10 border border-amber-500/30 text-amber-600 font-mono font-extrabold text-[10px] sm:text-xs rounded-lg px-2 py-1 focus:outline-none cursor-pointer"
+                title="Select Musical Key for Real-time Transposition"
+              >
+                {KEYS.map(k => (
+                  <option key={k} value={k}>Key: {k}</option>
+                ))}
+              </select>
+
+              {/* Edit Chords Button on Mobile/Tablet */}
+              <button
+                onClick={handleOpenMobileEditChords}
+                className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 active:scale-95 flex items-center gap-1 text-[10px] font-mono font-bold"
+                title="Edit Chords directly from Mobile/Tablet"
+              >
+                <Edit3 className="h-3.5 w-3.5 text-amber-600" />
+              </button>
+            </>
+          )}
+
           {isCustomView && (
             <button
               onClick={handleReturnToLive}
@@ -336,6 +511,7 @@ function LyricsDisplay() {
               <span>Sync Live</span>
             </button>
           )}
+
           <button
             onClick={handleToggleFullscreen}
             className="p-1.5 text-slate-500 hover:text-slate-900 transition active:scale-95 bg-transparent border-0 flex-shrink-0"
@@ -346,7 +522,7 @@ function LyricsDisplay() {
         </div>
       </header>
 
-      {/* --- MAIN 2-COLUMN MASONRY GROUPED LYRICS CONTENT (COMPACT SPACING SO FULL SONG FITS ON TABLET WITHOUT SCROLLING) --- */}
+      {/* --- UNIFIED 2-COLUMN MASONRY CONTENT (LINE-BY-LINE CHORD STACKING) --- */}
       <main ref={mainRef} className="flex-1 overflow-y-auto p-2.5 sm:p-4 pb-32 sm:pb-36 scrollbar-thin bg-white">
         {groupedSections.length > 0 ? (
           <div className="columns-1 md:columns-2 gap-3 sm:gap-4 space-y-2.5 sm:space-y-3">
@@ -363,24 +539,42 @@ function LyricsDisplay() {
                     </span>
                   </div>
 
-                  {/* Section Lyrics Text */}
-                  <div className="space-y-1 pt-0.5">
+                  {/* Section Lyrics Text + Embedded Chords Line-by-Line */}
+                  <div className="space-y-2 pt-0.5">
                     {group.texts.map((item, textIdx) => {
                       const isSlideActive = item.slideIndex === activeIndex;
+                      const rawLines = (item.text || '').split('\n').filter(l => l.trim().length > 0);
 
                       return (
                         <div
                           key={textIdx}
                           id={`lyrics-active-slide-${item.slideIndex}`}
-                          className={`scroll-mt-16 transition-all duration-200 ${
+                          className={`scroll-mt-16 transition-all duration-200 flex flex-col ${
                             isSlideActive
-                              ? 'p-1 rounded bg-emerald-500/10 border-l-4 border-emerald-600 pl-2'
+                              ? 'p-1.5 rounded bg-emerald-500/10 border-l-4 border-emerald-600 pl-2'
                               : 'py-0.5 px-0.5'
                           }`}
                         >
-                          <p className="text-[10px] sm:text-[11px] md:text-xs font-extrabold text-slate-900 leading-tight whitespace-pre-line uppercase tracking-normal font-sans">
-                            {item.text}
-                          </p>
+                          {rawLines.map((lineStr, lineIdx) => {
+                            const cleanLine = lineStr.trim().toUpperCase();
+                            const chordForLine = showChords ? getChordForLine(group.normLabel, cleanLine, textIdx, lineIdx) : '';
+
+                            return (
+                              <div key={lineIdx} className="flex flex-col mb-1 last:mb-0">
+                                {/* Embedded Yellow/Amber Chords (when Chords: ON) */}
+                                {showChords && chordForLine && (
+                                  <div className="font-mono text-amber-500 font-black text-[11px] sm:text-xs leading-tight whitespace-pre tracking-normal">
+                                    {chordForLine}
+                                  </div>
+                                )}
+
+                                {/* Presentation Lyrics Line */}
+                                <p className="text-[10px] sm:text-[11px] md:text-xs font-extrabold text-slate-900 leading-tight uppercase tracking-normal font-sans">
+                                  {lineStr}
+                                </p>
+                              </div>
+                            );
+                          })}
                         </div>
                       );
                     })}
@@ -399,6 +593,46 @@ function LyricsDisplay() {
           </div>
         )}
       </main>
+
+      {/* --- EDIT CHORDS MODAL FOR MOBILE / TABLET (WHITE THEME MATCHING LYRICS.HTML) --- */}
+      {isEditChordsOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white text-slate-900 w-full max-w-lg rounded-xl border border-slate-200 p-4 flex flex-col gap-3 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-2.5">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-600">
+                  <Music className="h-4 w-4" />
+                </div>
+                <h3 className="font-extrabold text-xs sm:text-sm font-mono text-slate-900">Edit Chords - {currentSongTitle}</h3>
+              </div>
+              <button onClick={() => setIsEditChordsOpen(false)} className="text-slate-400 hover:text-slate-700 transition p-1">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <textarea
+              rows="12"
+              value={editingChordsText}
+              onChange={e => setEditingChordsText(e.target.value)}
+              placeholder="Paste or type chords here..."
+              className="w-full p-3 bg-slate-50 text-slate-900 border border-slate-200 rounded-lg font-mono text-xs focus:border-amber-500 focus:outline-none leading-relaxed"
+            ></textarea>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                onClick={() => setIsEditChordsOpen(false)}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-mono font-bold text-slate-600 hover:bg-slate-100 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveMobileChords}
+                className="px-4 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-mono font-extrabold text-xs rounded-lg shadow-sm transition active:scale-95"
+              >
+                Save Chords
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* --- FIXED BOTTOM LINEUP BAR (ALWAYS VISIBLE ON ALL MOBILE DEVICES) --- */}
       <footer className="fixed bottom-0 inset-x-0 bg-slate-900 text-white border-t border-slate-800 p-2 flex items-center gap-1.5 overflow-x-auto scrollbar-none z-40">

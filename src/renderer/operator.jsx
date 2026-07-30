@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import appLogo from './logo.png';
 import BibleMenu from './BibleMenu';
+import { KEYS, getSemitoneDifference, transposeChordChart } from '../utils/chordUtils.js';
 import { 
   useLibraryStore, 
   usePresentationStore, 
@@ -355,6 +356,32 @@ function OperatorDashboard() {
   const [isEditSongOpen, setIsEditSongOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState('appearance'); // Default to appearance tab
+
+  // Chords & Lead Sheet states for Add/Edit Song Modals
+  const [newSongChordsRaw, setNewSongChordsRaw] = useState('');
+  const [editSongChordsRaw, setEditSongChordsRaw] = useState('');
+  const [songModalTab, setSongModalTab] = useState('lyrics'); // 'lyrics' | 'chords'
+
+  // Song Musical Key states
+  const [newSongKey, setNewSongKey] = useState('C');
+  const [editSongKey, setEditSongKey] = useState('C');
+
+  const handleKeyChange = (targetKey, isAddModal) => {
+    const currentKey = isAddModal ? newSongKey : editSongKey;
+    const semitones = getSemitoneDifference(currentKey, targetKey);
+
+    if (isAddModal) {
+      setNewSongKey(targetKey);
+      if (semitones !== 0 && newSongChordsRaw) {
+        setNewSongChordsRaw(prev => transposeChordChart(prev, semitones));
+      }
+    } else {
+      setEditSongKey(targetKey);
+      if (semitones !== 0 && editSongChordsRaw) {
+        setEditSongChordsRaw(prev => transposeChordChart(prev, semitones));
+      }
+    }
+  };
 
   // Appearance / Custom Theme states matching UI specs
   const [appearanceMode, setAppearanceMode] = useState(() => localStorage.getItem('appearanceMode') || 'Dark');
@@ -1471,7 +1498,10 @@ function OperatorDashboard() {
       if (window.api.sendStageUpdate) {
         try {
           const payload = {
+            songId: (liveSong && liveSong.id) ? liveSong.id : (selectedSong ? selectedSong.id : null),
             songTitle: (liveSong && liveSong.title) ? liveSong.title : (selectedSong ? selectedSong.title : ''),
+            songKey: (liveSong && liveSong.key) ? liveSong.key : (selectedSong ? selectedSong.key : ''),
+            chordsText: (liveSong && liveSong.chords_text) ? liveSong.chords_text : (selectedSong ? selectedSong.chords_text : ''),
             text: activeSlideText,
             label: activeSlideLabel || `Slide ${activeSlideIndex + 1}`,
             bgAsset: activeBgAsset,
@@ -2155,9 +2185,10 @@ function OperatorDashboard() {
       const saved = await saveSong({
         title: newSongTitle,
         author: 'WorshipFlow',
-        key: '',
+        key: newSongKey,
         tempo: '',
-        contentJson
+        contentJson,
+        chordsText: newSongChordsRaw
       });
       // Refresh library and also add to current presentation lineup immediately
       await fetchSongs();
@@ -2169,6 +2200,9 @@ function OperatorDashboard() {
 
       setNewSongTitle('');
       setNewSongSlidesRaw('');
+      setNewSongChordsRaw('');
+      setNewSongKey('C');
+      setSongModalTab('lyrics');
       setIsAddSongOpen(false);
     } catch (err) {
       console.error('Failed to save song:', err);
@@ -2180,6 +2214,9 @@ function OperatorDashboard() {
     if (!selectedSong) return;
     setEditSongTitle(selectedSong.title);
     setEditSongSlidesRaw(formatSlidesToRaw(slides));
+    setEditSongChordsRaw(selectedSong.chords_text || '');
+    setEditSongKey(selectedSong.key || 'C');
+    setSongModalTab('lyrics');
 
     if (slides && slides.length > 0) {
       const s = slides[0].style || {};
@@ -2242,9 +2279,10 @@ function OperatorDashboard() {
         id: selectedSong.id,
         title: editSongTitle,
         author: 'WorshipFlow',
-        key: '',
+        key: editSongKey,
         tempo: '',
-        contentJson
+        contentJson,
+        chordsText: editSongChordsRaw
       });
       setIsEditSongOpen(false);
     } catch (err) {
@@ -5190,249 +5228,315 @@ function OperatorDashboard() {
                 }}
                 className="lg:col-span-7 flex flex-col gap-4 overflow-y-auto pr-1 text-xs"
               >
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-textMuted font-semibold font-mono text-[11px]">Song Title</label>
-                  <input 
-                    type="text" 
-                    required 
-                    placeholder="" 
-                    value={newSongTitle}
-                    onChange={e => setNewSongTitle(e.target.value)}
-                    className="p-2.5 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain focus:outline-none"
-                  />
-                </div>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                  <div className="md:col-span-3 flex flex-col gap-1.5">
+                    <label className="text-textMuted font-semibold font-mono text-[11px]">Song Title</label>
+                    <input 
+                      type="text" 
+                      required 
+                      placeholder="" 
+                      value={newSongTitle}
+                      onChange={e => setNewSongTitle(e.target.value)}
+                      className="p-2.5 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain focus:outline-none"
+                    />
+                  </div>
 
-                {/* Text Styling toolbar */}
-                <div className="bg-appBg border border-[var(--border-app)] rounded-t-lg p-3 grid grid-cols-4 md:grid-cols-7 gap-3 items-end">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">Font</label>
-                    <select 
-                      value={songFont} 
-                      onChange={e => setSongFont(e.target.value)}
-                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-textMuted font-semibold font-mono text-[11px]">Song Key</label>
+                    <select
+                      value={newSongKey}
+                      onChange={e => handleKeyChange(e.target.value, true)}
+                      className="p-2.5 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain font-mono font-bold focus:outline-none"
                     >
-                      <option value="Inter">Inter</option>
-                      <option value="Poppins">Poppins</option>
-                      <option value="Montserrat">Montserrat</option>
-                      <option value="Roboto">Roboto</option>
-                      <option value="Open Sans">Open Sans</option>
-                      <option value="Lato">Lato</option>
-                      <option value="Oswald">Oswald</option>
-                      <option value="Raleway">Raleway</option>
-                      <option value="Nunito">Nunito</option>
-                      <option value="Playfair Display">Playfair Display</option>
-                      <option value="Bebas Neue">Bebas Neue</option>
-                      <option value="Anton">Anton</option>
-                      <option value="Fjalla One">Fjalla One</option>
-                      <option value="Archivo Black">Archivo Black</option>
-                      <option value="Cinzel">Cinzel</option>
-                      <option value="Outfit">Outfit</option>
-                      <option value="Syne">Syne</option>
-                      <option value="League Spartan">League Spartan</option>
-                      <option value="Unbounded">Unbounded</option>
-                      <option value="Instrument Serif">Instrument Serif</option>
-                      <option value="Arial">Arial</option>
+                      {KEYS.map(k => (
+                        <option key={k} value={k}>Key: {k}</option>
+                      ))}
                     </select>
-                  </div>
-                  
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">Size (px)</label>
-                    <input 
-                      type="number" 
-                      value={songSize} 
-                      onChange={e => setSongSize(parseInt(e.target.value) || 60)}
-                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">Weight</label>
-                    <select 
-                      value={songWeight} 
-                      onChange={e => setSongWeight(e.target.value)}
-                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
-                    >
-                      <option value="normal">Normal</option>
-                      <option value="semibold">Semibold</option>
-                      <option value="bold">Bold</option>
-                      <option value="extrabold">Extra Bold</option>
-                    </select>
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">Line Spacing</label>
-                    <input 
-                      type="number" 
-                      step="0.1"
-                      min="0.5"
-                      max="3.0"
-                      value={songLineHeight} 
-                      onChange={e => setSongLineHeight(parseFloat(e.target.value) || 1.4)}
-                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">Char Spacing</label>
-                    <input 
-                      type="number" 
-                      min="-5"
-                      max="20"
-                      value={songLetterSpacing} 
-                      onChange={e => setSongLetterSpacing(parseInt(e.target.value) || 0)}
-                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">Color</label>
-                    <div className="flex gap-1 items-center">
-                      <input 
-                        type="color" 
-                        value={songColor} 
-                        onChange={e => setSongColor(e.target.value)}
-                        className="w-6 h-5 bg-transparent border-0 cursor-pointer p-0"
-                      />
-                      <span className="text-[8px] font-mono text-textMuted uppercase">{songColor}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">Bg Color</label>
-                    <div className="flex gap-1 items-center">
-                      <input 
-                        type="color" 
-                        value={songBgColor} 
-                        onChange={e => setSongBgColor(e.target.value)}
-                        className="w-6 h-5 bg-transparent border-0 cursor-pointer p-0"
-                      />
-                      <span className="text-[8px] font-mono text-textMuted uppercase">{songBgColor}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">Bg Opacity</label>
-                    <select 
-                      value={songBgOpacity} 
-                      onChange={e => setSongBgOpacity(e.target.value)}
-                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
-                    >
-                      <option value="0%">0%</option>
-                      <option value="20%">20%</option>
-                      <option value="40%">40%</option>
-                      <option value="60%">60%</option>
-                      <option value="80%">80%</option>
-                      <option value="100%">100%</option>
-                    </select>
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">Align</label>
-                    <select 
-                      value={songAlign} 
-                      onChange={e => setSongAlign(e.target.value)}
-                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
-                    >
-                      <option value="left">Left</option>
-                      <option value="center">Center</option>
-                      <option value="right">Right</option>
-                    </select>
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">Vertical</label>
-                    <select 
-                      value={songVertical} 
-                      onChange={e => setSongVertical(e.target.value)}
-                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
-                    >
-                      <option value="top">Top</option>
-                      <option value="center">Center</option>
-                      <option value="bottom">Bottom</option>
-                    </select>
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">BG Height (%)</label>
-                    <input 
-                      type="number" 
-                      min="10"
-                      max="100"
-                      value={songBgHeight} 
-                      onChange={e => setSongBgHeight(parseInt(e.target.value) || 100)}
-                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">BG Width (%)</label>
-                    <input 
-                      type="number" 
-                      min="10"
-                      max="100"
-                      value={songBgWidth} 
-                      onChange={e => setSongBgWidth(parseInt(e.target.value) || 100)}
-                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">BG Radius (px)</label>
-                    <input 
-                      type="number" 
-                      min="0"
-                      max="100"
-                      value={songBgRadius} 
-                      onChange={e => setSongBgRadius(parseInt(e.target.value) || 0)}
-                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1 col-span-2">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">Anim & Speed</label>
-                    <div className="flex gap-2">
-                      <select 
-                        value={songAnimation} 
-                        onChange={e => setSongAnimation(e.target.value)}
-                        className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none flex-1"
-                      >
-                        <option value="None">None</option>
-                        <option value="Fade">Fade</option>
-                        <option value="Zoom In/Out">Zoom In/Out</option>
-                        <option value="Slide Left">Slide Left</option>
-                        <option value="Slide Right">Slide Right</option>
-                        <option value="Slide Up">Slide Up</option>
-                      </select>
-                      <select 
-                        value={songSpeed} 
-                        onChange={e => setSongSpeed(e.target.value)}
-                        className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none flex-1"
-                      >
-                        <option value="Fast (0.3s)">Fast (0.3s)</option>
-                        <option value="Medium (0.6s)">Medium (0.6s)</option>
-                        <option value="Slow (1.0s)">Slow (1.0s)</option>
-                      </select>
-                    </div>
                   </div>
                 </div>
 
+                {/* --- TAB SWITCHER: PRESENTATION LYRICS vs CHORDS & LEAD SHEET --- */}
+                <div className="flex border-b border-[var(--border-app)] my-1 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSongModalTab('lyrics')}
+                    className={`px-3 py-1.5 text-xs font-bold font-mono transition flex items-center gap-1.5 border-b-2 ${
+                      songModalTab === 'lyrics'
+                        ? 'border-brand text-brand bg-brand/10 rounded-t'
+                        : 'border-transparent text-textMuted hover:text-textMain'
+                    }`}
+                  >
+                    <FileText className="h-3.5 w-3.5" />
+                    <span>Presentation Lyrics (Projector)</span>
+                  </button>
 
-
-                <div className="flex flex-col gap-1">
-                  <div className="flex justify-between items-center">
-                    <label className="text-textMuted font-semibold font-mono text-xs">Lyrics & Slides Layout</label>
-                    <span className="text-[9px] text-textMuted font-mono">Separate slide sections with a blank line.</span>
-                  </div>
-                  <textarea 
-                    rows="18"
-                    required
-                    placeholder="" 
-                    value={newSongSlidesRaw}
-                    onSelect={(e) => handleTextareaCursorChange(e, true)}
-                    onChange={(e) => { setNewSongSlidesRaw(e.target.value); handleTextareaCursorChange(e, true); }}
-                    className="p-2.5 bg-appBg border border-t-0 border-[var(--border-app)] rounded-b-lg focus:border-brand focus:outline-none font-mono leading-relaxed"
-                  ></textarea>
+                  <button
+                    type="button"
+                    onClick={() => setSongModalTab('chords')}
+                    className={`px-3 py-1.5 text-xs font-bold font-mono transition flex items-center gap-1.5 border-b-2 ${
+                      songModalTab === 'chords'
+                        ? 'border-amber-500 text-amber-400 bg-amber-500/10 rounded-t'
+                        : 'border-transparent text-textMuted hover:text-textMain'
+                    }`}
+                  >
+                    <Music className="h-3.5 w-3.5 text-amber-500" />
+                    <span>Chords & Lead Sheet (Mobile/Musicians)</span>
+                  </button>
                 </div>
+
+                {songModalTab === 'lyrics' ? (
+                  <>
+                    {/* Text Styling toolbar */}
+                    <div className="bg-appBg border border-[var(--border-app)] rounded-t-lg p-3 grid grid-cols-4 md:grid-cols-7 gap-3 items-end">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">Font</label>
+                        <select 
+                          value={songFont} 
+                          onChange={e => setSongFont(e.target.value)}
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                        >
+                          <option value="Inter">Inter</option>
+                          <option value="Poppins">Poppins</option>
+                          <option value="Montserrat">Montserrat</option>
+                          <option value="Roboto">Roboto</option>
+                          <option value="Open Sans">Open Sans</option>
+                          <option value="Lato">Lato</option>
+                          <option value="Oswald">Oswald</option>
+                          <option value="Raleway">Raleway</option>
+                          <option value="Nunito">Nunito</option>
+                          <option value="Playfair Display">Playfair Display</option>
+                          <option value="Bebas Neue">Bebas Neue</option>
+                          <option value="Anton">Anton</option>
+                          <option value="Fjalla One">Fjalla One</option>
+                          <option value="Archivo Black">Archivo Black</option>
+                          <option value="Cinzel">Cinzel</option>
+                          <option value="Outfit">Outfit</option>
+                          <option value="Syne">Syne</option>
+                          <option value="League Spartan">League Spartan</option>
+                          <option value="Unbounded">Unbounded</option>
+                          <option value="Instrument Serif">Instrument Serif</option>
+                          <option value="Arial">Arial</option>
+                        </select>
+                      </div>
+                      
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">Size (px)</label>
+                        <input 
+                          type="number" 
+                          value={songSize} 
+                          onChange={e => setSongSize(parseInt(e.target.value) || 60)}
+                          className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">Weight</label>
+                        <select 
+                          value={songWeight} 
+                          onChange={e => setSongWeight(e.target.value)}
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                        >
+                          <option value="normal">Normal</option>
+                          <option value="semibold">Semibold</option>
+                          <option value="bold">Bold</option>
+                          <option value="extrabold">Extra Bold</option>
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">Line Spacing</label>
+                        <input 
+                          type="number" 
+                          step="0.1"
+                          min="0.5"
+                          max="3.0"
+                          value={songLineHeight} 
+                          onChange={e => setSongLineHeight(parseFloat(e.target.value) || 1.4)}
+                          className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">Char Spacing</label>
+                        <input 
+                          type="number" 
+                          min="-5"
+                          max="20"
+                          value={songLetterSpacing} 
+                          onChange={e => setSongLetterSpacing(parseInt(e.target.value) || 0)}
+                          className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">Color</label>
+                        <div className="flex gap-1 items-center">
+                          <input 
+                            type="color" 
+                            value={songColor} 
+                            onChange={e => setSongColor(e.target.value)}
+                            className="w-6 h-5 bg-transparent border-0 cursor-pointer p-0"
+                          />
+                          <span className="text-[8px] font-mono text-textMuted uppercase">{songColor}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">Bg Color</label>
+                        <div className="flex gap-1 items-center">
+                          <input 
+                            type="color" 
+                            value={songBgColor} 
+                            onChange={e => setSongBgColor(e.target.value)}
+                            className="w-6 h-5 bg-transparent border-0 cursor-pointer p-0"
+                          />
+                          <span className="text-[8px] font-mono text-textMuted uppercase">{songBgColor}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">Bg Opacity</label>
+                        <select 
+                          value={songBgOpacity} 
+                          onChange={e => setSongBgOpacity(e.target.value)}
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                        >
+                          <option value="0%">0%</option>
+                          <option value="20%">20%</option>
+                          <option value="40%">40%</option>
+                          <option value="60%">60%</option>
+                          <option value="80%">80%</option>
+                          <option value="100%">100%</option>
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">Align</label>
+                        <select 
+                          value={songAlign} 
+                          onChange={e => setSongAlign(e.target.value)}
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                        >
+                          <option value="left">Left</option>
+                          <option value="center">Center</option>
+                          <option value="right">Right</option>
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">Vertical</label>
+                        <select 
+                          value={songVertical} 
+                          onChange={e => setSongVertical(e.target.value)}
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                        >
+                          <option value="top">Top</option>
+                          <option value="center">Center</option>
+                          <option value="bottom">Bottom</option>
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">BG Height (%)</label>
+                        <input 
+                          type="number" 
+                          min="10"
+                          max="100"
+                          value={songBgHeight} 
+                          onChange={e => setSongBgHeight(parseInt(e.target.value) || 100)}
+                          className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">BG Width (%)</label>
+                        <input 
+                          type="number" 
+                          min="10"
+                          max="100"
+                          value={songBgWidth} 
+                          onChange={e => setSongBgWidth(parseInt(e.target.value) || 100)}
+                          className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">BG Radius (px)</label>
+                        <input 
+                          type="number" 
+                          min="0"
+                          max="100"
+                          value={songBgRadius} 
+                          onChange={e => setSongBgRadius(parseInt(e.target.value) || 0)}
+                          className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1 col-span-2">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">Anim & Speed</label>
+                        <div className="flex gap-2">
+                          <select 
+                            value={songAnimation} 
+                            onChange={e => setSongAnimation(e.target.value)}
+                            className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none flex-1"
+                          >
+                            <option value="None">None</option>
+                            <option value="Fade">Fade</option>
+                            <option value="Zoom In/Out">Zoom In/Out</option>
+                            <option value="Slide Left">Slide Left</option>
+                            <option value="Slide Right">Slide Right</option>
+                            <option value="Slide Up">Slide Up</option>
+                          </select>
+                          <select 
+                            value={songSpeed} 
+                            onChange={e => setSongSpeed(e.target.value)}
+                            className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none flex-1"
+                          >
+                            <option value="Fast (0.3s)">Fast (0.3s)</option>
+                            <option value="Medium (0.6s)">Medium (0.6s)</option>
+                            <option value="Slow (1.0s)">Slow (1.0s)</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <div className="flex justify-between items-center">
+                        <label className="text-textMuted font-semibold font-mono text-xs">Lyrics & Slides Layout</label>
+                        <span className="text-[9px] text-textMuted font-mono">Separate slide sections with a blank line.</span>
+                      </div>
+                      <textarea 
+                        rows="18"
+                        required
+                        placeholder="" 
+                        value={newSongSlidesRaw}
+                        onSelect={(e) => handleTextareaCursorChange(e, true)}
+                        onChange={(e) => { setNewSongSlidesRaw(e.target.value); handleTextareaCursorChange(e, true); }}
+                        className="p-2.5 bg-appBg border border-t-0 border-[var(--border-app)] rounded-b-lg focus:border-brand focus:outline-none font-mono leading-relaxed"
+                      ></textarea>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    <div className="flex justify-between items-center bg-amber-500/10 border border-amber-500/20 p-2.5 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <Music className="h-4 w-4 text-amber-400" />
+                        <span className="text-xs font-bold text-amber-300">Chords & Lead Sheet Chart (Image 1 Format)</span>
+                      </div>
+                      <span className="text-[10px] text-amber-300/80 font-mono">
+                        Displayed on Mobile Prompter when "Chords: ON" is toggled
+                      </span>
+                    </div>
+
+                    <textarea 
+                      rows="18"
+                      placeholder={`Verse 1\nD\nYou were the Word at the beginning\n            G      Bm      A\nOne with God the Lord Most High\n\nChorus 1\n                  D\nWhat a beautiful Name it is\n                  A\nWhat a beautiful Name it is`}
+                      value={newSongChordsRaw}
+                      onChange={(e) => setNewSongChordsRaw(e.target.value)}
+                      className="p-3 bg-slate-950 text-amber-300 border border-[var(--border-app)] rounded-lg focus:border-amber-500 focus:outline-none font-mono text-xs leading-relaxed"
+                    ></textarea>
+                  </div>
+                )}
               </form>
 
               {/* Right Column: Live Slide Previewer (5 cols) */}
@@ -5593,243 +5697,309 @@ function OperatorDashboard() {
                 }}
                 className="lg:col-span-7 flex flex-col gap-4 overflow-y-auto pr-1 text-xs"
               >
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-textMuted font-semibold font-mono text-[11px]">Song Title</label>
-                  <input 
-                    type="text" 
-                    required 
-                    placeholder=""
-                    value={editSongTitle}
-                    onChange={e => setEditSongTitle(e.target.value)}
-                    className="p-2.5 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain focus:outline-none"
-                  />
-                </div>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                  <div className="md:col-span-3 flex flex-col gap-1.5">
+                    <label className="text-textMuted font-semibold font-mono text-[11px]">Song Title</label>
+                    <input 
+                      type="text" 
+                      required 
+                      placeholder=""
+                      value={editSongTitle}
+                      onChange={e => setEditSongTitle(e.target.value)}
+                      className="p-2.5 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain focus:outline-none"
+                    />
+                  </div>
 
-                {/* Text Styling toolbar */}
-                <div className="bg-appBg border border-[var(--border-app)] rounded-t-lg p-3 grid grid-cols-4 md:grid-cols-7 gap-3 items-end">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">Font</label>
-                    <select 
-                      value={songFont} 
-                      onChange={e => setSongFont(e.target.value)}
-                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-textMuted font-semibold font-mono text-[11px]">Song Key</label>
+                    <select
+                      value={editSongKey}
+                      onChange={e => handleKeyChange(e.target.value, false)}
+                      className="p-2.5 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain font-mono font-bold focus:outline-none"
                     >
-                      <option value="Inter">Inter</option>
-                      <option value="Poppins">Poppins</option>
-                      <option value="Montserrat">Montserrat</option>
-                      <option value="Roboto">Roboto</option>
-                      <option value="Open Sans">Open Sans</option>
-                      <option value="Lato">Lato</option>
-                      <option value="Oswald">Oswald</option>
-                      <option value="Raleway">Raleway</option>
-                      <option value="Nunito">Nunito</option>
-                      <option value="Playfair Display">Playfair Display</option>
-                      <option value="Bebas Neue">Bebas Neue</option>
-                      <option value="Anton">Anton</option>
-                      <option value="Fjalla One">Fjalla One</option>
-                      <option value="Archivo Black">Archivo Black</option>
-                      <option value="Cinzel">Cinzel</option>
-                      <option value="Outfit">Outfit</option>
-                      <option value="Syne">Syne</option>
-                      <option value="League Spartan">League Spartan</option>
-                      <option value="Unbounded">Unbounded</option>
-                      <option value="Instrument Serif">Instrument Serif</option>
-                      <option value="Arial">Arial</option>
+                      {KEYS.map(k => (
+                        <option key={k} value={k}>Key: {k}</option>
+                      ))}
                     </select>
-                  </div>
-                  
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">Size (px)</label>
-                    <input 
-                      type="number" 
-                      value={songSize} 
-                      onChange={e => setSongSize(parseInt(e.target.value) || 60)}
-                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">Weight</label>
-                    <select 
-                      value={songWeight} 
-                      onChange={e => setSongWeight(e.target.value)}
-                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
-                    >
-                      <option value="normal">Normal</option>
-                      <option value="semibold">Semibold</option>
-                      <option value="bold">Bold</option>
-                      <option value="extrabold">Extra Bold</option>
-                    </select>
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">Line Spacing</label>
-                    <input 
-                      type="number" 
-                      step="0.1"
-                      min="0.5"
-                      max="3.0"
-                      value={songLineHeight} 
-                      onChange={e => setSongLineHeight(parseFloat(e.target.value) || 1.4)}
-                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">Char Spacing</label>
-                    <input 
-                      type="number" 
-                      min="-5"
-                      max="20"
-                      value={songLetterSpacing} 
-                      onChange={e => setSongLetterSpacing(parseInt(e.target.value) || 0)}
-                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">Color</label>
-                    <div className="flex gap-1 items-center">
-                      <input 
-                        type="color" 
-                        value={songColor} 
-                        onChange={e => setSongColor(e.target.value)}
-                        className="w-6 h-5 bg-transparent border-0 cursor-pointer p-0"
-                      />
-                      <span className="text-[8px] font-mono text-textMuted uppercase">{songColor}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">Bg Color</label>
-                    <div className="flex gap-1 items-center">
-                      <input 
-                        type="color" 
-                        value={songBgColor} 
-                        onChange={e => setSongBgColor(e.target.value)}
-                        className="w-6 h-5 bg-transparent border-0 cursor-pointer p-0"
-                      />
-                      <span className="text-[8px] font-mono text-textMuted uppercase">{songBgColor}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">Bg Opacity</label>
-                    <select 
-                      value={songBgOpacity} 
-                      onChange={e => setSongBgOpacity(e.target.value)}
-                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
-                    >
-                      <option value="0%">0%</option>
-                      <option value="20%">20%</option>
-                      <option value="40%">40%</option>
-                      <option value="60%">60%</option>
-                      <option value="80%">80%</option>
-                      <option value="100%">100%</option>
-                    </select>
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">Align</label>
-                    <select 
-                      value={songAlign} 
-                      onChange={e => setSongAlign(e.target.value)}
-                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
-                    >
-                      <option value="left">Left</option>
-                      <option value="center">Center</option>
-                      <option value="right">Right</option>
-                    </select>
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">Vertical</label>
-                    <select 
-                      value={songVertical} 
-                      onChange={e => setSongVertical(e.target.value)}
-                      className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
-                    >
-                      <option value="top">Top</option>
-                      <option value="center">Center</option>
-                      <option value="bottom">Bottom</option>
-                    </select>
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">BG Height (%)</label>
-                    <input 
-                      type="number" 
-                      min="10"
-                      max="100"
-                      value={songBgHeight} 
-                      onChange={e => setSongBgHeight(parseInt(e.target.value) || 100)}
-                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">BG Width (%)</label>
-                    <input 
-                      type="number" 
-                      min="10"
-                      max="100"
-                      value={songBgWidth} 
-                      onChange={e => setSongBgWidth(parseInt(e.target.value) || 100)}
-                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">BG Radius (px)</label>
-                    <input 
-                      type="number" 
-                      min="0"
-                      max="100"
-                      value={songBgRadius} 
-                      onChange={e => setSongBgRadius(parseInt(e.target.value) || 0)}
-                      className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1 col-span-2">
-                    <label className="text-[9px] text-textMuted uppercase font-mono">Anim & Speed</label>
-                    <div className="flex gap-2">
-                      <select 
-                        value={songAnimation} 
-                        onChange={e => setSongAnimation(e.target.value)}
-                        className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none flex-1"
-                      >
-                        <option value="None">None</option>
-                        <option value="Fade">Fade</option>
-                        <option value="Zoom In/Out">Zoom In/Out</option>
-                        <option value="Slide Left">Slide Left</option>
-                        <option value="Slide Right">Slide Right</option>
-                        <option value="Slide Up">Slide Up</option>
-                      </select>
-                      <select 
-                        value={songSpeed} 
-                        onChange={e => setSongSpeed(e.target.value)}
-                        className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none flex-1"
-                      >
-                        <option value="Fast (0.3s)">Fast (0.3s)</option>
-                        <option value="Medium (0.6s)">Medium (0.6s)</option>
-                        <option value="Slow (1.0s)">Slow (1.0s)</option>
-                      </select>
-                    </div>
                   </div>
                 </div>
 
+                {/* --- TAB SWITCHER: PRESENTATION LYRICS vs CHORDS & LEAD SHEET --- */}
+                <div className="flex border-b border-[var(--border-app)] my-1 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSongModalTab('lyrics')}
+                    className={`px-3 py-1.5 text-xs font-bold font-mono transition flex items-center gap-1.5 border-b-2 ${
+                      songModalTab === 'lyrics'
+                        ? 'border-brand text-brand bg-brand/10 rounded-t'
+                        : 'border-transparent text-textMuted hover:text-textMain'
+                    }`}
+                  >
+                    <FileText className="h-3.5 w-3.5" />
+                    <span>Presentation Lyrics (Projector)</span>
+                  </button>
 
-
-                <div className="flex flex-col gap-1">
-                  <textarea 
-                    rows="18"
-                    value={editSongSlidesRaw}
-                    onSelect={(e) => handleTextareaCursorChange(e, false)}
-                    onChange={(e) => { setEditSongSlidesRaw(e.target.value); handleTextareaCursorChange(e, false); }}
-                    className="p-2.5 bg-appBg border border-t-0 border-[var(--border-app)] rounded-b-lg focus:border-brand focus:outline-none font-mono leading-relaxed text-textMain"
-                  ></textarea>
+                  <button
+                    type="button"
+                    onClick={() => setSongModalTab('chords')}
+                    className={`px-3 py-1.5 text-xs font-bold font-mono transition flex items-center gap-1.5 border-b-2 ${
+                      songModalTab === 'chords'
+                        ? 'border-amber-500 text-amber-400 bg-amber-500/10 rounded-t'
+                        : 'border-transparent text-textMuted hover:text-textMain'
+                    }`}
+                  >
+                    <Music className="h-3.5 w-3.5 text-amber-500" />
+                    <span>Chords & Lead Sheet (Mobile/Musicians)</span>
+                  </button>
                 </div>
+
+                {songModalTab === 'lyrics' ? (
+                  <>
+                    {/* Text Styling toolbar */}
+                    <div className="bg-appBg border border-[var(--border-app)] rounded-t-lg p-3 grid grid-cols-4 md:grid-cols-7 gap-3 items-end">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">Font</label>
+                        <select 
+                          value={songFont} 
+                          onChange={e => setSongFont(e.target.value)}
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                        >
+                          <option value="Inter">Inter</option>
+                          <option value="Poppins">Poppins</option>
+                          <option value="Montserrat">Montserrat</option>
+                          <option value="Roboto">Roboto</option>
+                          <option value="Open Sans">Open Sans</option>
+                          <option value="Lato">Lato</option>
+                          <option value="Oswald">Oswald</option>
+                          <option value="Raleway">Raleway</option>
+                          <option value="Nunito">Nunito</option>
+                          <option value="Playfair Display">Playfair Display</option>
+                          <option value="Bebas Neue">Bebas Neue</option>
+                          <option value="Anton">Anton</option>
+                          <option value="Fjalla One">Fjalla One</option>
+                          <option value="Archivo Black">Archivo Black</option>
+                          <option value="Cinzel">Cinzel</option>
+                          <option value="Outfit">Outfit</option>
+                          <option value="Syne">Syne</option>
+                          <option value="League Spartan">League Spartan</option>
+                          <option value="Unbounded">Unbounded</option>
+                          <option value="Instrument Serif">Instrument Serif</option>
+                          <option value="Arial">Arial</option>
+                        </select>
+                      </div>
+                      
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">Size (px)</label>
+                        <input 
+                          type="number" 
+                          value={songSize} 
+                          onChange={e => setSongSize(parseInt(e.target.value) || 60)}
+                          className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">Weight</label>
+                        <select 
+                          value={songWeight} 
+                          onChange={e => setSongWeight(e.target.value)}
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                        >
+                          <option value="normal">Normal</option>
+                          <option value="semibold">Semibold</option>
+                          <option value="bold">Bold</option>
+                          <option value="extrabold">Extra Bold</option>
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">Line Spacing</label>
+                        <input 
+                          type="number" 
+                          step="0.1"
+                          min="0.5"
+                          max="3.0"
+                          value={songLineHeight} 
+                          onChange={e => setSongLineHeight(parseFloat(e.target.value) || 1.4)}
+                          className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">Char Spacing</label>
+                        <input 
+                          type="number" 
+                          min="-5"
+                          max="20"
+                          value={songLetterSpacing} 
+                          onChange={e => setSongLetterSpacing(parseInt(e.target.value) || 0)}
+                          className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">Color</label>
+                        <div className="flex gap-1 items-center">
+                          <input 
+                            type="color" 
+                            value={songColor} 
+                            onChange={e => setSongColor(e.target.value)}
+                            className="w-6 h-5 bg-transparent border-0 cursor-pointer p-0"
+                          />
+                          <span className="text-[8px] font-mono text-textMuted uppercase">{songColor}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">Bg Color</label>
+                        <div className="flex gap-1 items-center">
+                          <input 
+                            type="color" 
+                            value={songBgColor} 
+                            onChange={e => setSongBgColor(e.target.value)}
+                            className="w-6 h-5 bg-transparent border-0 cursor-pointer p-0"
+                          />
+                          <span className="text-[8px] font-mono text-textMuted uppercase">{songBgColor}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">Bg Opacity</label>
+                        <select 
+                          value={songBgOpacity} 
+                          onChange={e => setSongBgOpacity(e.target.value)}
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                        >
+                          <option value="0%">0%</option>
+                          <option value="20%">20%</option>
+                          <option value="40%">40%</option>
+                          <option value="60%">60%</option>
+                          <option value="80%">80%</option>
+                          <option value="100%">100%</option>
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">Align</label>
+                        <select 
+                          value={songAlign} 
+                          onChange={e => setSongAlign(e.target.value)}
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                        >
+                          <option value="left">Left</option>
+                          <option value="center">Center</option>
+                          <option value="right">Right</option>
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">Vertical</label>
+                        <select 
+                          value={songVertical} 
+                          onChange={e => setSongVertical(e.target.value)}
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                        >
+                          <option value="top">Top</option>
+                          <option value="center">Center</option>
+                          <option value="bottom">Bottom</option>
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">BG Height (%)</label>
+                        <input 
+                          type="number" 
+                          min="10"
+                          max="100"
+                          value={songBgHeight} 
+                          onChange={e => setSongBgHeight(parseInt(e.target.value) || 100)}
+                          className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">BG Width (%)</label>
+                        <input 
+                          type="number" 
+                          min="10"
+                          max="100"
+                          value={songBgWidth} 
+                          onChange={e => setSongBgWidth(parseInt(e.target.value) || 100)}
+                          className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">BG Radius (px)</label>
+                        <input 
+                          type="number" 
+                          min="0"
+                          max="100"
+                          value={songBgRadius} 
+                          onChange={e => setSongBgRadius(parseInt(e.target.value) || 0)}
+                          className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1 col-span-2">
+                        <label className="text-[9px] text-textMuted uppercase font-mono">Anim & Speed</label>
+                        <div className="flex gap-2">
+                          <select 
+                            value={songAnimation} 
+                            onChange={e => setSongAnimation(e.target.value)}
+                            className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none flex-1"
+                          >
+                            <option value="None">None</option>
+                            <option value="Fade">Fade</option>
+                            <option value="Zoom In/Out">Zoom In/Out</option>
+                            <option value="Slide Left">Slide Left</option>
+                            <option value="Slide Right">Slide Right</option>
+                            <option value="Slide Up">Slide Up</option>
+                          </select>
+                          <select 
+                            value={songSpeed} 
+                            onChange={e => setSongSpeed(e.target.value)}
+                            className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none flex-1"
+                          >
+                            <option value="Fast (0.3s)">Fast (0.3s)</option>
+                            <option value="Medium (0.6s)">Medium (0.6s)</option>
+                            <option value="Slow (1.0s)">Slow (1.0s)</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <textarea 
+                        rows="18"
+                        value={editSongSlidesRaw}
+                        onSelect={(e) => handleTextareaCursorChange(e, false)}
+                        onChange={(e) => { setEditSongSlidesRaw(e.target.value); handleTextareaCursorChange(e, false); }}
+                        className="p-2.5 bg-appBg border border-t-0 border-[var(--border-app)] rounded-b-lg focus:border-brand focus:outline-none font-mono leading-relaxed text-textMain"
+                      ></textarea>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    <div className="flex justify-between items-center bg-amber-500/10 border border-amber-500/20 p-2.5 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <Music className="h-4 w-4 text-amber-400" />
+                        <span className="text-xs font-bold text-amber-300">Chords & Lead Sheet Chart (Image 1 Format)</span>
+                      </div>
+                      <span className="text-[10px] text-amber-300/80 font-mono">
+                        Displayed on Mobile Prompter when "Chords: ON" is toggled
+                      </span>
+                    </div>
+
+                    <textarea 
+                      rows="18"
+                      placeholder={`Verse 1\nD\nYou were the Word at the beginning\n            G      Bm      A\nOne with God the Lord Most High\n\nChorus 1\n                  D\nWhat a beautiful Name it is\n                  A\nWhat a beautiful Name it is`}
+                      value={editSongChordsRaw}
+                      onChange={(e) => setEditSongChordsRaw(e.target.value)}
+                      className="p-3 bg-slate-950 text-amber-300 border border-[var(--border-app)] rounded-lg focus:border-amber-500 focus:outline-none font-mono text-xs leading-relaxed"
+                    ></textarea>
+                  </div>
+                )}
               </form>
 
               {/* Right Column: Live Slide Previewer (5 cols) */}

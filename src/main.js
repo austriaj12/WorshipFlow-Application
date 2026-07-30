@@ -426,8 +426,8 @@ ipcMain.handle('db:get-song', async (event, songId) => {
   return await db.getSongWithContent(songId);
 });
 
-ipcMain.handle('db:save-song', async (event, { id, title, author, key, tempo, contentJson }) => {
-  return await db.saveSong(id, title, author, key, tempo, contentJson);
+ipcMain.handle('db:save-song', async (event, { id, title, author, key, tempo, contentJson, chordsText }) => {
+  return await db.saveSong(id, title, author, key, tempo, contentJson, chordsText);
 });
 
 ipcMain.handle('db:delete-song', async (event, songId) => {
@@ -641,9 +641,9 @@ ipcMain.handle('media:save-presentation', async (event, { playlistData, filePath
 });
 
 // Convenience handler: create a new song entry from renderer
-ipcMain.handle('app:create-song', async (event, { title, author, key, tempo, contentJson }) => {
+ipcMain.handle('app:create-song', async (event, { title, author, key, tempo, contentJson, chordsText }) => {
   try {
-    const song = await db.saveSong(null, title, author || 'WorshipFlow', key || '', tempo || '', contentJson || '[]');
+    const song = await db.saveSong(null, title, author || 'WorshipFlow', key || '', tempo || '', contentJson || '[]', chordsText || '');
     return song;
   } catch (err) {
     console.error('Failed to create song:', err);
@@ -1002,6 +1002,32 @@ function startStageServer(port = 5174) {
             }));
           } catch (err) {
             console.error('Failed to get song detail for remote:', err);
+          }
+        }
+        else if (message.type === 'client-update-chords') {
+          const { songId, chordsText, key } = message.payload || {};
+          if (songId) {
+            try {
+              const existing = await db.getSongWithContent(songId);
+              if (existing) {
+                await db.saveSong(
+                  existing.id,
+                  existing.title,
+                  existing.author,
+                  key || existing.key || 'C',
+                  existing.tempo || '',
+                  existing.content_json,
+                  chordsText
+                );
+                if (operatorWindow && !operatorWindow.isDestroyed()) {
+                  operatorWindow.webContents.send('db-changed');
+                }
+                const updatedPlaylist = await db.getPlaylist();
+                broadcastStagePayload('playlist-update', updatedPlaylist);
+              }
+            } catch (err) {
+              console.error('Failed to update chords from client:', err);
+            }
           }
         }
         else if (message.type === 'remote-get-bible-books') {
