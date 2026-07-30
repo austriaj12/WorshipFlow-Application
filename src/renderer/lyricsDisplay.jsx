@@ -154,12 +154,20 @@ function LyricsDisplay() {
     return groups;
   }, [slidesToRender]);
 
-  // Auto scroll active section/slide into view when in live mode
+  // Smart Auto-scroll: Only scroll if active slide is off-screen or near bottom, positioning it near the top with comfortable margin
   useEffect(() => {
     if (activeIndex >= 0 && !isCustomView) {
       const activeEl = document.getElementById(`lyrics-active-slide-${activeIndex}`);
       if (activeEl) {
-        activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        const rect = activeEl.getBoundingClientRect();
+        const vh = window.innerHeight || document.documentElement.clientHeight;
+        
+        // Detect if active element is hidden near header (< 80px) or near bottom (> vh - 100px)
+        const isOffscreenOrNearBottom = rect.top < 80 || rect.bottom > (vh - 100);
+        
+        if (isOffscreenOrNearBottom) {
+          activeEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
       }
     }
   }, [activeIndex, isCustomView]);
@@ -269,24 +277,27 @@ function LyricsDisplay() {
     <div 
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      className="flex flex-col h-screen w-screen bg-white text-slate-900 font-sans select-none overflow-hidden pb-14 touch-pan-y"
+      className="flex flex-col h-[100dvh] w-full max-w-full bg-white text-slate-900 font-sans select-none overflow-hidden pb-16 touch-pan-y"
     >
       
-      {/* --- COMPRESSED CLEAN HEADER --- */}
-      <header className="flex-shrink-0 bg-white border-b border-slate-200 px-3 py-2 flex items-center justify-between shadow-sm z-30">
-        <div className="flex items-center gap-2 min-w-0">
+      {/* --- SLIM COMPACT RESPONSIVE HEADER FOR ALL PHONE / TABLET / IPAD DEVICES --- */}
+      <header 
+        style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}
+        className="flex-shrink-0 bg-white border-b border-slate-200 px-3 sm:px-5 py-2 sm:py-2.5 flex items-center justify-between shadow-sm z-30 gap-3 w-full"
+      >
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
           <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 flex-shrink-0">
-            <Music className="h-4 w-4" />
+            <Music className="h-4 w-4 sm:h-5 sm:w-5" />
           </div>
-          <div className="min-w-0">
-            {/* SONG TITLE IN TOP HEADER */}
-            <h1 className="text-xs sm:text-sm md:text-base font-black text-slate-900 truncate tracking-tight uppercase">
+          <div className="min-w-0 flex-1">
+            {/* SONG TITLE IN TOP HEADER (COMPACT & CLEAN) */}
+            <h1 className="text-xs sm:text-sm md:text-base font-extrabold text-slate-900 truncate tracking-tight uppercase leading-snug">
               {currentSongTitle}
             </h1>
-            <p className="text-[9px] text-slate-500 font-mono font-semibold flex items-center gap-1">
-              <span className={`h-1.5 w-1.5 rounded-full inline-block ${socketStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+            <p className="text-[9px] sm:text-[10px] text-slate-500 font-mono font-semibold flex items-center gap-1.5">
+              <span className={`h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full inline-block ${socketStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
               {isCustomView ? (
-                <span className="text-amber-600 font-bold">Independent Leader View</span>
+                <span className="text-amber-600 font-extrabold uppercase">Independent Leader View</span>
               ) : (
                 socketStatus === 'connected' ? 'Prompter Live Sync' : 'Connecting...'
               )}
@@ -294,48 +305,46 @@ function LyricsDisplay() {
           </div>
         </div>
 
-        {/* Sync Live Button & Fullscreen Toggle */}
-        <div className="flex items-center gap-1.5 flex-shrink-0">
+        {/* Sync Live Button & Fullscreen Toggle (Icon Only) */}
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
           {isCustomView && (
             <button
               onClick={handleReturnToLive}
-              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-mono font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 shadow-sm transition active:scale-95 animate-pulse"
+              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-mono font-extrabold text-[10px] sm:text-xs uppercase tracking-wider flex items-center gap-1 shadow-sm transition active:scale-95 animate-pulse"
             >
-              <RotateCcw className="h-3 w-3" />
+              <RotateCcw className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
               <span>Sync Live</span>
             </button>
           )}
           <button
             onClick={handleToggleFullscreen}
-            className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition"
+            className="p-1.5 text-slate-500 hover:text-slate-900 transition active:scale-95 bg-transparent border-0 flex-shrink-0"
             title="Toggle Fullscreen"
           >
-            <Maximize2 className="h-3.5 w-3.5" />
+            <Maximize2 className="h-4 w-4 sm:h-5 sm:w-5" />
           </button>
         </div>
       </header>
 
-      {/* --- MAIN 2-COLUMN MASONRY GROUPED LYRICS CONTENT (NATURAL TOP-TO-BOTTOM COLUMN FLOW, NO GAPS) --- */}
-      <main className="flex-1 overflow-y-auto p-3 pb-16 scrollbar-thin bg-white">
+      {/* --- MAIN 2-COLUMN MASONRY GROUPED LYRICS CONTENT (COMPACT SPACING SO FULL SONG FITS ON TABLET WITHOUT SCROLLING) --- */}
+      <main className="flex-1 overflow-y-auto p-2.5 sm:p-4 pb-16 scrollbar-thin bg-white">
         {groupedSections.length > 0 ? (
-          <div className="columns-1 md:columns-2 gap-4 space-y-4">
+          <div className="columns-1 md:columns-2 gap-3 sm:gap-4 space-y-2.5 sm:space-y-3">
             {groupedSections.map((group, groupIdx) => {
-              const isGroupActive = group.slideIndices.includes(activeIndex);
-
               return (
                 <div
                   key={groupIdx}
-                  className="break-inside-avoid flex flex-col p-1.5 bg-transparent border-0 mb-3"
+                  className="break-inside-avoid flex flex-col p-1 bg-transparent border-0 mb-2 sm:mb-2.5"
                 >
                   {/* Section Label Header */}
-                  <div className="flex items-center justify-between pb-1 mb-1 border-b border-slate-100">
+                  <div className="flex items-center justify-between pb-0.5 mb-0.5 border-b border-slate-100">
                     <span className={`px-2 py-0.5 rounded border text-[9px] font-mono font-extrabold uppercase tracking-wider ${getLabelBadgeStyle(group.label)}`}>
                       {group.label}
                     </span>
                   </div>
 
                   {/* Section Lyrics Text */}
-                  <div className="space-y-1.5 pt-0.5">
+                  <div className="space-y-1 pt-0.5">
                     {group.texts.map((item, textIdx) => {
                       const isSlideActive = item.slideIndex === activeIndex;
 
@@ -343,13 +352,13 @@ function LyricsDisplay() {
                         <div
                           key={textIdx}
                           id={`lyrics-active-slide-${item.slideIndex}`}
-                          className={`transition-all duration-200 ${
+                          className={`scroll-mt-16 transition-all duration-200 ${
                             isSlideActive
                               ? 'p-1 rounded bg-emerald-500/10 border-l-4 border-emerald-600 pl-2'
                               : 'py-0.5 px-0.5'
                           }`}
                         >
-                          <p className="text-[11px] sm:text-xs md:text-sm font-extrabold text-slate-900 leading-snug whitespace-pre-line uppercase tracking-normal font-sans">
+                          <p className="text-[10px] sm:text-[11px] md:text-xs font-extrabold text-slate-900 leading-tight whitespace-pre-line uppercase tracking-normal font-sans">
                             {item.text}
                           </p>
                         </div>
