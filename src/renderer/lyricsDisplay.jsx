@@ -277,7 +277,7 @@ function LyricsDisplay() {
         return;
       }
 
-      // 2. Subsequent slides handling: Scroll smoothly with top & bottom clearance
+      // 2. Subsequent slides handling: Scroll smoothly to upper-center reading spot (not jammed against top)
       const activeEl = document.getElementById(`lyrics-active-slide-${activeIndex}`);
       if (activeEl && mainEl) {
         const activeTop = activeEl.offsetTop;
@@ -285,12 +285,13 @@ function LyricsDisplay() {
         const mainHeight = mainEl.clientHeight;
         const activeHeight = activeEl.offsetHeight;
 
-        const isAbove = activeTop < mainScrollTop + 40;
-        const isBelow = (activeTop + activeHeight) > (mainScrollTop + mainHeight - 70);
+        const isAbove = activeTop < mainScrollTop + 60;
+        const isBelow = (activeTop + activeHeight) > (mainScrollTop + mainHeight - 90);
 
         if (isAbove || isBelow) {
+          // Scroll to upper-center sweet spot (~80px below header, not jammed against top)
           mainEl.scrollTo({
-            top: Math.max(0, activeTop - 28),
+            top: Math.max(0, activeTop - 80),
             behavior: 'smooth'
           });
         }
@@ -442,38 +443,40 @@ function LyricsDisplay() {
         style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}
         className="flex-shrink-0 bg-white border-b border-slate-200 px-3 sm:px-5 py-2 sm:py-2.5 flex items-center justify-between shadow-sm z-30 gap-2.5 w-full"
       >
-        <div className="flex items-center gap-2 min-w-0 flex-1">
+        <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
           <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 flex-shrink-0">
             <Music className="h-4 w-4 sm:h-5 sm:w-5" />
           </div>
-          <div className="min-w-0 flex-1">
-            {/* SONG TITLE IN TOP HEADER (COMPACT & CLEAN) */}
-            <h1 className="text-xs sm:text-sm md:text-base font-extrabold text-slate-900 truncate tracking-tight uppercase leading-snug">
+          <div className="min-w-0 flex-1 overflow-hidden">
+            {/* SONG TITLE IN TOP HEADER (NO OVERLAP, TRUNCATE CLEANLY) */}
+            <h1 className="text-xs sm:text-sm md:text-base font-extrabold text-slate-900 truncate tracking-tight uppercase leading-snug whitespace-nowrap">
               {currentSongTitle}
             </h1>
-            <p className="text-[9px] sm:text-[10px] text-slate-500 font-mono font-semibold flex items-center gap-1.5">
-              <span className={`h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full inline-block ${socketStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
-              {isCustomView ? (
-                <span className="text-amber-600 font-extrabold uppercase">Independent Leader View</span>
-              ) : (
-                socketStatus === 'connected' ? 'Prompter Live Sync' : 'Connecting...'
-              )}
+            <p className="text-[9px] sm:text-[10px] text-slate-500 font-mono font-semibold flex items-center gap-1.5 whitespace-nowrap truncate">
+              <span className={`h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full inline-block flex-shrink-0 ${socketStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+              <span className="truncate">
+                {isCustomView ? (
+                  <span className="text-amber-600 font-extrabold uppercase">Leader View</span>
+                ) : (
+                  socketStatus === 'connected' ? 'Live Sync' : 'Connecting...'
+                )}
+              </span>
             </p>
           </div>
         </div>
 
         {/* Chords Toggle, Edit Chords & Key Selector Dropdown */}
-        <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+        <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0 whitespace-nowrap">
           <button
             onClick={toggleChords}
-            className={`px-2 py-1 rounded-lg text-[10px] sm:text-xs font-mono font-black flex items-center gap-1 transition active:scale-95 border ${
+            className={`px-1.5 sm:px-2 py-1 rounded-lg text-[10px] sm:text-xs font-mono font-black flex items-center gap-1 transition active:scale-95 border whitespace-nowrap ${
               showChords 
                 ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm' 
                 : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
             }`}
             title="Toggle Chords Visibility for Musicians"
           >
-            <Music className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+            <Music className="h-3 w-3 sm:h-3.5 sm:w-3.5 flex-shrink-0" />
             <span>Chords: {showChords ? 'ON' : 'OFF'}</span>
           </button>
 
@@ -483,7 +486,7 @@ function LyricsDisplay() {
               <select
                 value={selectedKey}
                 onChange={(e) => handleKeySelect(e.target.value)}
-                className="bg-amber-500/10 border border-amber-500/30 text-amber-600 font-mono font-extrabold text-[10px] sm:text-xs rounded-lg px-2 py-1 focus:outline-none cursor-pointer"
+                className="bg-amber-500/10 border border-amber-500/30 text-amber-600 font-mono font-extrabold text-[10px] sm:text-xs rounded-lg px-1.5 sm:px-2 py-1 focus:outline-none cursor-pointer whitespace-nowrap"
                 title="Select Musical Key for Real-time Transposition"
               >
                 {KEYS.map(k => (
@@ -494,7 +497,7 @@ function LyricsDisplay() {
               {/* Edit Chords Button on Mobile/Tablet */}
               <button
                 onClick={handleOpenMobileEditChords}
-                className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 active:scale-95 flex items-center gap-1 text-[10px] font-mono font-bold"
+                className="p-1 sm:p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 active:scale-95 flex items-center gap-1 text-[10px] font-mono font-bold flex-shrink-0"
                 title="Edit Chords directly from Mobile/Tablet"
               >
                 <Edit3 className="h-3.5 w-3.5 text-amber-600" />
@@ -505,16 +508,17 @@ function LyricsDisplay() {
           {isCustomView && (
             <button
               onClick={handleReturnToLive}
-              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-mono font-extrabold text-[10px] sm:text-xs uppercase tracking-wider flex items-center gap-1 shadow-sm transition active:scale-95 animate-pulse"
+              className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-mono font-extrabold text-[10px] sm:text-xs uppercase tracking-wider flex items-center gap-1 shadow-sm transition active:scale-95 animate-pulse flex-shrink-0 whitespace-nowrap"
             >
-              <RotateCcw className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
-              <span>Sync Live</span>
+              <RotateCcw className="h-3 w-3 sm:h-3.5 sm:w-3.5 flex-shrink-0" />
+              <span className="hidden sm:inline">Sync Live</span>
+              <span className="sm:hidden">Live</span>
             </button>
           )}
 
           <button
             onClick={handleToggleFullscreen}
-            className="p-1.5 text-slate-500 hover:text-slate-900 transition active:scale-95 bg-transparent border-0 flex-shrink-0"
+            className="p-1 sm:p-1.5 text-slate-500 hover:text-slate-900 transition active:scale-95 bg-transparent border-0 flex-shrink-0"
             title="Toggle Fullscreen"
           >
             <Maximize2 className="h-4 w-4 sm:h-5 sm:w-5" />
@@ -522,9 +526,39 @@ function LyricsDisplay() {
         </div>
       </header>
 
-      {/* --- UNIFIED 2-COLUMN MASONRY CONTENT (LINE-BY-LINE CHORD STACKING) --- */}
+      {/* --- MAIN CONTENT AREA: CHORDS VIEW vs MASONRY PRESENTATION LYRICS --- */}
       <main ref={mainRef} className="flex-1 overflow-y-auto p-2.5 sm:p-4 pb-32 sm:pb-36 scrollbar-thin bg-white">
-        {groupedSections.length > 0 ? (
+        {showChords && parsedChordSections.length > 0 ? (
+          /* --- CHORDS: ON (LYRICS WITH CHORDS STACKED LINE-BY-LINE) --- */
+          <div className="columns-1 md:columns-2 gap-3 sm:gap-4 space-y-2.5 sm:space-y-3">
+            {parsedChordSections.map((sec, secIdx) => (
+              <div key={secIdx} className="break-inside-avoid flex flex-col p-1 bg-transparent border-0 mb-2 sm:mb-2.5">
+                <div className="flex items-center justify-between pb-0.5 mb-1 border-b border-slate-100">
+                  <span className={`px-2 py-0.5 rounded border text-[9px] font-mono font-extrabold uppercase tracking-wider ${getLabelBadgeStyle(sec.label)}`}>
+                    {sec.label}
+                  </span>
+                </div>
+                <div className="space-y-2 pt-0.5">
+                  {sec.pairs.map((pair, pIdx) => (
+                    <div key={pIdx} className="flex flex-col mb-1.5 last:mb-0">
+                      {pair.chords && (
+                        <div className="font-mono text-amber-500 font-black text-[11px] sm:text-xs leading-tight whitespace-pre tracking-normal">
+                          {pair.chords}
+                        </div>
+                      )}
+                      {pair.lyrics && (
+                        <p className="text-[10px] sm:text-[11px] md:text-xs font-extrabold text-slate-900 leading-tight uppercase tracking-normal font-sans">
+                          {pair.lyrics}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : groupedSections.length > 0 ? (
+          /* --- CHORDS: OFF (STANDARD 2-COLUMN PRESENTATION LYRICS) --- */
           <div className="columns-1 md:columns-2 gap-3 sm:gap-4 space-y-2.5 sm:space-y-3">
             {groupedSections.map((group, groupIdx) => {
               return (
@@ -539,8 +573,8 @@ function LyricsDisplay() {
                     </span>
                   </div>
 
-                  {/* Section Lyrics Text + Embedded Chords Line-by-Line */}
-                  <div className="space-y-2 pt-0.5">
+                  {/* Section Lyrics Text */}
+                  <div className="space-y-1.5 pt-0.5">
                     {group.texts.map((item, textIdx) => {
                       const isSlideActive = item.slideIndex === activeIndex;
                       const rawLines = (item.text || '').split('\n').filter(l => l.trim().length > 0);
@@ -551,30 +585,15 @@ function LyricsDisplay() {
                           id={`lyrics-active-slide-${item.slideIndex}`}
                           className={`scroll-mt-16 transition-all duration-200 flex flex-col ${
                             isSlideActive
-                              ? 'p-1.5 rounded bg-emerald-500/10 border-l-4 border-emerald-600 pl-2'
+                              ? 'p-1 rounded bg-emerald-500/10 border-l-4 border-emerald-600 pl-2'
                               : 'py-0.5 px-0.5'
                           }`}
                         >
-                          {rawLines.map((lineStr, lineIdx) => {
-                            const cleanLine = lineStr.trim().toUpperCase();
-                            const chordForLine = showChords ? getChordForLine(group.normLabel, cleanLine, textIdx, lineIdx) : '';
-
-                            return (
-                              <div key={lineIdx} className="flex flex-col mb-1 last:mb-0">
-                                {/* Embedded Yellow/Amber Chords (when Chords: ON) */}
-                                {showChords && chordForLine && (
-                                  <div className="font-mono text-amber-500 font-black text-[11px] sm:text-xs leading-tight whitespace-pre tracking-normal">
-                                    {chordForLine}
-                                  </div>
-                                )}
-
-                                {/* Presentation Lyrics Line */}
-                                <p className="text-[10px] sm:text-[11px] md:text-xs font-extrabold text-slate-900 leading-tight uppercase tracking-normal font-sans">
-                                  {lineStr}
-                                </p>
-                              </div>
-                            );
-                          })}
+                          {rawLines.map((lineStr, lineIdx) => (
+                            <p key={lineIdx} className="text-[10px] sm:text-[11px] md:text-xs font-extrabold text-slate-900 leading-tight uppercase tracking-normal font-sans mb-1 last:mb-0">
+                              {lineStr}
+                            </p>
+                          ))}
                         </div>
                       );
                     })}
