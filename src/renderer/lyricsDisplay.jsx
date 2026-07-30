@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactDOM from 'react-dom/client';
 import { 
   Music, 
-  Layers
+  Layers,
+  RotateCcw
 } from 'lucide-react';
 import './index.css';
 
@@ -32,8 +33,9 @@ function LyricsDisplay() {
     clearLyrics: false
   });
   const [playlist, setPlaylist] = useState([]);
-  const [selectedSongTitle, setSelectedSongTitle] = useState('');
-  const [customViewSlides, setCustomViewSlides] = useState(null);
+  
+  // Independent Song View states for Mobile (allows worship leader/singer to view ahead without changing projector)
+  const [customViewSong, setCustomViewSong] = useState(null); // { id, title, slides }
 
   const socketRef = useRef(null);
 
@@ -57,11 +59,24 @@ function LyricsDisplay() {
           const message = JSON.parse(event.data);
           if (message.type === 'stage-update') {
             setStageData(message.payload);
-            setCustomViewSlides(null);
           } else if (message.type === 'slide-update') {
             setSlideData(message.payload);
           } else if (message.type === 'playlist-update') {
             setPlaylist(message.payload || []);
+          } else if (message.type === 'remote-song-detail') {
+            const song = message.payload?.song;
+            if (song && song.content_json) {
+              try {
+                const parsedSlides = JSON.parse(song.content_json);
+                setCustomViewSong({
+                  id: song.id,
+                  title: song.title,
+                  slides: parsedSlides
+                });
+              } catch (e) {
+                console.error('Failed parsing custom song JSON:', e);
+              }
+            }
           }
         } catch (err) {
           console.error('Failed parsing WS message:', err);
@@ -84,8 +99,9 @@ function LyricsDisplay() {
     };
   }, []);
 
-  const slidesToRender = customViewSlides || stageData.slides || [];
-  const activeIndex = customViewSlides ? -1 : (stageData.activeSlideIndex !== undefined ? stageData.activeSlideIndex : 0);
+  const isCustomView = !!customViewSong;
+  const slidesToRender = isCustomView ? customViewSong.slides : (stageData.slides || []);
+  const activeIndex = isCustomView ? -1 : (stageData.activeSlideIndex !== undefined ? stageData.activeSlideIndex : 0);
 
   // Group consecutive slides that share the same section label (e.g. VERSE 1, CHORUS, BRIDGE)
   const groupedSections = useMemo(() => {
@@ -118,29 +134,34 @@ function LyricsDisplay() {
     return groups;
   }, [slidesToRender]);
 
-  // Auto scroll active section/slide into view
+  // Auto scroll active section/slide into view when in live mode
   useEffect(() => {
-    if (activeIndex >= 0 && !customViewSlides) {
+    if (activeIndex >= 0 && !isCustomView) {
       const activeEl = document.getElementById(`lyrics-active-slide-${activeIndex}`);
       if (activeEl) {
         activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
     }
-  }, [activeIndex, customViewSlides]);
+  }, [activeIndex, isCustomView]);
 
-  // Select playlist song from bottom bar
+  // Select playlist song from bottom bar for INDEPENDENT viewing on mobile (Does NOT change Projector!)
   const handleSelectPlaylistSong = (item) => {
     if (!item.song_id) return;
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
       socketRef.current.send(JSON.stringify({
-        type: 'remote-command',
-        payload: { command: 'select-playlist-item', songId: item.song_id }
+        type: 'remote-get-song',
+        payload: { songId: item.song_id }
       }));
     }
-    setSelectedSongTitle(item.name);
   };
 
-  const currentSongTitle = selectedSongTitle || stageData.label || (slidesToRender.length > 0 ? (slidesToRender[0]?.label || 'Worship Song') : 'Worship Song');
+  const handleReturnToLive = () => {
+    setCustomViewSong(null);
+  };
+
+  const currentSongTitle = isCustomView 
+    ? customViewSong.title 
+    : (stageData.label || (slidesToRender.length > 0 ? (slidesToRender[0]?.label || 'Worship Song') : 'Worship Song'));
 
   return (
     <div className="flex flex-col h-screen w-screen bg-white text-slate-900 font-sans select-none overflow-hidden pb-14">
@@ -157,37 +178,53 @@ function LyricsDisplay() {
             </h1>
             <p className="text-[9px] text-slate-500 font-mono font-semibold flex items-center gap-1">
               <span className={`h-1.5 w-1.5 rounded-full inline-block ${socketStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
-              {socketStatus === 'connected' ? 'Prompter Live' : 'Connecting...'}
+              {isCustomView ? (
+                <span className="text-amber-600 font-bold">Independent View</span>
+              ) : (
+                socketStatus === 'connected' ? 'Prompter Live Sync' : 'Connecting...'
+              )}
             </p>
           </div>
         </div>
 
-        {/* Live Status Overrides */}
+        {/* Sync Live Button or Status Badges */}
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          {slideData.blackout && (
-            <span className="px-2 py-0.5 rounded bg-rose-600 text-white font-mono font-bold text-[9px] uppercase tracking-wider animate-pulse">
-              BLACKOUT
-            </span>
-          )}
-          {slideData.clearLyrics && !slideData.blackout && (
-            <span className="px-2 py-0.5 rounded bg-amber-500 text-white font-mono font-bold text-[9px] uppercase tracking-wider">
-              CLEAR
-            </span>
+          {isCustomView ? (
+            <button
+              onClick={handleReturnToLive}
+              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-mono font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 shadow-sm transition active:scale-95"
+            >
+              <RotateCcw className="h-3 w-3" />
+              <span>Sync Live</span>
+            </button>
+          ) : (
+            <>
+              {slideData.blackout && (
+                <span className="px-2 py-0.5 rounded bg-rose-600 text-white font-mono font-bold text-[9px] uppercase tracking-wider animate-pulse">
+                  BLACKOUT
+                </span>
+              )}
+              {slideData.clearLyrics && !slideData.blackout && (
+                <span className="px-2 py-0.5 rounded bg-amber-500 text-white font-mono font-bold text-[9px] uppercase tracking-wider">
+                  CLEAR
+                </span>
+              )}
+            </>
           )}
         </div>
       </header>
 
-      {/* --- COMPRESSED 2-COLUMN GROUPED LYRICS CONTENT --- */}
-      <main className="flex-1 overflow-y-auto p-2.5 pb-16 scrollbar-thin bg-white">
+      {/* --- MAIN 2-COLUMN MASONRY GROUPED LYRICS CONTENT (NATURAL TOP-TO-BOTTOM COLUMN FLOW, NO GAPS) --- */}
+      <main className="flex-1 overflow-y-auto p-3 pb-16 scrollbar-thin bg-white">
         {groupedSections.length > 0 ? (
-          <div className="grid grid-cols-2 gap-3 items-start">
+          <div className="columns-1 md:columns-2 gap-4 space-y-4">
             {groupedSections.map((group, groupIdx) => {
               const isGroupActive = group.slideIndices.includes(activeIndex);
 
               return (
                 <div
                   key={groupIdx}
-                  className="flex flex-col p-1 bg-transparent border-0"
+                  className="break-inside-avoid flex flex-col p-1.5 bg-transparent border-0 mb-3"
                 >
                   {/* Section Label Header */}
                   <div className="flex items-center justify-between pb-1 mb-1 border-b border-slate-100">
@@ -247,7 +284,7 @@ function LyricsDisplay() {
 
         {playlist.map((item) => {
           const isSection = item.type === 'section' || (!item.song_id && !item.filepath);
-          const isCurrent = stageData.label === item.name;
+          const isCurrent = isCustomView ? customViewSong.id === item.song_id : stageData.label === item.name;
 
           if (isSection) {
             return (
@@ -261,6 +298,7 @@ function LyricsDisplay() {
             <button
               key={item.id}
               onClick={() => handleSelectPlaylistSong(item)}
+              title="View lyrics independently on mobile (Does not affect projector)"
               className={`px-2.5 py-1 rounded text-[10px] font-bold font-sans uppercase tracking-wide flex-shrink-0 transition active:scale-95 flex items-center gap-1 ${
                 isCurrent
                   ? 'bg-emerald-500 text-slate-950 shadow ring-1 ring-emerald-400/30'

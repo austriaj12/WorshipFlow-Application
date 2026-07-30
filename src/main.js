@@ -979,6 +979,18 @@ function startStageServer(port = 5174) {
             console.error('Failed to search songs from remote:', err);
           }
         }
+        else if (message.type === 'remote-get-song') {
+          const songId = message.payload.songId;
+          try {
+            const song = await db.getSong(songId);
+            ws.send(JSON.stringify({
+              type: 'remote-song-detail',
+              payload: { song }
+            }));
+          } catch (err) {
+            console.error('Failed to get song detail for remote:', err);
+          }
+        }
         else if (message.type === 'remote-get-bible-books') {
           const translation = message.payload.translation || 'KJV';
           try {
