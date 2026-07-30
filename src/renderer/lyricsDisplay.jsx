@@ -1,14 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactDOM from 'react-dom/client';
 import { 
   Music, 
-  BookOpen, 
-  ChevronRight, 
-  Tv, 
-  Check, 
-  Layers, 
-  Sparkles,
-  Eye
+  Layers
 } from 'lucide-react';
 import './index.css';
 
@@ -63,7 +57,6 @@ function LyricsDisplay() {
           const message = JSON.parse(event.data);
           if (message.type === 'stage-update') {
             setStageData(message.payload);
-            // Auto reset custom song view when operator changes slides/song
             setCustomViewSlides(null);
           } else if (message.type === 'slide-update') {
             setSlideData(message.payload);
@@ -94,17 +87,48 @@ function LyricsDisplay() {
   const slidesToRender = customViewSlides || stageData.slides || [];
   const activeIndex = customViewSlides ? -1 : (stageData.activeSlideIndex !== undefined ? stageData.activeSlideIndex : 0);
 
-  // Auto scroll active slide into view
+  // Group consecutive slides that share the same section label (e.g. VERSE 1, CHORUS, BRIDGE)
+  const groupedSections = useMemo(() => {
+    if (!slidesToRender || slidesToRender.length === 0) return [];
+    
+    const groups = [];
+    let currentGroup = null;
+
+    slidesToRender.forEach((slide, index) => {
+      const rawLabel = (slide.label || 'VERSE').trim();
+      const normLabel = rawLabel.toUpperCase();
+
+      if (currentGroup && currentGroup.normLabel === normLabel) {
+        currentGroup.slideIndices.push(index);
+        if (slide.text) {
+          currentGroup.texts.push({ text: slide.text, slideIndex: index });
+        }
+      } else {
+        if (currentGroup) groups.push(currentGroup);
+        currentGroup = {
+          label: rawLabel,
+          normLabel: normLabel,
+          slideIndices: [index],
+          texts: slide.text ? [{ text: slide.text, slideIndex: index }] : []
+        };
+      }
+    });
+
+    if (currentGroup) groups.push(currentGroup);
+    return groups;
+  }, [slidesToRender]);
+
+  // Auto scroll active section/slide into view
   useEffect(() => {
     if (activeIndex >= 0 && !customViewSlides) {
-      const activeCard = document.getElementById(`lyrics-slide-card-${activeIndex}`);
-      if (activeCard) {
-        activeCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      const activeEl = document.getElementById(`lyrics-active-slide-${activeIndex}`);
+      if (activeEl) {
+        activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
     }
   }, [activeIndex, customViewSlides]);
 
-  // Request/Select playlist song from bottom bar
+  // Select playlist song from bottom bar
   const handleSelectPlaylistSong = (item) => {
     if (!item.song_id) return;
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
@@ -116,11 +140,10 @@ function LyricsDisplay() {
     setSelectedSongTitle(item.name);
   };
 
-  // Resolve current active song title
   const currentSongTitle = selectedSongTitle || stageData.label || (slidesToRender.length > 0 ? (slidesToRender[0]?.label || 'Worship Song') : 'Worship Song');
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-slate-50 text-slate-900 font-sans select-none overflow-hidden pb-16">
+    <div className="flex flex-col h-screen w-screen bg-white text-slate-900 font-sans select-none overflow-hidden pb-16">
       
       {/* --- CLEAN WHITE HEADER --- */}
       <header className="flex-shrink-0 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between shadow-sm z-30">
@@ -129,7 +152,7 @@ function LyricsDisplay() {
             <Music className="h-5 w-5" />
           </div>
           <div className="min-w-0">
-            <h1 className="text-base font-extrabold text-slate-900 truncate tracking-tight">
+            <h1 className="text-base font-extrabold text-slate-900 truncate tracking-tight uppercase">
               {currentSongTitle}
             </h1>
             <p className="text-[10px] text-slate-500 font-mono font-semibold flex items-center gap-1.5">
@@ -139,7 +162,7 @@ function LyricsDisplay() {
           </div>
         </div>
 
-        {/* Live Status Badges */}
+        {/* Live Status Overrides */}
         <div className="flex items-center gap-2 flex-shrink-0">
           {slideData.blackout && (
             <span className="px-2.5 py-1 rounded-lg bg-rose-600 text-white font-mono font-bold text-[10px] uppercase tracking-wider animate-pulse">
@@ -154,45 +177,55 @@ function LyricsDisplay() {
         </div>
       </header>
 
-      {/* --- MAIN 2-COLUMN LYRICS CONTENT --- */}
-      <main className="flex-1 overflow-y-auto p-4 pb-20 scrollbar-thin">
-        {slidesToRender.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-            {slidesToRender.map((slide, index) => {
-              const isActive = index === activeIndex;
+      {/* --- MAIN 2-COLUMN GROUPED LYRICS CONTENT --- */}
+      <main className="flex-1 overflow-y-auto p-4 pb-20 scrollbar-thin bg-white">
+        {groupedSections.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+            {groupedSections.map((group, groupIdx) => {
+              const isGroupActive = group.slideIndices.includes(activeIndex);
 
               return (
                 <div
-                  key={index}
-                  id={`lyrics-slide-card-${index}`}
-                  className={`p-4 rounded-2xl border transition-all duration-300 flex flex-col gap-2 relative bg-white ${
-                    isActive
-                      ? 'border-2 border-emerald-500 bg-emerald-50/70 shadow-lg ring-4 ring-emerald-500/20 translate-y-[-1px]'
-                      : 'border-slate-200 hover:border-slate-300 shadow-sm'
+                  key={groupIdx}
+                  className={`flex flex-col transition-all duration-300 ${
+                    isGroupActive
+                      ? 'p-4 rounded-2xl bg-emerald-50/70 border-2 border-emerald-500 shadow-md ring-4 ring-emerald-500/20'
+                      : 'p-2 rounded-xl bg-transparent border-0'
                   }`}
                 >
-                  {/* Badge & Slide Number */}
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                    <span className={`px-2.5 py-0.5 rounded-md border text-[10px] font-mono font-extrabold uppercase tracking-wider ${getLabelBadgeStyle(slide.label)}`}>
-                      {slide.label || `SLIDE ${index + 1}`}
+                  {/* Section Label Header */}
+                  <div className="flex items-center justify-between pb-2 mb-1">
+                    <span className={`px-2.5 py-0.5 rounded-md border text-[10px] font-mono font-extrabold uppercase tracking-wider ${getLabelBadgeStyle(group.label)}`}>
+                      {group.label}
                     </span>
-                    <div className="flex items-center gap-1.5">
-                      {isActive && (
-                        <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-600 font-mono flex items-center gap-1 animate-pulse">
-                          ● CURRENT
-                        </span>
-                      )}
-                      <span className="text-[10px] font-mono font-bold text-slate-400">
-                        #{index + 1}
+                    {isGroupActive && (
+                      <span className="text-[10px] font-mono font-extrabold text-emerald-600 uppercase tracking-wider flex items-center gap-1 animate-pulse">
+                        ● LIVE ON PROJECTOR
                       </span>
-                    </div>
+                    )}
                   </div>
 
-                  {/* Formatted Lyrics Text */}
-                  <div className="py-1">
-                    <p className="text-sm md:text-base font-extrabold text-slate-900 leading-relaxed whitespace-pre-line uppercase tracking-wide font-sans">
-                      {slide.text || '[ Instrumental / Blank ]'}
-                    </p>
+                  {/* Section Lyrics Text (Multiple slides grouped together under this section) */}
+                  <div className="space-y-3">
+                    {group.texts.map((item, textIdx) => {
+                      const isSlideActive = item.slideIndex === activeIndex;
+
+                      return (
+                        <div
+                          key={textIdx}
+                          id={`lyrics-active-slide-${item.slideIndex}`}
+                          className={`transition-all duration-200 ${
+                            isSlideActive
+                              ? 'p-2 rounded-xl bg-emerald-500/15 border-l-4 border-emerald-600 pl-3'
+                              : 'p-1'
+                          }`}
+                        >
+                          <p className="text-sm md:text-base font-extrabold text-slate-900 leading-relaxed whitespace-pre-line uppercase tracking-wide font-sans">
+                            {item.text}
+                          </p>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               );
