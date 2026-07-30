@@ -3,7 +3,8 @@ import ReactDOM from 'react-dom/client';
 import { 
   Music, 
   Layers,
-  RotateCcw
+  RotateCcw,
+  Maximize2
 } from 'lucide-react';
 import './index.css';
 
@@ -196,9 +197,35 @@ function LyricsDisplay() {
     }
   };
 
-  const currentSongTitle = isCustomView 
-    ? customViewSong.title 
-    : (stageData.label || (slidesToRender.length > 0 ? (slidesToRender[0]?.label || 'Worship Song') : 'Worship Song'));
+  // Toggle Fullscreen View
+  const handleToggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      }
+    }
+  };
+
+  // Resolve Song Title for Header (ALWAYS displays the real Song Title, NOT section badges)
+  const currentSongTitle = useMemo(() => {
+    if (isCustomView && customViewSong) return customViewSong.title;
+    
+    if (playlist && playlist.length > 0) {
+      const activeItem = playlist.find(item => item.song_id && item.name === stageData.label);
+      if (activeItem) return activeItem.name;
+    }
+    
+    if (stageData.label && !/^(VERSE|CHORUS|BRIDGE|PRE-CHORUS|POST-CHORUS|INTRO|OUTRO|SLIDE)/i.test(stageData.label)) {
+      return stageData.label;
+    }
+    
+    const firstSong = playlist.find(item => item.song_id);
+    if (firstSong) return firstSong.name;
+    
+    return stageData.label || 'WORSHIPFLOW SONG';
+  }, [isCustomView, customViewSong, stageData.label, playlist]);
 
   return (
     <div 
@@ -214,13 +241,14 @@ function LyricsDisplay() {
             <Music className="h-4 w-4" />
           </div>
           <div className="min-w-0">
-            <h1 className="text-xs md:text-sm font-extrabold text-slate-900 truncate tracking-tight uppercase">
+            {/* SONG TITLE IN TOP HEADER */}
+            <h1 className="text-xs sm:text-sm md:text-base font-black text-slate-900 truncate tracking-tight uppercase">
               {currentSongTitle}
             </h1>
             <p className="text-[9px] text-slate-500 font-mono font-semibold flex items-center gap-1">
               <span className={`h-1.5 w-1.5 rounded-full inline-block ${socketStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
               {isCustomView ? (
-                <span className="text-amber-600 font-bold">Independent View</span>
+                <span className="text-amber-600 font-bold">Independent Leader View</span>
               ) : (
                 socketStatus === 'connected' ? 'Prompter Live Sync' : 'Connecting...'
               )}
@@ -228,9 +256,9 @@ function LyricsDisplay() {
           </div>
         </div>
 
-        {/* Sync Live Button or Status Badges */}
+        {/* Sync Live Button & Fullscreen Toggle */}
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          {isCustomView ? (
+          {isCustomView && (
             <button
               onClick={handleReturnToLive}
               className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-mono font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 shadow-sm transition active:scale-95"
@@ -238,20 +266,14 @@ function LyricsDisplay() {
               <RotateCcw className="h-3 w-3" />
               <span>Sync Live</span>
             </button>
-          ) : (
-            <>
-              {slideData.blackout && (
-                <span className="px-2 py-0.5 rounded bg-rose-600 text-white font-mono font-bold text-[9px] uppercase tracking-wider animate-pulse">
-                  BLACKOUT
-                </span>
-              )}
-              {slideData.clearLyrics && !slideData.blackout && (
-                <span className="px-2 py-0.5 rounded bg-amber-500 text-white font-mono font-bold text-[9px] uppercase tracking-wider">
-                  CLEAR
-                </span>
-              )}
-            </>
           )}
+          <button
+            onClick={handleToggleFullscreen}
+            className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition"
+            title="Toggle Fullscreen"
+          >
+            <Maximize2 className="h-3.5 w-3.5" />
+          </button>
         </div>
       </header>
 
@@ -267,7 +289,7 @@ function LyricsDisplay() {
                   key={groupIdx}
                   className="break-inside-avoid flex flex-col p-1.5 bg-transparent border-0 mb-3"
                 >
-                  {/* Section Label Header (Clean label without ● LIVE badge) */}
+                  {/* Section Label Header */}
                   <div className="flex items-center justify-between pb-1 mb-1 border-b border-slate-100">
                     <span className={`px-2 py-0.5 rounded border text-[9px] font-mono font-extrabold uppercase tracking-wider ${getLabelBadgeStyle(group.label)}`}>
                       {group.label}
@@ -320,7 +342,7 @@ function LyricsDisplay() {
 
         {playlist.map((item) => {
           const isSection = item.type === 'section' || (!item.song_id && !item.filepath);
-          const isCurrent = isCustomView ? customViewSong.title === item.name : stageData.label === item.name;
+          const isCurrent = isCustomView ? customViewSong.title === item.name : currentSongTitle === item.name;
 
           if (isSection) {
             return (
