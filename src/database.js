@@ -746,6 +746,7 @@ module.exports = {
   getAllSongs,
   searchSongs,
   getSongWithContent,
+  getSong: getSongWithContent,
   getSongsByIds,
   saveSong,
   deleteSong,

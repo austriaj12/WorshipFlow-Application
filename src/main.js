@@ -982,7 +982,7 @@ function startStageServer(port = 5174) {
         else if (message.type === 'remote-get-song') {
           const songId = message.payload.songId;
           try {
-            const song = await db.getSong(songId);
+            const song = await db.getSongWithContent(songId);
             ws.send(JSON.stringify({
               type: 'remote-song-detail',
               payload: { song }
