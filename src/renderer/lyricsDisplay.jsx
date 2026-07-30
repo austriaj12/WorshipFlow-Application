@@ -11,9 +11,10 @@ import './index.css';
 const getLabelBadgeStyle = (label = '') => {
   const norm = (label || '').toUpperCase();
   if (norm.includes('VERSE')) return 'bg-sky-100 text-sky-800 border-sky-300';
+  if (norm.includes('PRE')) return 'bg-purple-100 text-purple-800 border-purple-300';
+  if (norm.includes('POST')) return 'bg-teal-100 text-teal-800 border-teal-300';
   if (norm.includes('CHORUS')) return 'bg-emerald-100 text-emerald-800 border-emerald-300';
   if (norm.includes('BRIDGE')) return 'bg-amber-100 text-amber-800 border-amber-300';
-  if (norm.includes('PRE')) return 'bg-purple-100 text-purple-800 border-purple-300';
   if (norm.includes('INTRO') || norm.includes('OUTRO')) return 'bg-slate-200 text-slate-700 border-slate-300';
   return 'bg-emerald-100 text-emerald-800 border-emerald-300';
 };
@@ -38,6 +39,7 @@ function LyricsDisplay() {
   const [customViewSong, setCustomViewSong] = useState(null); // { id, title, slides }
 
   const socketRef = useRef(null);
+  const touchStartRef = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -103,7 +105,7 @@ function LyricsDisplay() {
   const slidesToRender = isCustomView ? customViewSong.slides : (stageData.slides || []);
   const activeIndex = isCustomView ? -1 : (stageData.activeSlideIndex !== undefined ? stageData.activeSlideIndex : 0);
 
-  // Group consecutive slides that share the same section label (e.g. VERSE 1, CHORUS, BRIDGE)
+  // Group consecutive slides that share the same section label (e.g. VERSE 1, CHORUS, POST-CHORUS, BRIDGE)
   const groupedSections = useMemo(() => {
     if (!slidesToRender || slidesToRender.length === 0) return [];
     
@@ -159,12 +161,51 @@ function LyricsDisplay() {
     setCustomViewSong(null);
   };
 
+  // Touch Swipe Gesture handler for fast Next/Previous song navigation
+  const handleTouchStart = (e) => {
+    if (e.touches && e.touches[0]) {
+      touchStartRef.current = {
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY
+      };
+    }
+  };
+
+  const handleTouchEnd = (e) => {
+    if (!e.changedTouches || !e.changedTouches[0]) return;
+    const deltaX = e.changedTouches[0].clientX - touchStartRef.current.x;
+    const deltaY = e.changedTouches[0].clientY - touchStartRef.current.y;
+
+    // Minimum horizontal swipe distance of 50px
+    if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5) {
+      const playableItems = playlist.filter(item => item.song_id);
+      if (playableItems.length === 0) return;
+
+      const activeTitle = isCustomView ? customViewSong.title : stageData.label;
+      const curIdx = playableItems.findIndex(item => item.name === activeTitle);
+
+      if (deltaX < 0) {
+        // Swipe Left -> Next Song in lineup
+        const nextIdx = curIdx >= 0 ? (curIdx + 1) % playableItems.length : 0;
+        handleSelectPlaylistSong(playableItems[nextIdx]);
+      } else {
+        // Swipe Right -> Previous Song in lineup
+        const prevIdx = curIdx > 0 ? curIdx - 1 : playableItems.length - 1;
+        handleSelectPlaylistSong(playableItems[prevIdx]);
+      }
+    }
+  };
+
   const currentSongTitle = isCustomView 
     ? customViewSong.title 
     : (stageData.label || (slidesToRender.length > 0 ? (slidesToRender[0]?.label || 'Worship Song') : 'Worship Song'));
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-white text-slate-900 font-sans select-none overflow-hidden pb-14">
+    <div 
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      className="flex flex-col h-screen w-screen bg-white text-slate-900 font-sans select-none overflow-hidden pb-14 touch-pan-y"
+    >
       
       {/* --- COMPRESSED CLEAN HEADER --- */}
       <header className="flex-shrink-0 bg-white border-b border-slate-200 px-3 py-2 flex items-center justify-between shadow-sm z-30">
@@ -226,16 +267,11 @@ function LyricsDisplay() {
                   key={groupIdx}
                   className="break-inside-avoid flex flex-col p-1.5 bg-transparent border-0 mb-3"
                 >
-                  {/* Section Label Header */}
+                  {/* Section Label Header (Clean label without ● LIVE badge) */}
                   <div className="flex items-center justify-between pb-1 mb-1 border-b border-slate-100">
                     <span className={`px-2 py-0.5 rounded border text-[9px] font-mono font-extrabold uppercase tracking-wider ${getLabelBadgeStyle(group.label)}`}>
                       {group.label}
                     </span>
-                    {isGroupActive && (
-                      <span className="text-[9px] font-mono font-extrabold text-emerald-600 uppercase tracking-wider flex items-center gap-1 animate-pulse">
-                        ● LIVE
-                      </span>
-                    )}
                   </div>
 
                   {/* Section Lyrics Text */}
@@ -284,7 +320,7 @@ function LyricsDisplay() {
 
         {playlist.map((item) => {
           const isSection = item.type === 'section' || (!item.song_id && !item.filepath);
-          const isCurrent = isCustomView ? customViewSong.id === item.song_id : stageData.label === item.name;
+          const isCurrent = isCustomView ? customViewSong.title === item.name : stageData.label === item.name;
 
           if (isSection) {
             return (
