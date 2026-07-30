@@ -149,11 +149,11 @@ function LyricsDisplay() {
 
   // Select playlist song from bottom bar for INDEPENDENT viewing on mobile (Does NOT change Projector!)
   const handleSelectPlaylistSong = (item) => {
-    if (!item.song_id) return;
+    if (!item) return;
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
       socketRef.current.send(JSON.stringify({
         type: 'remote-get-song',
-        payload: { songId: item.song_id }
+        payload: { songId: item.song_id, songTitle: item.name }
       }));
     }
   };
@@ -179,10 +179,10 @@ function LyricsDisplay() {
 
     // Minimum horizontal swipe distance of 50px
     if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5) {
-      const playableItems = playlist.filter(item => item.song_id);
+      const playableItems = playlist.filter(item => item.song_id || item.type === 'song' || item.name);
       if (playableItems.length === 0) return;
 
-      const activeTitle = isCustomView ? customViewSong.title : stageData.label;
+      const activeTitle = isCustomView ? customViewSong.title : (stageData.songTitle || stageData.label);
       const curIdx = playableItems.findIndex(item => item.name === activeTitle);
 
       if (deltaX < 0) {
@@ -211,9 +211,10 @@ function LyricsDisplay() {
   // Resolve Song Title for Header (ALWAYS displays the real Song Title, NOT section badges)
   const currentSongTitle = useMemo(() => {
     if (isCustomView && customViewSong) return customViewSong.title;
+    if (stageData.songTitle) return stageData.songTitle;
     
     if (playlist && playlist.length > 0) {
-      const activeItem = playlist.find(item => item.song_id && item.name === stageData.label);
+      const activeItem = playlist.find(item => item.name === stageData.label);
       if (activeItem) return activeItem.name;
     }
     
@@ -221,11 +222,11 @@ function LyricsDisplay() {
       return stageData.label;
     }
     
-    const firstSong = playlist.find(item => item.song_id);
+    const firstSong = playlist.find(item => item.song_id || item.name);
     if (firstSong) return firstSong.name;
     
     return stageData.label || 'WORSHIPFLOW SONG';
-  }, [isCustomView, customViewSong, stageData.label, playlist]);
+  }, [isCustomView, customViewSong, stageData.songTitle, stageData.label, playlist]);
 
   return (
     <div 

@@ -980,9 +980,18 @@ function startStageServer(port = 5174) {
           }
         }
         else if (message.type === 'remote-get-song') {
-          const songId = message.payload.songId;
+          const { songId, songTitle } = message.payload || {};
           try {
-            const song = await db.getSongWithContent(songId);
+            let song = null;
+            if (songId) {
+              song = await db.getSongWithContent(songId);
+            }
+            if (!song && songTitle) {
+              const results = await db.searchSongs(songTitle);
+              if (results && results.length > 0) {
+                song = await db.getSongWithContent(results[0].id);
+              }
+            }
             ws.send(JSON.stringify({
               type: 'remote-song-detail',
               payload: { song }

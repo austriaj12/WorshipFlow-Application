@@ -1471,6 +1471,7 @@ function OperatorDashboard() {
       if (window.api.sendStageUpdate) {
         try {
           const payload = {
+            songTitle: (liveSong && liveSong.title) ? liveSong.title : (selectedSong ? selectedSong.title : ''),
             text: activeSlideText,
             label: activeSlideLabel || `Slide ${activeSlideIndex + 1}`,
             bgAsset: activeBgAsset,
