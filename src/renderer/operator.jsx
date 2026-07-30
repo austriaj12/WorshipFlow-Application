@@ -201,6 +201,9 @@ function OperatorDashboard() {
   const [isRemoteSyncOpen, setIsRemoteSyncOpen] = useState(false);
   const [remoteUrl, setRemoteUrl] = useState('');
   const [remoteQrData, setRemoteQrData] = useState('');
+  const [lyricsUrl, setLyricsUrl] = useState('');
+  const [lyricsQrData, setLyricsQrData] = useState('');
+  const [remoteSyncTab, setRemoteSyncTab] = useState('remote'); // 'remote' | 'lyrics'
 
   // Local Search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -789,7 +792,7 @@ function OperatorDashboard() {
           targetBg,
           activeSlide.style
         );
-      }
+}
     } catch (err) {
       console.error('Failed to apply background mutation:', err);
     }
@@ -801,6 +804,9 @@ function OperatorDashboard() {
         const res = await window.stageServer.getRemoteUrl();
         setRemoteUrl(res.url);
         
+        const lyricsLink = res.url.replace('/remote.html', '/lyrics.html');
+        setLyricsUrl(lyricsLink);
+
         const qrData = await QRCode.toDataURL(res.url, {
           width: 256,
           margin: 1,
@@ -810,6 +816,17 @@ function OperatorDashboard() {
           }
         });
         setRemoteQrData(qrData);
+
+        const lQrData = await QRCode.toDataURL(lyricsLink, {
+          width: 256,
+          margin: 1,
+          color: {
+            dark: '#0f172a',
+            light: '#ffffff'
+          }
+        });
+        setLyricsQrData(lQrData);
+
         setIsRemoteSyncOpen(true);
       } catch (err) {
         console.error('Failed to generate remote sync QR:', err);
@@ -5954,48 +5971,100 @@ function OperatorDashboard() {
       {/* --- REMOTE SYNC MODAL --- */}
       {isRemoteSyncOpen && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="bg-appPanel border border-[var(--border-app)] w-full max-w-sm rounded-xl shadow-2xl flex flex-col p-6 space-y-4">
+          <div className="bg-appPanel border border-[var(--border-app)] w-full max-w-sm rounded-xl shadow-2xl flex flex-col p-5 space-y-3">
             <div className="flex justify-between items-center pb-2 border-b border-[var(--border-app)]">
               <h3 className="font-bold text-sm text-textMain flex items-center gap-2">
                 <Smartphone className="h-4.5 w-4.5 text-brand" />
-                Mobile Remote Control
+                Wireless Sync & Prompter
               </h3>
               <button onClick={() => setIsRemoteSyncOpen(false)} className="text-textMuted hover:text-textMain transition">
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <div className="flex flex-col items-center justify-center text-center p-4 bg-appBg/50 rounded-xl border border-[var(--border-app)] space-y-4">
-              <p className="text-[11px] text-textMuted leading-relaxed">
-                Scan this QR code with your phone or tablet on the <strong>same Wi-Fi network</strong> to control slides, search Bibles, and trigger blackout overrides.
-              </p>
-
-              {remoteQrData ? (
-                <div className="p-3 bg-white rounded-lg shadow-inner">
-                  <img src={remoteQrData} alt="Remote Sync QR Code" className="h-44 w-44 object-contain" />
-                </div>
-              ) : (
-                <div className="h-44 w-44 rounded-lg bg-slate-800 animate-pulse flex items-center justify-center text-[10px] text-textMuted">Generating...</div>
-              )}
-
-              <div className="w-full space-y-1.5">
-                <span className="text-[9px] uppercase font-mono tracking-wider text-textMuted font-bold block">Local Network URL</span>
-                <input 
-                  type="text" 
-                  readOnly 
-                  value={remoteUrl} 
-                  onClick={(e) => { e.target.select(); }}
-                  className="w-full p-2 text-center bg-appBg border border-[var(--border-app)] rounded-lg text-xs font-mono text-brand font-bold focus:outline-none cursor-pointer"
-                  title="Click to select all"
-                />
-              </div>
+            {/* Tab selector */}
+            <div className="flex bg-appBg p-1 rounded-lg border border-[var(--border-app)]">
+              <button
+                onClick={() => setRemoteSyncTab('remote')}
+                className={`flex-1 py-1.5 text-[11px] font-bold font-mono rounded-md transition ${
+                  remoteSyncTab === 'remote'
+                    ? 'bg-brand text-white shadow-sm'
+                    : 'text-textMuted hover:text-textMain'
+                }`}
+              >
+                Mobile Remote
+              </button>
+              <button
+                onClick={() => setRemoteSyncTab('lyrics')}
+                className={`flex-1 py-1.5 text-[11px] font-bold font-mono rounded-md transition ${
+                  remoteSyncTab === 'lyrics'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-textMuted hover:text-textMain'
+                }`}
+              >
+                2-Col Lyrics View
+              </button>
             </div>
+
+            {remoteSyncTab === 'remote' ? (
+              <div className="flex flex-col items-center justify-center text-center p-3 bg-appBg/50 rounded-xl border border-[var(--border-app)] space-y-3">
+                <p className="text-[11px] text-textMuted leading-relaxed">
+                  Scan this QR code with your phone/tablet on <strong>Wi-Fi</strong> to control slides, search Bibles, & trigger overrides.
+                </p>
+
+                {remoteQrData ? (
+                  <div className="p-3 bg-white rounded-lg shadow-inner">
+                    <img src={remoteQrData} alt="Remote Sync QR Code" className="h-40 w-40 object-contain" />
+                  </div>
+                ) : (
+                  <div className="h-40 w-40 rounded-lg bg-slate-800 animate-pulse flex items-center justify-center text-[10px] text-textMuted">Generating...</div>
+                )}
+
+                <div className="w-full space-y-1">
+                  <span className="text-[9px] uppercase font-mono tracking-wider text-textMuted font-bold block">Remote URL</span>
+                  <input 
+                    type="text" 
+                    readOnly 
+                    value={remoteUrl} 
+                    onClick={(e) => { e.target.select(); }}
+                    className="w-full p-2 text-center bg-appBg border border-[var(--border-app)] rounded-lg text-xs font-mono text-brand font-bold focus:outline-none cursor-pointer"
+                    title="Click to select all"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center text-center p-3 bg-appBg/50 rounded-xl border border-[var(--border-app)] space-y-3">
+                <p className="text-[11px] text-textMuted leading-relaxed">
+                  Scan for <strong>Lyrics Prompter View (2-Column)</strong>. Clean white layout for singers with active slide box outlines.
+                </p>
+
+                {lyricsQrData ? (
+                  <div className="p-3 bg-white rounded-lg shadow-inner">
+                    <img src={lyricsQrData} alt="Lyrics Prompter QR Code" className="h-40 w-40 object-contain" />
+                  </div>
+                ) : (
+                  <div className="h-40 w-40 rounded-lg bg-slate-800 animate-pulse flex items-center justify-center text-[10px] text-textMuted">Generating...</div>
+                )}
+
+                <div className="w-full space-y-1">
+                  <span className="text-[9px] uppercase font-mono tracking-wider text-textMuted font-bold block">2-Column Lyrics Prompter URL</span>
+                  <input 
+                    type="text" 
+                    readOnly 
+                    value={lyricsUrl} 
+                    onClick={(e) => { e.target.select(); }}
+                    className="w-full p-2 text-center bg-appBg border border-[var(--border-app)] rounded-lg text-xs font-mono text-emerald-400 font-bold focus:outline-none cursor-pointer"
+                    title="Click to select all"
+                  />
+                </div>
+              </div>
+            )}
 
             <button 
               onClick={() => setIsRemoteSyncOpen(false)}
-              className="w-full py-2.5 bg-brand hover:bg-brand/90 text-white font-bold rounded-lg text-xs transition active:scale-95 flex items-center justify-center gap-1.5"
+              className="w-full py-2 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-lg text-xs transition active:scale-95 flex items-center justify-center gap-1.5"
             >
-              Close Remote Sync
+              Close Window
             </button>
           </div>
         </div>

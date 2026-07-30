@@ -15,6 +15,7 @@ export default defineConfig({
         projector: resolve(__dirname, 'src/projector.html'),
         stage: resolve(__dirname, 'src/stage.html'),
         remote: resolve(__dirname, 'src/remote.html'),
+        lyrics: resolve(__dirname, 'src/lyrics.html'),
       },
     },
   },
