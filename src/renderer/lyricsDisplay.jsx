@@ -177,7 +177,7 @@ function LyricsDisplay() {
         </div>
       </header>
 
-      {/* --- MAIN 2-COLUMN GROUPED LYRICS CONTENT --- */}
+      {/* --- MAIN 2-COLUMN GROUPED LYRICS CONTENT (NO BOX CONTAINERS ON SECTIONS) --- */}
       <main className="flex-1 overflow-y-auto p-4 pb-20 scrollbar-thin bg-white">
         {groupedSections.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
@@ -187,26 +187,22 @@ function LyricsDisplay() {
               return (
                 <div
                   key={groupIdx}
-                  className={`flex flex-col transition-all duration-300 ${
-                    isGroupActive
-                      ? 'p-4 rounded-2xl bg-emerald-50/70 border-2 border-emerald-500 shadow-md ring-4 ring-emerald-500/20'
-                      : 'p-2 rounded-xl bg-transparent border-0'
-                  }`}
+                  className="flex flex-col p-2 bg-transparent border-0"
                 >
                   {/* Section Label Header */}
-                  <div className="flex items-center justify-between pb-2 mb-1">
+                  <div className="flex items-center justify-between pb-2 mb-1 border-b border-slate-100">
                     <span className={`px-2.5 py-0.5 rounded-md border text-[10px] font-mono font-extrabold uppercase tracking-wider ${getLabelBadgeStyle(group.label)}`}>
                       {group.label}
                     </span>
                     {isGroupActive && (
                       <span className="text-[10px] font-mono font-extrabold text-emerald-600 uppercase tracking-wider flex items-center gap-1 animate-pulse">
-                        ● LIVE ON PROJECTOR
+                        ● LIVE
                       </span>
                     )}
                   </div>
 
-                  {/* Section Lyrics Text (Multiple slides grouped together under this section) */}
-                  <div className="space-y-3">
+                  {/* Section Lyrics Text */}
+                  <div className="space-y-3 pt-1">
                     {group.texts.map((item, textIdx) => {
                       const isSlideActive = item.slideIndex === activeIndex;
 
@@ -216,7 +212,7 @@ function LyricsDisplay() {
                           id={`lyrics-active-slide-${item.slideIndex}`}
                           className={`transition-all duration-200 ${
                             isSlideActive
-                              ? 'p-2 rounded-xl bg-emerald-500/15 border-l-4 border-emerald-600 pl-3'
+                              ? 'p-2 rounded-xl bg-emerald-500/10 border-l-4 border-emerald-600 pl-3'
                               : 'p-1'
                           }`}
                         >
