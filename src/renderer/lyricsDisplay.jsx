@@ -15,8 +15,10 @@ const getLabelBadgeStyle = (label = '') => {
   if (norm.includes('PRE')) return 'bg-purple-100 text-purple-800 border-purple-300';
   if (norm.includes('POST')) return 'bg-teal-100 text-teal-800 border-teal-300';
   if (norm.includes('CHORUS')) return 'bg-emerald-100 text-emerald-800 border-emerald-300';
+  if (norm.includes('REFRAIN')) return 'bg-rose-100 text-rose-800 border-rose-300';
   if (norm.includes('BRIDGE')) return 'bg-amber-100 text-amber-800 border-amber-300';
-  if (norm.includes('INTRO') || norm.includes('OUTRO')) return 'bg-slate-200 text-slate-700 border-slate-300';
+  if (norm.includes('INTERLUDE') || norm.includes('TAG') || norm.includes('VAMP')) return 'bg-indigo-100 text-indigo-800 border-indigo-300';
+  if (norm.includes('INTRO') || norm.includes('OUTRO') || norm.includes('ENDING')) return 'bg-slate-200 text-slate-700 border-slate-300';
   return 'bg-emerald-100 text-emerald-800 border-emerald-300';
 };
 
@@ -42,6 +44,7 @@ function LyricsDisplay() {
   const socketRef = useRef(null);
   const touchStartRef = useRef({ x: 0, y: 0 });
   const stageDataRef = useRef(null);
+  const mainRef = useRef(null);
 
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -154,19 +157,36 @@ function LyricsDisplay() {
     return groups;
   }, [slidesToRender]);
 
-  // Smart Auto-scroll: Only scroll if active slide is off-screen or near bottom, positioning it near the top with comfortable margin
+  // Smart Auto-scroll: Only scroll the <main> container so top header & bottom navbar stay 100% fixed & consistent
   useEffect(() => {
-    if (activeIndex >= 0 && !isCustomView) {
+    if (activeIndex >= 0 && !isCustomView && mainRef.current) {
+      const mainEl = mainRef.current;
+
+      // 1. First slide special handling: Always scroll all the way to top 0 when operator returns to first slide!
+      if (activeIndex === 0) {
+        mainEl.scrollTo({
+          top: 0,
+          behavior: 'smooth'
+        });
+        return;
+      }
+
+      // 2. Subsequent slides handling: Scroll smoothly with top & bottom clearance
       const activeEl = document.getElementById(`lyrics-active-slide-${activeIndex}`);
-      if (activeEl) {
-        const rect = activeEl.getBoundingClientRect();
-        const vh = window.innerHeight || document.documentElement.clientHeight;
-        
-        // Detect if active element is hidden near header (< 80px) or near bottom (> vh - 100px)
-        const isOffscreenOrNearBottom = rect.top < 80 || rect.bottom > (vh - 100);
-        
-        if (isOffscreenOrNearBottom) {
-          activeEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (activeEl && mainEl) {
+        const activeTop = activeEl.offsetTop;
+        const mainScrollTop = mainEl.scrollTop;
+        const mainHeight = mainEl.clientHeight;
+        const activeHeight = activeEl.offsetHeight;
+
+        const isAbove = activeTop < mainScrollTop + 40;
+        const isBelow = (activeTop + activeHeight) > (mainScrollTop + mainHeight - 70);
+
+        if (isAbove || isBelow) {
+          mainEl.scrollTo({
+            top: Math.max(0, activeTop - 28),
+            behavior: 'smooth'
+          });
         }
       }
     }
@@ -263,7 +283,7 @@ function LyricsDisplay() {
       if (activeItem) return activeItem.name;
     }
     
-    if (stageData.label && !/^(VERSE|CHORUS|BRIDGE|PRE-CHORUS|POST-CHORUS|INTRO|OUTRO|SLIDE)/i.test(stageData.label)) {
+    if (stageData.label && !/^(VERSE|CHORUS|BRIDGE|PRE-CHORUS|POST-CHORUS|REFRAIN|INTERLUDE|TAG|ENDING|INTRO|OUTRO|SLIDE)/i.test(stageData.label)) {
       return stageData.label;
     }
     
@@ -277,7 +297,7 @@ function LyricsDisplay() {
     <div 
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      className="flex flex-col h-[100dvh] w-full max-w-full bg-white text-slate-900 font-sans select-none overflow-hidden pb-16 touch-pan-y"
+      className="flex flex-col h-[100dvh] h-screen w-full max-w-full bg-white text-slate-900 font-sans select-none overflow-hidden touch-pan-y"
     >
       
       {/* --- SLIM COMPACT RESPONSIVE HEADER FOR ALL PHONE / TABLET / IPAD DEVICES --- */}
@@ -327,7 +347,7 @@ function LyricsDisplay() {
       </header>
 
       {/* --- MAIN 2-COLUMN MASONRY GROUPED LYRICS CONTENT (COMPACT SPACING SO FULL SONG FITS ON TABLET WITHOUT SCROLLING) --- */}
-      <main className="flex-1 overflow-y-auto p-2.5 sm:p-4 pb-16 scrollbar-thin bg-white">
+      <main ref={mainRef} className="flex-1 overflow-y-auto p-2.5 sm:p-4 pb-32 sm:pb-36 scrollbar-thin bg-white">
         {groupedSections.length > 0 ? (
           <div className="columns-1 md:columns-2 gap-3 sm:gap-4 space-y-2.5 sm:space-y-3">
             {groupedSections.map((group, groupIdx) => {
@@ -380,7 +400,7 @@ function LyricsDisplay() {
         )}
       </main>
 
-      {/* --- COMPRESSED FIXED BOTTOM LINEUP BAR --- */}
+      {/* --- FIXED BOTTOM LINEUP BAR (ALWAYS VISIBLE ON ALL MOBILE DEVICES) --- */}
       <footer className="fixed bottom-0 inset-x-0 bg-slate-900 text-white border-t border-slate-800 p-2 flex items-center gap-1.5 overflow-x-auto scrollbar-none z-40">
         <div className="flex items-center gap-1 px-1.5 text-slate-400 text-[9px] font-mono font-bold uppercase tracking-wider flex-shrink-0 border-r border-slate-800 pr-2">
           <Layers className="h-3 w-3 text-emerald-400" />
