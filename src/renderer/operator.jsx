@@ -2091,7 +2091,7 @@ function OperatorDashboard() {
     return blocks.map((block, idx) => {
       const lines = block.split('\n');
       const firstLine = lines[0].trim();
-      const isHeader = /^(VERSE|CHORUS|BRIDGE|INTRO|OUTRO|TAG|PRE-CHORUS)/i.test(firstLine);
+      const isHeader = /^(VERSE|CHORUS|BRIDGE|INTRO|OUTRO|TAG|PRE-CHORUS|POST-CHORUS|REFRAIN|INTERLUDE|ENDING)/i.test(firstLine);
       
       const label = isHeader ? firstLine.toUpperCase() : lastLabel;
       lastLabel = label;
