@@ -984,12 +984,16 @@ function startStageServer(port = 5174) {
           try {
             let song = null;
             if (songId) {
-              song = await db.getSongWithContent(songId);
+              const numId = parseInt(songId);
+              if (!isNaN(numId)) {
+                song = await db.getSongWithContent(numId);
+              }
             }
             if (!song && songTitle) {
-              const results = await db.searchSongs(songTitle);
+              const results = await db.searchSongs(songTitle.trim());
               if (results && results.length > 0) {
-                song = await db.getSongWithContent(results[0].id);
+                const exactMatch = results.find(s => (s.title || '').toLowerCase() === songTitle.trim().toLowerCase());
+                song = exactMatch || results[0];
               }
             }
             ws.send(JSON.stringify({

@@ -62,18 +62,26 @@ function LyricsDisplay() {
           const message = JSON.parse(event.data);
           if (message.type === 'stage-update') {
             setStageData(message.payload);
+            setCustomViewSong(null); // When operator triggers a new slide/song on desktop, snap back to live!
           } else if (message.type === 'slide-update') {
             setSlideData(message.payload);
           } else if (message.type === 'playlist-update') {
             setPlaylist(message.payload || []);
           } else if (message.type === 'remote-song-detail') {
             const song = message.payload?.song;
-            if (song && song.content_json) {
+            if (song) {
               try {
-                const parsedSlides = JSON.parse(song.content_json);
+                let parsedSlides = [];
+                if (typeof song.content_json === 'string') {
+                  parsedSlides = JSON.parse(song.content_json || '[]');
+                } else if (Array.isArray(song.content_json)) {
+                  parsedSlides = song.content_json;
+                } else if (Array.isArray(song.slides)) {
+                  parsedSlides = song.slides;
+                }
                 setCustomViewSong({
                   id: song.id,
-                  title: song.title,
+                  title: song.title || song.name || 'Worship Song',
                   slides: parsedSlides
                 });
               } catch (e) {
