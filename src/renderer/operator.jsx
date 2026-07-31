@@ -99,37 +99,70 @@ const getOrCreateSharedVideo = (src) => {
   return sharedVideoCache[formatted];
 };
 
-const SharedVideoCanvas = ({ className, style, src }) => {
+const SharedVideoCanvas = ({ className, style, src, maxResWidth = 240, fps = 12 }) => {
   const canvasRef = React.useRef(null);
+  const [isVisible, setIsVisible] = React.useState(true);
+
+  // IntersectionObserver: Only render when thumbnail is visible on screen
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || typeof IntersectionObserver === 'undefined') return;
+
+    const observer = new IntersectionObserver(([entry]) => {
+      setIsVisible(entry.isIntersecting);
+    }, { threshold: 0.05 });
+
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, []);
 
   React.useEffect(() => {
+    if (!isVisible) return;
+
     let animationFrameId;
+    let lastRenderTime = 0;
+    const interval = 1000 / fps;
+
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha: false });
     
     const video = getOrCreateSharedVideo(src);
     if (!video) return;
 
-    const render = () => {
-      if (video && video.src && !video.paused && !video.ended) {
-        if (canvas.width !== video.videoWidth && video.videoWidth > 0) {
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-        }
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      } else {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-      }
+    let isTabActive = !document.hidden;
+
+    const handleVisibilityChange = () => {
+      isTabActive = !document.hidden;
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    const render = (now) => {
       animationFrameId = requestAnimationFrame(render);
+
+      if (!isTabActive) return;
+      if (now - lastRenderTime < interval) return;
+      lastRenderTime = now;
+
+      if (video && video.src && !video.paused && !video.ended && video.videoWidth > 0) {
+        const targetW = maxResWidth;
+        const targetH = Math.round(maxResWidth * (video.videoHeight / video.videoWidth || 0.5625));
+
+        if (canvas.width !== targetW || canvas.height !== targetH) {
+          canvas.width = targetW;
+          canvas.height = targetH;
+        }
+        ctx.drawImage(video, 0, 0, targetW, targetH);
+      }
     };
 
-    render();
+    animationFrameId = requestAnimationFrame(render);
 
     return () => {
       cancelAnimationFrame(animationFrameId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [src]);
+  }, [src, maxResWidth, fps, isVisible]);
 
   return <canvas ref={canvasRef} className={className} style={style} />;
 };
@@ -1367,14 +1400,15 @@ function OperatorDashboard() {
   }, [activeEditPreviewIdx, isEditSongOpen]);
 
 
-  const getEffectiveSlideBg = (activeSlide, slidesList) => {
-    if (!activeSlide) return '';
-    if (activeSlide.bgAsset) return activeSlide.bgAsset;
-    if (activeSlide.style && activeSlide.style.background) return activeSlide.style.background;
+  const getEffectiveSlideBg = (activeSlide, slidesList, songObject = selectedSong) => {
+    if (activeSlide?.bgAsset) return activeSlide.bgAsset;
+    if (activeSlide?.style && activeSlide?.style?.background) return activeSlide.style.background;
+    if (songObject?.bgAsset) return songObject.bgAsset;
+    if (songObject?.style?.background) return songObject.style.background;
     if (slidesList && slidesList.length > 0) {
       const firstSlide = slidesList[0];
-      if (firstSlide.bgAsset) return firstSlide.bgAsset;
-      if (firstSlide.style && firstSlide.style.background) return firstSlide.style.background;
+      if (firstSlide?.bgAsset) return firstSlide.bgAsset;
+      if (firstSlide?.style && firstSlide?.style?.background) return firstSlide.style.background;
     }
     return '';
   };
@@ -1394,7 +1428,7 @@ function OperatorDashboard() {
       setLiveSlides(slidesList);
       setLiveActiveIndex(index);
 
-      const rawBg = getEffectiveSlideBg(activeSlide, slidesList);
+      const rawBg = getEffectiveSlideBg(activeSlide, slidesList, songObject);
       const bgPath = formatBgPath(rawBg);
       
       // Determine if it is a Bible slide
@@ -1681,6 +1715,12 @@ function OperatorDashboard() {
       setActiveSlideIndex(0);
       setSelectedSlideIndexes([0]);
       
+      // Sync live background asset: set new song's background or clear if none
+      const effectiveBg = getEffectiveSlideBg(slidesArr[0], slidesArr, selectedSong);
+      const bgPath = formatBgPath(effectiveBg);
+      const isBibleSlide = (selectedSong && (selectedSong.author === 'Bible' || selectedSong.author === 'Scripture')) || bibleLiveSlides !== null;
+      setLiveSlide(activeSlideText, activeSlideLabel, bgPath, activeSlideStyle, isBibleSlide);
+
       // Auto-play local media player only (do not push to projector)
       if (selectedSong && selectedSong.author === 'Media') {
         setMediaPlaying(true);
@@ -1944,7 +1984,7 @@ function OperatorDashboard() {
 
   // Helper functions for matching styling in Live Output preview
   const getLivePreviewTextStyle = () => {
-    if (!activeSlideStyle) return { color: '#ffffff', fontWeight: 'bold', fontSize: '4.68cqw', textAlign: 'center' };
+    if (!activeSlideStyle) return { color: '#ffffff', fontWeight: 'bold', fontSize: '4.688cqw', textAlign: 'center' };
     
     const fontVal = activeSlideStyle.font || 'Inter';
     const colorVal = activeSlideStyle.color || '#ffffff';
@@ -1957,16 +1997,20 @@ function OperatorDashboard() {
     };
     const weightVal = weightMap[activeSlideStyle.weight] || activeSlideStyle.weight || 700;
     const baseSize = activeSlideStyle.size || 90;
+    const cqwFontSize = (baseSize / 19.2).toFixed(3);
+    const cqwLetterSpacing = ((activeSlideStyle.letterSpacing || 0) / 19.2).toFixed(3);
     
     return {
       fontFamily: `'${fontVal}', sans-serif`,
-      fontSize: `${(baseSize / 19.2).toFixed(3)}cqw`,
+      fontSize: `${cqwFontSize}cqw`,
       fontWeight: weightVal,
       lineHeight: activeSlideStyle.lineHeight || 1.4,
-      letterSpacing: `${activeSlideStyle.letterSpacing || 0}px`,
+      letterSpacing: `${cqwLetterSpacing}cqw`,
       color: colorVal,
       textAlign: activeSlideStyle.align || 'center',
-      whiteSpace: 'pre-wrap'
+      whiteSpace: 'pre-wrap',
+      wordBreak: 'keep-all',
+      overflowWrap: 'break-word'
     };
   };
 
@@ -1983,16 +2027,24 @@ function OperatorDashboard() {
     const g = parseInt(hex.slice(3, 5), 16) || 0;
     const b = parseInt(hex.slice(5, 7), 16) || 0;
     
-    const heightVal = activeSlideStyle.bgHeight !== undefined ? activeSlideStyle.bgHeight : '100%';
-    const widthVal = activeSlideStyle.bgWidth !== undefined ? activeSlideStyle.bgWidth : '100%';
-    const radiusVal = activeSlideStyle.bgRadius !== undefined ? `${activeSlideStyle.bgRadius}px` : '4px';
+    const heightVal = activeSlideStyle.bgHeight !== undefined ? activeSlideStyle.bgHeight : 100;
+    const widthVal = activeSlideStyle.bgWidth !== undefined ? activeSlideStyle.bgWidth : 100;
+    const radiusVal = activeSlideStyle.bgRadius !== undefined ? activeSlideStyle.bgRadius : 4;
+    const cqwRadius = (radiusVal / 19.2).toFixed(3);
+
+    const formattedWidth = typeof widthVal === 'number' || !widthVal.toString().endsWith('%') ? `${widthVal}%` : widthVal;
+    const formattedHeight = typeof heightVal === 'number' || !heightVal.toString().endsWith('%') ? `${heightVal}%` : heightVal;
 
     return {
       backgroundColor: `rgba(${r}, ${g}, ${b}, ${opacity / 100})`,
-      borderRadius: radiusVal,
-      height: heightVal,
-      width: widthVal,
-      padding: '0.2rem 0.4rem'
+      borderRadius: `${cqwRadius}cqw`,
+      height: formattedHeight,
+      width: formattedWidth,
+      padding: '0.4em 0.8em',
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: activeSlideStyle.vertical === 'top' ? 'flex-start' : activeSlideStyle.vertical === 'bottom' ? 'flex-end' : 'center',
+      alignItems: activeSlideStyle.align === 'left' ? 'flex-start' : activeSlideStyle.align === 'right' ? 'flex-end' : 'center'
     };
   };
 
@@ -2011,26 +2063,7 @@ function OperatorDashboard() {
   // Compute the full animation style for the Live Output operator panel preview.
   // Mirrors projector.jsx getAnimationStyles() exactly so the panel shows the same motion.
   const liveOutputAnimStyle = (() => {
-    const overlayStyle = (() => {
-      if (!activeSlideStyle) return {};
-      const hex = activeSlideStyle.bgColor || '#000000';
-      const opacityStr = activeSlideStyle.bgOpacity || '0%';
-      const opacity = parseInt(opacityStr) || 0;
-      if (opacity === 0) return { backgroundColor: 'transparent' };
-      const r = parseInt(hex.slice(1, 3), 16) || 0;
-      const g = parseInt(hex.slice(3, 5), 16) || 0;
-      const b = parseInt(hex.slice(5, 7), 16) || 0;
-      const heightVal = activeSlideStyle.bgHeight !== undefined ? activeSlideStyle.bgHeight : '100%';
-      const widthVal = activeSlideStyle.bgWidth !== undefined ? activeSlideStyle.bgWidth : '100%';
-      const radiusVal = activeSlideStyle.bgRadius !== undefined ? `${activeSlideStyle.bgRadius}px` : '4px';
-      return { 
-        backgroundColor: `rgba(${r}, ${g}, ${b}, ${opacity / 100})`, 
-        borderRadius: radiusVal, 
-        height: heightVal,
-        width: widthVal,
-        padding: '0.2rem 0.4rem' 
-      };
-    })();
+    const overlayStyle = getLivePreviewOverlayStyle();
 
     const anim = activeSlideStyle?.animation || 'Zoom In/Out';
     const speedMs = activeSlideStyle?.speed
@@ -3285,7 +3318,7 @@ function OperatorDashboard() {
                                       handleSelectSlide(index, slides);
                                     }
                                   }}
-                                  className={`aspect-video rounded-lg relative overflow-hidden flex flex-col justify-between p-3 cursor-pointer group transition-all duration-200 border-2 bg-black ${getSlideCardBorderClass(slide.label, isActive, isSelected)}`}
+                                  className={`aspect-video rounded-lg relative overflow-hidden flex flex-col justify-between p-3 cursor-pointer group transition-all duration-200 border-2 ${(slide.bgAsset || (slide.style && slide.style.background)) ? 'bg-black' : 'bg-checkerboard'} ${getSlideCardBorderClass(slide.label, isActive, isSelected)}`}
                                   style={{
                                     containerType: 'inline-size',
                                     width: `${slidePreviewSize * 2.8}px`,
@@ -3314,7 +3347,7 @@ function OperatorDashboard() {
                                     <div className="absolute inset-0 z-0 w-full h-full">
                                       <img 
                                         src={`file:///${slide.bgAsset.replace(/\\/g, '/')}`}
-                                        className="w-full h-full object-cover" 
+                                        className="w-full h-full object-cover opacity-100" 
                                         loading="lazy"
                                         alt=""
                                       />
@@ -3322,24 +3355,19 @@ function OperatorDashboard() {
                                   )}
                                   {/* style.background overlay: shared video/image background for songs */}
                                   {!slide.bgAsset && (slide.style && slide.style.background) && !isBgColor(slide.style.background) && (
-                                    <div 
-                                      className="absolute inset-x-0 z-0 w-full"
-                                      style={{
-                                        height: slide.style?.bgHeight || '100%',
-                                        top: '50%',
-                                        transform: 'translateY(-50%)'
-                                      }}
-                                    >
+                                    <div className="absolute inset-0 z-0 w-full h-full">
                                       {/\.(mp4|webm|mov|avi)($|\?)/i.test(slide.style.background) ? (
                                         <SharedVideoCanvas 
                                           src={slide.style.background}
-                                          className="w-full h-full object-cover opacity-40 group-hover:opacity-50 transition-opacity" 
+                                          maxResWidth={240}
+                                          fps={12}
+                                          className="w-full h-full object-cover opacity-100" 
                                           style={{ willChange: 'transform', transform: 'translate3d(0,0,0)' }}
                                         />
                                       ) : (
                                         <img 
                                           src={slide.style.background} 
-                                          className="w-full h-full object-cover opacity-40 group-hover:opacity-50 transition-opacity" 
+                                          className="w-full h-full object-cover opacity-100" 
                                           loading="lazy"
                                           alt="" 
                                         />
@@ -3351,20 +3379,64 @@ function OperatorDashboard() {
                                     {!slide.bgAsset && <span className={`px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase tracking-wider ${getLabelBadgeStyle(slide.label).bg} ${getLabelBadgeStyle(slide.label).text}`}>{slide.label}</span>}
                                   </div>
                                   <div 
+                                    className="z-10 flex-1 flex flex-col w-full overflow-hidden"
                                     style={{
-                                      fontFamily: `'${slide.style?.font || 'Inter'}', sans-serif`,
-                                      fontSize: `${((slide.style?.size || 90) / 19.2).toFixed(3)}cqw`,
-                                      fontWeight: { 'normal': 400, 'semibold': 600, 'bold': 700, 'extrabold': 800 }[slide.style?.weight] || slide.style?.weight || 700,
-                                      lineHeight: slide.style?.lineHeight || 1.4,
-                                      letterSpacing: `${slide.style?.letterSpacing || 0}px`,
-                                      color: slide.style?.color || '#ffffff',
-                                      textAlign: slide.style?.align || 'center',
                                       justifyContent: slide.style?.vertical === 'top' ? 'flex-start' : slide.style?.vertical === 'bottom' ? 'flex-end' : 'center',
-                                      whiteSpace: 'pre-wrap'
+                                      alignItems: slide.style?.align === 'left' ? 'flex-start' : slide.style?.align === 'right' ? 'flex-end' : 'center'
                                     }}
-                                    className="z-10 flex-1 flex flex-col my-1 text-center whitespace-pre-line leading-tight projector-text-shadow"
                                   >
-                                    {!slide.bgAsset && slide.text}
+                                    {!slide.bgAsset && slide.text && (() => {
+                                      const hex = slide.style?.bgColor || '#000000';
+                                      const opacityStr = slide.style?.bgOpacity || '0%';
+                                      const opacity = parseInt(opacityStr) || 0;
+                                      const rgbaBg = opacity === 0 
+                                        ? 'transparent' 
+                                        : (() => {
+                                            const r = parseInt(hex.slice(1, 3), 16) || 0;
+                                            const g = parseInt(hex.slice(3, 5), 16) || 0;
+                                            const b = parseInt(hex.slice(5, 7), 16) || 0;
+                                            return `rgba(${r}, ${g}, ${b}, ${opacity / 100})`;
+                                          })();
+                                      const cqwRadius = ((slide.style?.bgRadius !== undefined ? slide.style.bgRadius : 4) / 19.2).toFixed(3);
+                                      const bgW = slide.style?.bgWidth !== undefined ? slide.style.bgWidth : 100;
+                                      const bgH = slide.style?.bgHeight !== undefined ? slide.style.bgHeight : 100;
+                                      const formattedW = typeof bgW === 'number' || !bgW.toString().endsWith('%') ? `${bgW}%` : bgW;
+                                      const formattedH = typeof bgH === 'number' || !bgH.toString().endsWith('%') ? `${bgH}%` : bgH;
+
+                                      return (
+                                        <div 
+                                          style={{
+                                            backgroundColor: rgbaBg,
+                                            borderRadius: `${cqwRadius}cqw`,
+                                            width: formattedW,
+                                            height: formattedH,
+                                            padding: opacity > 0 ? '0.4em 0.8em' : '0',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            justifyContent: slide.style?.vertical === 'top' ? 'flex-start' : slide.style?.vertical === 'bottom' ? 'flex-end' : 'center',
+                                            alignItems: slide.style?.align === 'left' ? 'flex-start' : slide.style?.align === 'right' ? 'flex-end' : 'center'
+                                          }}
+                                        >
+                                          <p 
+                                            style={{
+                                              fontFamily: `'${slide.style?.font || 'Inter'}', sans-serif`,
+                                              fontSize: `${((slide.style?.size || 90) / 19.2).toFixed(3)}cqw`,
+                                              fontWeight: { 'normal': 400, 'semibold': 600, 'bold': 700, 'extrabold': 800 }[slide.style?.weight] || slide.style?.weight || 700,
+                                              lineHeight: slide.style?.lineHeight || 1.4,
+                                              letterSpacing: `${((slide.style?.letterSpacing || 0) / 19.2).toFixed(3)}cqw`,
+                                              color: slide.style?.color || '#ffffff',
+                                              textAlign: slide.style?.align || 'center',
+                                              whiteSpace: 'pre-wrap',
+                                              wordBreak: 'keep-all',
+                                              overflowWrap: 'break-word'
+                                            }}
+                                            className="projector-text-shadow"
+                                          >
+                                            {slide.text}
+                                          </p>
+                                        </div>
+                                      );
+                                    })()}
                                   </div>
                                 </div>
                               </React.Fragment>
@@ -4997,111 +5069,130 @@ function OperatorDashboard() {
               <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-600/35 text-amber-500 border border-amber-500/25 font-mono animate-pulse">TIMER RUNNING</span>
             )}
           </h3>
-          <div 
-            className={`w-full bg-black rounded-lg border ${(showOnProjector || showTimerOnProjector) ? 'border-red-500/60' : 'border-[var(--border-app)]'} relative overflow-hidden flex flex-col p-3 transition-all duration-300 ${
-              aspectRatio === 'video' ? 'aspect-video' : 'aspect-[4/3]'
-            } ${!(showOnProjector || showTimerOnProjector) ? getLivePreviewFlexAlignment() : 'items-center justify-center'}`}
-            style={{
-              containerType: 'inline-size',
-              ...(showOnProjector 
-                ? { backgroundColor: countdownBgColor || '#000000' } 
-                : showTimerOnProjector 
-                  ? { backgroundColor: timerBgColor || '#000000' }
-                  : (!blackout && activeBgAsset && isBgColor(activeBgAsset) ? { backgroundColor: activeBgAsset } : {}))
-            }}
-          >
-            {/* Background media */}
-            {!blackout && (
-              <div className="absolute inset-0 z-0 w-full h-full">
-                {showOnProjector && countdownBgMedia ? (
-                  /\.(mp4|webm|mov|avi)($|\?)/i.test(countdownBgMedia) ? (
-                    <video src={formatBgPath(countdownBgMedia)} autoPlay muted loop playsInline className="w-full h-full object-cover" />
-                  ) : (
-                    <img src={formatBgPath(countdownBgMedia)} className="w-full h-full object-cover" alt="" />
-                  )
-                ) : showTimerOnProjector && timerBgMedia ? (
-                  /\.(mp4|webm|mov|avi)($|\?)/i.test(timerBgMedia) ? (
-                    <video src={formatBgPath(timerBgMedia)} autoPlay muted loop playsInline className="w-full h-full object-cover" />
-                  ) : (
-                    <img src={formatBgPath(timerBgMedia)} className="w-full h-full object-cover" alt="" />
-                  )
-                ) : (
-                  // Regular slide background
-                  !showOnProjector && !showTimerOnProjector && activeBgAsset && !isBgColor(activeBgAsset) && (
-                    /\.(mp4|webm|mov|avi)($|\?)/i.test(activeBgAsset) ? (
-                      <SharedVideoCanvas 
-                        src={activeBgAsset}
-                        className="w-full h-full object-cover" 
-                        style={{ opacity: (slides[activeSlideIndex]?.bgAsset || selectedSong?.author === 'Media') ? 1.0 : 0.6, willChange: 'transform', transform: 'translate3d(0,0,0)' }} 
-                      />
-                    ) : (
-                      <img 
-                        src={activeBgAsset} 
-                        className="w-full h-full object-cover" 
-                        style={{ opacity: (slides[activeSlideIndex]?.bgAsset || selectedSong?.author === 'Media') ? 1.0 : 0.6 }} 
-                        alt="" 
-                      />
-                    )
-                  )
-                )}
-              </div>
-            )}
-            
-            {/* Countdown overlay content */}
-            {showOnProjector && !blackout ? (
-              <div className="z-10 flex flex-col items-center justify-center text-center w-full px-2">
-                {countdownTitle && (
-                  <div style={{ fontSize: `${Math.max(6, (countdownTitleSize || 56) * 0.065)}px`, fontWeight: 'bold', textTransform: 'uppercase', opacity: 0.85, color: '#fff', marginBottom: '4px', lineHeight: 1.2 }}>
-                    {countdownTitle}
-                  </div>
-                )}
-                <div style={{ fontSize: `${Math.max(14, (countdownTimeSize || 160) * 0.1)}px`, fontWeight: 'bold', fontFamily: 'monospace', color: '#fff', lineHeight: 1 }}>
-                  {countdownMode === 'current'
-                    ? (() => {
-                        const now = new Date();
-                        const hrs = String(now.getHours()).padStart(2, '0');
-                        const mins = String(now.getMinutes()).padStart(2, '0');
-                        const secs = String(now.getSeconds()).padStart(2, '0');
-                        return `${hrs}:${mins}:${secs}`;
-                      })()
-                    : `${String(countdownMinutes).padStart(2, '0')}:${String(countdownSeconds).padStart(2, '0')}`
-                  }
-                </div>
-                {countdownSubtext && (
-                  <div style={{ fontSize: `${Math.max(5, (countdownSubtextSize || 36) * 0.065)}px`, opacity: 0.6, color: '#fff', fontStyle: 'italic', marginTop: '4px' }}>
-                    {countdownSubtext}
-                  </div>
-                )}
-              </div>
-            ) : showTimerOnProjector && !blackout ? (
-              /* Count-up Timer overlay content */
-              <div className="z-10 flex flex-col items-center justify-center text-center w-full px-2">
-                {timerTitle && (
-                  <div style={{ fontSize: `${Math.max(6, (timerTitleSize || 56) * 0.065)}px`, fontWeight: 'bold', textTransform: 'uppercase', opacity: 0.85, color: '#fff', marginBottom: '4px', lineHeight: 1.2 }}>
-                    {timerTitle}
-                  </div>
-                )}
-                <div style={{ fontSize: `${Math.max(14, (timerTimeSize || 160) * 0.1)}px`, fontWeight: 'bold', fontFamily: 'monospace', color: '#fff', lineHeight: 1 }}>
-                  {`${String(timerMinutes).padStart(2, '0')}:${String(timerSeconds).padStart(2, '0')}`}
-                </div>
-              </div>
-            ) : (
-              <div
-                className="z-10 w-full"
-                style={liveOutputAnimStyle}
+          {(() => {
+            const targetSong = (liveSong && liveSong.id === selectedSong?.id) ? liveSong : selectedSong;
+            const curSlideObj = slides && slides[activeSlideIndex];
+            const curSlideBgMedia = curSlideObj?.bgAsset 
+              ? `file:///${curSlideObj.bgAsset.replace(/\\/g, '/')}`
+              : (curSlideObj?.style?.background || targetSong?.bgAsset || targetSong?.style?.background || '');
+
+            return (
+              <div 
+                className={`w-full bg-black rounded-lg border ${(showOnProjector || showTimerOnProjector) ? 'border-red-500/60' : 'border-[var(--border-app)]'} relative overflow-hidden flex flex-col p-3 transition-all duration-300 ${
+                  aspectRatio === 'video' ? 'aspect-video' : 'aspect-[4/3]'
+                } ${!(showOnProjector || showTimerOnProjector) ? getLivePreviewFlexAlignment() : 'items-center justify-center'}`}
+                style={{
+                  containerType: 'inline-size',
+                  ...(showOnProjector 
+                    ? { backgroundColor: countdownBgColor || '#000000' } 
+                    : showTimerOnProjector 
+                      ? { backgroundColor: timerBgColor || '#000000' }
+                      : (!blackout && curSlideBgMedia && isBgColor(curSlideBgMedia) ? { backgroundColor: curSlideBgMedia } : {}))
+                }}
               >
-                {!blackout && !clearLyrics && activeSlideText ? (
-                  <p style={getLivePreviewTextStyle()} className="whitespace-pre-line uppercase projector-text-shadow">
-                    {activeSlideText}
-                  </p>
-                ) : blackout ? (
-                  <div className="absolute inset-0 bg-black z-20 flex items-center justify-center text-liveDanger font-bold text-[10px] font-mono">BLACKOUT</div>
+                {/* Background media */}
+                {!blackout && (
+                  <div className="absolute inset-0 z-0 w-full h-full">
+                    {showOnProjector && countdownBgMedia ? (
+                      /\.(mp4|webm|mov|avi)($|\?)/i.test(countdownBgMedia) ? (
+                        <video src={formatBgPath(countdownBgMedia)} autoPlay muted loop playsInline className="w-full h-full object-cover" />
+                      ) : (
+                        <img src={formatBgPath(countdownBgMedia)} className="w-full h-full object-cover" alt="" />
+                      )
+                    ) : showTimerOnProjector && timerBgMedia ? (
+                      /\.(mp4|webm|mov|avi)($|\?)/i.test(timerBgMedia) ? (
+                        <video src={formatBgPath(timerBgMedia)} autoPlay muted loop playsInline className="w-full h-full object-cover" />
+                      ) : (
+                        <img src={formatBgPath(timerBgMedia)} className="w-full h-full object-cover" alt="" />
+                      )
+                    ) : (
+                      // Regular slide background
+                      !showOnProjector && !showTimerOnProjector && curSlideBgMedia && !isBgColor(curSlideBgMedia) && (
+                        /\.(mp4|webm|mov|avi)($|\?)/i.test(curSlideBgMedia) ? (
+                          <SharedVideoCanvas 
+                            src={curSlideBgMedia}
+                            maxResWidth={1280}
+                            fps={60}
+                            className="w-full h-full object-cover opacity-100" 
+                            style={{ willChange: 'transform', transform: 'translate3d(0,0,0)' }} 
+                          />
+                        ) : (
+                          <img 
+                            src={curSlideBgMedia} 
+                            className="w-full h-full object-cover opacity-100" 
+                            alt="" 
+                          />
+                        )
+                      )
+                    )}
+                  </div>
+                )}
+                
+                {/* Countdown overlay content */}
+                {showOnProjector && !blackout ? (
+                  <div className="z-10 flex flex-col items-center justify-center text-center w-full px-2">
+                    {countdownTitle && (
+                      <div style={{ fontSize: `${Math.max(6, (countdownTitleSize || 56) * 0.065)}px`, fontWeight: 'bold', textTransform: 'uppercase', opacity: 0.85, color: '#fff', marginBottom: '4px', lineHeight: 1.2 }}>
+                        {countdownTitle}
+                      </div>
+                    )}
+                    <div style={{ fontSize: `${Math.max(14, (countdownTimeSize || 160) * 0.1)}px`, fontWeight: 'bold', fontFamily: 'monospace', color: '#fff', lineHeight: 1 }}>
+                      {countdownMode === 'current'
+                        ? (() => {
+                            const now = new Date();
+                            const hrs = String(now.getHours()).padStart(2, '0');
+                            const mins = String(now.getMinutes()).padStart(2, '0');
+                            const secs = String(now.getSeconds()).padStart(2, '0');
+                            return `${hrs}:${mins}:${secs}`;
+                          })()
+                        : formatSecondsToMinSec(countdownSeconds)
+                      }
+                    </div>
+                    {countdownSubtext && (
+                      <div style={{ fontSize: `${Math.max(5, (countdownSubtextSize || 36) * 0.065)}px`, opacity: 0.6, color: '#fff', fontStyle: 'italic', marginTop: '4px' }}>
+                        {countdownSubtext}
+                      </div>
+                    )}
+                  </div>
+                ) : showTimerOnProjector && !blackout ? (
+                  <div className="z-10 flex flex-col items-center justify-center text-center w-full px-2">
+                    {timerTitle && (
+                      <div style={{ fontSize: `${Math.max(6, (timerTitleSize || 56) * 0.065)}px`, fontWeight: 'bold', textTransform: 'uppercase', opacity: 0.85, color: '#fff', marginBottom: '4px', lineHeight: 1.2 }}>
+                        {timerTitle}
+                      </div>
+                    )}
+                    <div style={{ fontSize: `${Math.max(14, (timerTimeSize || 160) * 0.1)}px`, fontWeight: 'bold', fontFamily: 'monospace', color: '#fff', lineHeight: 1 }}>
+                      {formatSecondsToMinSec(timerSeconds)}
+                    </div>
+                  </div>
                 ) : (
-                  null
+                  <>
+                    <div 
+                      className="z-10 flex flex-col justify-center items-center" 
+                      style={liveOutputAnimStyle}
+                    >
+                      {(!clearLyrics && !blackout) && activeSlideText && (
+                        <p 
+                          className="projector-text-shadow"
+                          style={getLivePreviewTextStyle()}
+                        >
+                          {activeSlideText}
+                        </p>
+                      )}
+                    </div>
+                    {/* Active Slide Label Indicator */}
+                    {activeSlideLabel && !blackout && (
+                      <div className="absolute top-2 left-2 z-20">
+                        <span className={`px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase tracking-wider ${getLabelBadgeStyle(activeSlideLabel).bg} ${getLabelBadgeStyle(activeSlideLabel).text}`}>
+                          {activeSlideLabel}
+                        </span>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
-            )}
-          </div>
+            );
+          })()}
           
           <div className="flex items-center justify-between text-[9px] text-textMuted mt-2">
             <span>Aspect: {aspectRatio === 'video' ? '16:9' : '4:3'}</span>
@@ -5197,14 +5288,12 @@ function OperatorDashboard() {
                           muted 
                           loop 
                           playsInline 
-                          className="w-full h-full object-cover" 
-                          style={{ opacity: (currentSlide?.bgAsset || selectedSong?.author === 'Media') ? 1.0 : 0.6 }} 
+                          className="w-full h-full object-cover opacity-100" 
                         />
                       ) : (
                         <img 
                           src={previewBg} 
-                          className="w-full h-full object-cover" 
-                          style={{ opacity: (currentSlide?.bgAsset || selectedSong?.author === 'Media') ? 1.0 : 0.6 }} 
+                          className="w-full h-full object-cover opacity-100" 
                           alt="" 
                         />
                       )}
@@ -5665,8 +5754,11 @@ function OperatorDashboard() {
                           </div>
                         </div>
                         <div 
-                          className={`aspect-video w-full bg-black rounded relative overflow-hidden flex flex-col p-3 ${verticalClass} ${flexAlignClass}`}
-                          style={{ containerType: 'inline-size' }}
+                          className={`aspect-video w-full rounded relative overflow-hidden flex flex-col p-3 ${slide.style?.background && isBgColor(slide.style.background) ? '' : 'bg-checkerboard'} ${verticalClass} ${flexAlignClass}`}
+                          style={{ 
+                            containerType: 'inline-size',
+                            backgroundColor: (slide.style?.background && isBgColor(slide.style.background)) ? slide.style.background : undefined
+                          }}
                         >
                           {slide.style?.background && !isBgColor(slide.style.background) && (
                             <img src={slide.style.background} className="absolute inset-0 w-full h-full object-cover opacity-35 z-0" alt="" />
@@ -5675,8 +5767,10 @@ function OperatorDashboard() {
                             className="z-10"
                             style={{
                               backgroundColor: rgbaBg,
-                              borderRadius: '4px',
-                              padding: opacity > 0 ? '0.25rem 0.5rem' : '0',
+                              borderRadius: slide.style?.bgRadius !== undefined ? `${((slide.style.bgRadius) / 19.2).toFixed(3)}cqw` : '0.208cqw',
+                              height: slide.style?.bgHeight !== undefined ? (typeof slide.style.bgHeight === 'number' || !slide.style.bgHeight.toString().endsWith('%') ? `${slide.style.bgHeight}%` : slide.style.bgHeight) : '100%',
+                              width: slide.style?.bgWidth !== undefined ? (typeof slide.style.bgWidth === 'number' || !slide.style.bgWidth.toString().endsWith('%') ? `${slide.style.bgWidth}%` : slide.style.bgWidth) : '100%',
+                              padding: opacity > 0 ? '0.4em 0.8em' : '0',
                               display: 'flex',
                               flexDirection: 'column',
                               justifyContent: slide.style?.vertical === 'top' ? 'flex-start' : slide.style?.vertical === 'bottom' ? 'flex-end' : 'center',
@@ -5689,12 +5783,14 @@ function OperatorDashboard() {
                                 fontSize: `${((slide.style.size || 90) / 19.2).toFixed(3)}cqw`,
                                 fontWeight: { 'normal': 400, 'semibold': 600, 'bold': 700, 'extrabold': 800 }[slide.style.weight] || slide.style.weight || 700,
                                 lineHeight: slide.style.lineHeight || 1.4,
-                                letterSpacing: `${slide.style.letterSpacing || 0}px`,
+                                letterSpacing: `${((slide.style.letterSpacing || 0) / 19.2).toFixed(3)}cqw`,
                                 color: slide.style.color || '#ffffff',
                                 textAlign: slide.style.align || 'center',
-                                whiteSpace: 'pre-wrap'
+                                whiteSpace: 'pre-wrap',
+                                wordBreak: 'keep-all',
+                                overflowWrap: 'break-word'
                               }}
-                              className="whitespace-pre-line uppercase projector-text-shadow"
+                              className="projector-text-shadow"
                             >
                               {slide.text || '[EMPTY]'}
                             </p>
@@ -6129,8 +6225,11 @@ function OperatorDashboard() {
                           </div>
                         </div>
                         <div 
-                          className={`aspect-video w-full bg-black rounded relative overflow-hidden flex flex-col p-3 ${verticalClass} ${flexAlignClass}`}
-                          style={{ containerType: 'inline-size' }}
+                          className={`aspect-video w-full rounded relative overflow-hidden flex flex-col p-3 ${slide.style?.background && isBgColor(slide.style.background) ? '' : 'bg-checkerboard'} ${verticalClass} ${flexAlignClass}`}
+                          style={{ 
+                            containerType: 'inline-size',
+                            backgroundColor: (slide.style?.background && isBgColor(slide.style.background)) ? slide.style.background : undefined
+                          }}
                         >
                           {slide.style?.background && !isBgColor(slide.style.background) && (
                             <img src={slide.style.background} className="absolute inset-0 w-full h-full object-cover opacity-35 z-0" alt="" />
@@ -6139,10 +6238,10 @@ function OperatorDashboard() {
                             className="z-10"
                             style={{
                               backgroundColor: rgbaBg,
-                              borderRadius: slide.style?.bgRadius !== undefined ? `${slide.style.bgRadius}px` : '4px',
-                              height: slide.style?.bgHeight !== undefined ? `${slide.style.bgHeight}%` : '100%',
-                              width: slide.style?.bgWidth !== undefined ? `${slide.style.bgWidth}%` : '100%',
-                              padding: opacity > 0 ? '0.25rem 0.5rem' : '0',
+                              borderRadius: slide.style?.bgRadius !== undefined ? `${((slide.style.bgRadius) / 19.2).toFixed(3)}cqw` : '0.208cqw',
+                              height: slide.style?.bgHeight !== undefined ? (typeof slide.style.bgHeight === 'number' || !slide.style.bgHeight.toString().endsWith('%') ? `${slide.style.bgHeight}%` : slide.style.bgHeight) : '100%',
+                              width: slide.style?.bgWidth !== undefined ? (typeof slide.style.bgWidth === 'number' || !slide.style.bgWidth.toString().endsWith('%') ? `${slide.style.bgWidth}%` : slide.style.bgWidth) : '100%',
+                              padding: opacity > 0 ? '0.4em 0.8em' : '0',
                               display: 'flex',
                               flexDirection: 'column',
                               justifyContent: slide.style?.vertical === 'top' ? 'flex-start' : slide.style?.vertical === 'bottom' ? 'flex-end' : 'center',
@@ -6155,12 +6254,14 @@ function OperatorDashboard() {
                                 fontSize: `${((slide.style.size || 90) / 19.2).toFixed(3)}cqw`,
                                 fontWeight: { 'normal': 400, 'semibold': 600, 'bold': 700, 'extrabold': 800 }[slide.style.weight] || slide.style.weight || 700,
                                 lineHeight: slide.style.lineHeight || 1.4,
-                                letterSpacing: `${slide.style.letterSpacing || 0}px`,
+                                letterSpacing: `${((slide.style.letterSpacing || 0) / 19.2).toFixed(3)}cqw`,
                                 color: slide.style.color || '#ffffff',
                                 textAlign: slide.style.align || 'center',
-                                whiteSpace: 'pre-wrap'
+                                whiteSpace: 'pre-wrap',
+                                wordBreak: 'keep-all',
+                                overflowWrap: 'break-word'
                               }}
-                              className="whitespace-pre-line uppercase projector-text-shadow"
+                              className="projector-text-shadow"
                             >
                               {slide.text || '[EMPTY]'}
                             </p>

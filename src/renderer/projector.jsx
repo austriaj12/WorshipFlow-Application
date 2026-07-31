@@ -82,6 +82,16 @@ function ProjectorScreen() {
       setVideoA({ src: '', active: false, opacity: 0 });
       setVideoB({ src: '', active: false, opacity: 0 });
       setActiveImage('');
+      if (videoRefA.current) {
+        videoRefA.current.pause();
+        videoRefA.current.removeAttribute('src');
+        videoRefA.current.load();
+      }
+      if (videoRefB.current) {
+        videoRefB.current.pause();
+        videoRefB.current.removeAttribute('src');
+        videoRefB.current.load();
+      }
       return;
     }
 
@@ -224,18 +234,10 @@ function ProjectorScreen() {
   }, []);
 
   const getLyricsContainerStyle = () => {
-    if (!slide.style) return { fontWeight: 'bold', fontSize: '64px', whiteSpace: 'pre-wrap' };
+    if (!slide.style) return { fontWeight: 'bold', fontSize: '90px', whiteSpace: 'pre-wrap' };
     const baseSize = slide.style.size || 90;
     const fontVal = slide.style.font || 'Inter';
     const colorVal = slide.style.color || '#ffffff';
-
-    // Auto-scale font size for long lines so words never break onto unexpected extra lines
-    const textLines = (slide.text || '').split('\n').filter(Boolean);
-    const maxLineLen = textLines.reduce((max, l) => Math.max(max, l.length), 0);
-    let effectiveSize = baseSize;
-    if (maxLineLen > 28) {
-      effectiveSize = Math.max(58, Math.round(baseSize * (28 / maxLineLen)));
-    }
 
     const weightMap = {
       'normal': 400,
@@ -247,11 +249,11 @@ function ProjectorScreen() {
     
     return {
       fontFamily: `'${fontVal}', sans-serif`,
-      fontSize: `${effectiveSize}px`,
+      fontSize: `${baseSize}px`,
       fontWeight: weightVal,
       color: colorVal,
       textAlign: slide.style.align || 'center',
-      lineHeight: slide.style.lineHeight || 1.35,
+      lineHeight: slide.style.lineHeight || 1.4,
       letterSpacing: `${slide.style.letterSpacing || 0}px`,
       whiteSpace: 'pre-wrap',
       wordBreak: 'keep-all',
@@ -268,35 +270,33 @@ function ProjectorScreen() {
     const opacity = parseInt(opacityStr) || 0;
     if (opacity === 0) return { backgroundColor: 'transparent' };
     
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
+    const r = parseInt(hex.slice(1, 3), 16) || 0;
+    const g = parseInt(hex.slice(3, 5), 16) || 0;
+    const b = parseInt(hex.slice(5, 7), 16) || 0;
     
-    const radius = slide.style.bgRadius !== undefined ? slide.style.bgRadius : 8;
-    const paddingX = slide.style.bgPaddingX !== undefined ? slide.style.bgPaddingX : 48;
-    const paddingY = slide.style.bgPaddingY !== undefined ? slide.style.bgPaddingY : 24;
+    const radius = slide.style.bgRadius !== undefined ? slide.style.bgRadius : 4;
 
     const baseStyle = {
       backgroundColor: `rgba(${r}, ${g}, ${b}, ${opacity / 100})`,
       borderRadius: `${radius}px`,
-      padding: `${paddingY}px ${paddingX}px`,
+      padding: '0.4em 0.8em',
       willChange: 'transform, opacity',
-      transform: 'translate3d(0,0,0)'
+      transform: 'translate3d(0,0,0)',
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: slide.style.vertical === 'top' ? 'flex-start' : slide.style.vertical === 'bottom' ? 'flex-end' : 'center',
+      alignItems: slide.style.align === 'left' ? 'flex-start' : slide.style.align === 'right' ? 'flex-end' : 'center'
     };
     
-    if (slide.style.bgWidth) {
+    if (slide.style.bgWidth !== undefined) {
       baseStyle.width = typeof slide.style.bgWidth === 'number' || !slide.style.bgWidth.toString().endsWith('%') 
         ? `${slide.style.bgWidth}%` 
         : slide.style.bgWidth;
     }
-    if (slide.style.bgHeight) {
+    if (slide.style.bgHeight !== undefined) {
       baseStyle.height = typeof slide.style.bgHeight === 'number' || !slide.style.bgHeight.toString().endsWith('%') 
         ? `${slide.style.bgHeight}%` 
         : slide.style.bgHeight;
-      baseStyle.display = 'flex';
-      baseStyle.flexDirection = 'column';
-      baseStyle.justifyContent = 'center';
-      baseStyle.alignItems = 'center';
     }
     
     return baseStyle;
@@ -491,7 +491,7 @@ function ProjectorScreen() {
               {slide.text ? (
                 <p 
                   style={getLyricsContainerStyle()}
-                  className="tracking-wide leading-relaxed uppercase projector-text-shadow"
+                  className="projector-text-shadow"
                 >
                   {slide.text}
                 </p>

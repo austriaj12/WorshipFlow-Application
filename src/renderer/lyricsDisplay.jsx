@@ -12,20 +12,20 @@ import {
   X
 } from 'lucide-react';
 import './index.css';
-import { KEYS, getSemitoneDifference, parseChordChartToSections } from '../utils/chordUtils.js';
+import { KEYS, getSemitoneDifference, parseChordChartToSections, parseLineToWordBlocks, isFlatKey } from '../utils/chordUtils.js';
 
 // Label style helper for clean badges
 const getLabelBadgeStyle = (label = '') => {
-  const norm = (label || '').toUpperCase();
-  if (norm.includes('VERSE')) return 'bg-sky-100 text-sky-800 border-sky-300';
-  if (norm.includes('PRE')) return 'bg-purple-100 text-purple-800 border-purple-300';
-  if (norm.includes('POST')) return 'bg-teal-100 text-teal-800 border-teal-300';
-  if (norm.includes('CHORUS')) return 'bg-emerald-100 text-emerald-800 border-emerald-300';
-  if (norm.includes('REFRAIN')) return 'bg-rose-100 text-rose-800 border-rose-300';
-  if (norm.includes('BRIDGE')) return 'bg-amber-100 text-amber-800 border-amber-300';
-  if (norm.includes('INTERLUDE') || norm.includes('TAG') || norm.includes('VAMP')) return 'bg-indigo-100 text-indigo-800 border-indigo-300';
-  if (norm.includes('INTRO') || norm.includes('OUTRO') || norm.includes('ENDING')) return 'bg-slate-200 text-slate-700 border-slate-300';
-  return 'bg-emerald-100 text-emerald-800 border-emerald-300';
+  const norm = label.toUpperCase();
+  if (norm.includes('VERSE')) return 'bg-sky-50 text-sky-700 border-sky-200';
+  if (norm.includes('CHORUS') && !norm.includes('PRE') && !norm.includes('POST')) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+  if (norm.includes('PRE-CHORUS')) return 'bg-purple-50 text-purple-700 border-purple-200';
+  if (norm.includes('POST-CHORUS')) return 'bg-emerald-50 text-emerald-800 border-emerald-300';
+  if (norm.includes('BRIDGE')) return 'bg-amber-50 text-amber-700 border-amber-200';
+  if (norm.includes('INTRO')) return 'bg-slate-100 text-slate-700 border-slate-300';
+  if (norm.includes('OUTRO')) return 'bg-slate-100 text-slate-700 border-slate-300';
+  if (norm.includes('INTERLUDE') || norm.includes('TURNAROUND')) return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+  return 'bg-slate-50 text-slate-600 border-slate-200';
 };
 
 function LyricsDisplay() {
@@ -277,33 +277,11 @@ function LyricsDisplay() {
     return slidesToRender.map(s => s.text || '').join('\n');
   }, [slidesToRender]);
 
-  // Parse Chords text into structured Image 1 & Image 2 sections
+  // Raw chords text from custom view or active presentation stageData
   const rawChordsText = isCustomView ? customViewSong?.chords_text : (stageData.chordsText || '');
-  
-  const parsedChordSections = useMemo(() => {
-    if (!showChords || !rawChordsText) return [];
-    return parseChordChartToSections(rawChordsText, transposeSteps, presentationLyricsRaw);
-  }, [showChords, rawChordsText, transposeSteps, presentationLyricsRaw]);
 
-  // Create a smart map of (Lyric line text OR section-index) -> chord line text for embedding into presentation lyrics
-  const lyricToChordMap = useMemo(() => {
-    if (!showChords || !parsedChordSections) return {};
-    const map = {};
-    parsedChordSections.forEach(sec => {
-      sec.pairs.forEach((pair, pairIdx) => {
-        if (pair.chords) {
-          if (pair.lyrics) {
-            const cleanKey = pair.lyrics.trim().toUpperCase();
-            map[cleanKey] = pair.chords;
-          }
-          // Fallback mapping by section & index (e.g. "VERSE 1_0", "CHORUS_1")
-          const secKey = `${sec.label}_${pairIdx}`;
-          map[secKey] = pair.chords;
-        }
-      });
-    });
-    return map;
-  }, [showChords, parsedChordSections]);
+  // Detect if the active musical key is a Flat Key (e.g. Db, Eb, F, Gb, Ab, Bb)
+  const preferFlats = useMemo(() => isFlatKey(selectedKey || activeSongKey), [selectedKey, activeSongKey]);
 
   // Group consecutive slides that share the same section label (e.g. VERSE 1, CHORUS, POST-CHORUS, BRIDGE)
   const groupedSections = useMemo(() => {
@@ -335,6 +313,71 @@ function LyricsDisplay() {
     if (currentGroup) groups.push(currentGroup);
     return groups;
   }, [slidesToRender]);
+
+  // Unified Sequential Sections (Preserves exact chronological order of Intro, Verses, Post-Chorus, Turnaround, Bridge, Outro)
+  const unifiedSequentialSections = useMemo(() => {
+    if (!showChords || !rawChordsText || !rawChordsText.trim()) {
+      return (groupedSections || []).map(g => ({ type: 'lyrics', group: g }));
+    }
+
+    const parsedChords = parseChordChartToSections(rawChordsText, transposeSteps, '', preferFlats);
+    if (!parsedChords || parsedChords.length === 0) {
+      return (groupedSections || []).map(g => ({ type: 'lyrics', group: g }));
+    }
+
+    // Index presentation lyrics by base norm label (e.g. "VERSE" -> [Verse1Group, Verse2Group])
+    const lyricGroupsMap = {};
+    const usedGroupIndices = new Set();
+
+    (groupedSections || []).forEach((group, gIdx) => {
+      const baseNorm = group.normLabel.replace(/[\d\s]+$/, '').trim().toUpperCase();
+      if (!lyricGroupsMap[baseNorm]) lyricGroupsMap[baseNorm] = [];
+      lyricGroupsMap[baseNorm].push({ group, gIdx });
+      if (!lyricGroupsMap[group.normLabel]) lyricGroupsMap[group.normLabel] = [];
+      lyricGroupsMap[group.normLabel].push({ group, gIdx });
+    });
+
+    const unified = [];
+
+    parsedChords.forEach(cSec => {
+      const cNorm = cSec.label.replace(/[\d\s]+$/, '').trim().toUpperCase();
+      const matchedGroups = lyricGroupsMap[cNorm] || lyricGroupsMap[cSec.label.toUpperCase()];
+      const hasLyrics = cSec.pairs.some(p => p.lyrics && p.lyrics.trim());
+
+      if (matchedGroups && matchedGroups.length > 0) {
+        // Render matching presentation lyrics sections with overlaid chords
+        matchedGroups.forEach(({ group, gIdx }) => {
+          if (!usedGroupIndices.has(gIdx)) {
+            usedGroupIndices.add(gIdx);
+            unified.push({
+              type: 'lyrics',
+              group,
+              chordLines: cSec.pairs.map(p => p.chords).filter(Boolean)
+            });
+          }
+        });
+      } else if (!hasLyrics) {
+        // Standalone instrumental chord section (Intro, Post-Chorus, Turnaround, Outro)
+        unified.push({
+          type: 'instrumental',
+          sec: cSec
+        });
+      }
+    });
+
+    // Append any remaining presentation lyrics sections that were not in chord chart
+    (groupedSections || []).forEach((group, gIdx) => {
+      if (!usedGroupIndices.has(gIdx)) {
+        unified.push({
+          type: 'lyrics',
+          group,
+          chordLines: []
+        });
+      }
+    });
+
+    return unified;
+  }, [showChords, rawChordsText, transposeSteps, preferFlats, groupedSections]);
 
   // Smart Auto-scroll: Works for both Chords: ON and Chords: OFF
   useEffect(() => {
@@ -475,34 +518,7 @@ function LyricsDisplay() {
     return stageData.label || 'WORSHIPFLOW SONG';
   }, [isCustomView, customViewSong, stageData.songTitle, stageData.label, playlist]);
 
-  // Smart Line-by-Line AI Chord Resolver
-  const getChordForLine = (sectionNormLabel, cleanLineText, textIdx, lineIdx) => {
-    if (!showChords || !rawChordsText || !rawChordsText.trim() || !parsedChordSections || parsedChordSections.length === 0) return '';
 
-    // 1. Try exact line text match across all parsed chord sections
-    for (const sec of parsedChordSections) {
-      for (const pair of sec.pairs) {
-        if (pair.lyrics && pair.lyrics.trim().toUpperCase() === cleanLineText) {
-          if (pair.chords) return pair.chords;
-        }
-      }
-    }
-
-    // 2. Try section-matching search
-    const secNorm = sectionNormLabel.replace(/\s*\d+$/, '').trim();
-    const matchedSec = parsedChordSections.find(sec => {
-      const sNorm = sec.label.replace(/\s*\d+$/, '').trim();
-      return sNorm === secNorm || sec.label.includes(secNorm) || secNorm.includes(sNorm);
-    }) || parsedChordSections[0];
-
-    if (matchedSec && matchedSec.pairs.length > 0) {
-      const flatIndex = textIdx * 2 + lineIdx;
-      const pair = matchedSec.pairs[flatIndex % matchedSec.pairs.length];
-      return pair ? pair.chords : '';
-    }
-
-    return '';
-  };
 
   return (
     <div 
@@ -601,42 +617,34 @@ function LyricsDisplay() {
 
       {/* --- MAIN CONTENT AREA: CHORDS VIEW vs MASONRY PRESENTATION LYRICS --- */}
       <main ref={mainRef} className="flex-1 overflow-y-auto p-2.5 sm:p-4 pb-32 sm:pb-36 scrollbar-thin bg-white">
-        {showChords && parsedChordSections.length > 0 ? (
-          /* --- CHORDS: ON (LYRICS WITH CHORDS STACKED LINE-BY-LINE) --- */
-          <div className="columns-1 md:columns-2 gap-3 sm:gap-4 space-y-2.5 sm:space-y-3">
-            {parsedChordSections.map((sec, secIdx) => (
-              <div key={secIdx} className="break-inside-avoid flex flex-col p-1 bg-transparent border-0 mb-2 sm:mb-2.5">
-                <div className="flex items-center justify-between pb-0.5 mb-1 border-b border-slate-100">
-                  <span className={`px-2 py-0.5 rounded border text-[9px] font-mono font-extrabold uppercase tracking-wider ${getLabelBadgeStyle(sec.label)}`}>
-                    {sec.label}
-                  </span>
-                </div>
-                <div className="space-y-2 pt-0.5">
-                  {sec.pairs.map((pair, pIdx) => (
-                    <div key={pIdx} className="flex flex-col mb-1.5 last:mb-0">
-                      {pair.chords && (
-                        <div className="font-mono text-amber-500 font-black text-[11px] sm:text-xs leading-tight whitespace-pre tracking-normal">
-                          {pair.chords}
-                        </div>
-                      )}
-                      {pair.lyrics && (
-                        <p className="text-[10px] sm:text-[11px] md:text-xs font-extrabold text-slate-900 leading-tight uppercase tracking-normal font-sans">
-                          {pair.lyrics}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : groupedSections.length > 0 ? (
+        {unifiedSequentialSections.length > 0 ? (
           <div className="flex flex-col">
             <div className="columns-1 md:columns-2 gap-3 sm:gap-4 space-y-2.5 sm:space-y-3">
-              {groupedSections.map((group, groupIdx) => {
+              {unifiedSequentialSections.map((uItem, uIdx) => {
+                if (uItem.type === 'instrumental') {
+                  const sec = uItem.sec;
+                  return (
+                    <div key={uIdx} className="break-inside-avoid flex flex-col p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/60 mb-2 sm:mb-2.5 shadow-sm">
+                      <div className="flex items-center justify-between pb-1 mb-1 border-b border-amber-200/50">
+                        <span className={`px-2 py-0.5 rounded border text-[9px] font-mono font-extrabold uppercase tracking-wider ${getLabelBadgeStyle(sec.label)}`}>
+                          {sec.label} (Instrumental / Chords)
+                        </span>
+                      </div>
+                      <div className="space-y-1 pt-0.5 font-mono text-amber-700 font-black text-[11px] sm:text-xs leading-relaxed">
+                        {sec.pairs.map((p, pIdx) => (
+                          <div key={pIdx}>{p.chords}</div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                }
+
+                const group = uItem.group;
+                const chordLines = uItem.chordLines || [];
+
                 return (
                   <div
-                    key={groupIdx}
+                    key={uIdx}
                     className="break-inside-avoid flex flex-col p-1 bg-transparent border-0 mb-2 sm:mb-2.5"
                   >
                     {/* Section Label Header */}
@@ -662,11 +670,33 @@ function LyricsDisplay() {
                                 : 'py-0.5 px-0.5'
                             }`}
                           >
-                            {rawLines.map((lineStr, lineIdx) => (
-                              <p key={lineIdx} className="text-[10px] sm:text-[11px] md:text-xs font-extrabold text-slate-900 leading-tight uppercase tracking-normal font-sans mb-1 last:mb-0">
-                                {lineStr}
-                              </p>
-                            ))}
+                            {rawLines.map((lineStr, lineIdx) => {
+                              const assignedChord = (showChords && chordLines.length > 0) ? (chordLines[lineIdx % chordLines.length] || '') : '';
+                              const blocks = (showChords && assignedChord) ? parseLineToWordBlocks(assignedChord, lineStr) : [];
+
+                              if (showChords && blocks.length > 0) {
+                                return (
+                                  <div key={lineIdx} className="flex flex-wrap items-end mb-1.5 last:mb-0">
+                                    {blocks.map((b, bIdx) => (
+                                      <div key={bIdx} className="inline-flex flex-col items-start whitespace-pre">
+                                        <span className="font-mono text-amber-600 font-black text-[11px] sm:text-xs leading-none h-[1.15em] select-none">
+                                          {b.chord || ' '}
+                                        </span>
+                                        <span className="text-[10px] sm:text-[11px] md:text-xs font-extrabold text-slate-900 leading-tight uppercase font-sans">
+                                          {b.text}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <p key={lineIdx} className="text-[10px] sm:text-[11px] md:text-xs font-extrabold text-slate-900 leading-tight uppercase tracking-normal font-sans mb-1 last:mb-0">
+                                  {lineStr}
+                                </p>
+                              );
+                            })}
                           </div>
                         );
                       })}

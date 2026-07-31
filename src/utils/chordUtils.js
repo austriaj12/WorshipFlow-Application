@@ -35,8 +35,16 @@ export function getSemitoneDifference(fromKey, toKey) {
   return diff;
 }
 
+export function isFlatKey(keyStr) {
+  if (!keyStr) return false;
+  const k = keyStr.trim();
+  if (k.includes('b')) return true;
+  if (['F', 'BB', 'EB', 'AB', 'DB', 'GB', 'CB'].includes(k.toUpperCase())) return true;
+  return false;
+}
+
 // Transpose a single note (e.g. "C#" or "Ab") by `semitones`
-export function transposeNote(note, semitones, preferFlats = false) {
+export function transposeNote(note, semitones = 0, preferFlats = false) {
   if (!note) return note;
   const upper = note.toUpperCase();
   if (NOTE_TO_SEMITONE[upper] === undefined) return note;
@@ -50,8 +58,8 @@ export function transposeNote(note, semitones, preferFlats = false) {
 }
 
 // Transpose a full chord token (e.g. "A/C#" +2 -> "B/D#", "C#m" +2 -> "D#m")
-export function transposeChordToken(chordStr, semitones, preferFlats = false) {
-  if (!chordStr || semitones === 0) return chordStr;
+export function transposeChordToken(chordStr, semitones = 0, preferFlats = false) {
+  if (!chordStr) return chordStr;
 
   // Handle slash chords (e.g. A/C# -> transpose A and C# separately)
   if (chordStr.includes('/')) {
@@ -92,8 +100,8 @@ export function isChordLine(line) {
 }
 
 // Transpose all chords within a multi-line chord chart string by `semitones`
-export function transposeChordChart(text, semitones, preferFlats = false) {
-  if (!text || semitones === 0) return text;
+export function transposeChordChart(text, semitones = 0, preferFlats = false) {
+  if (!text) return text;
 
   const lines = text.split('\n');
   return lines.map(line => {
@@ -164,15 +172,14 @@ export function parsePresentationLyricsSections(rawLyrics) {
 }
 
 // Smart AI Parser: Converts multi-line chord charts and maps chords directly onto presentation lyrics lines
-export function parseChordChartToSections(rawText, semitones = 0, presentationLyricsRaw = '') {
+export function parseChordChartToSections(rawText, semitones = 0, presentationLyricsRaw = '', preferFlats = false) {
   if (!rawText || !rawText.trim()) return [];
 
-  const textToParse = semitones !== 0 ? transposeChordChart(rawText, semitones) : rawText;
+  const textToParse = transposeChordChart(rawText, semitones, preferFlats);
   const lines = textToParse.split('\n');
   
-  const presentationMap = presentationLyricsRaw ? parsePresentationLyricsSections(presentationLyricsRaw) : {};
-
-  const sections = [];
+  // Step 1: Parse rawText into raw parsed sections
+  const rawSections = [];
   let currentSection = {
     label: 'CHORDS',
     pairs: []
@@ -183,12 +190,7 @@ export function parseChordChartToSections(rawText, semitones = 0, presentationLy
     const line = lines[i];
     const trimmed = line.trim();
 
-    if (!trimmed) {
-      i++;
-      continue;
-    }
-
-    if (/^Key\s*:/i.test(trimmed)) {
+    if (!trimmed || /^Key\s*:/i.test(trimmed)) {
       i++;
       continue;
     }
@@ -197,7 +199,7 @@ export function parseChordChartToSections(rawText, semitones = 0, presentationLy
 
     if (isHeader) {
       if (currentSection.pairs.length > 0) {
-        sections.push(currentSection);
+        rawSections.push(currentSection);
       }
       currentSection = {
         label: trimmed.toUpperCase(),
@@ -241,43 +243,210 @@ export function parseChordChartToSections(rawText, semitones = 0, presentationLy
   }
 
   if (currentSection.pairs.length > 0) {
-    sections.push(currentSection);
+    rawSections.push(currentSection);
   }
 
-  // Smart Section Mapping: If chord summary (e.g. Verse: Db Gb - Db) is provided,
-  // distribute chord progressions onto matching presentation lyrics lines!
-  if (presentationLyricsRaw && sections.length > 0) {
-    sections.forEach(sec => {
-      const secNorm = sec.label.replace(/\s*\d+$/, '').trim();
-      let matchedLyricsLines = null;
+  // If NO presentation lyrics are provided, return rawSections directly
+  if (!presentationLyricsRaw || !presentationLyricsRaw.trim()) {
+    return rawSections;
+  }
 
-      // Find best section match in presentation lyrics
-      Object.keys(presentationMap).forEach(key => {
-        const keyNorm = key.replace(/\s*\d+$/, '').trim();
-        if (keyNorm === secNorm || key.includes(secNorm) || sec.label.includes(keyNorm)) {
-          matchedLyricsLines = presentationMap[key];
-        }
+  // Step 2: Build Section-Chord Dictionary from rawSections
+  const chordDict = {};
+  rawSections.forEach(sec => {
+    const secNorm = sec.label.replace(/[\d\s]+$/, '').trim().toUpperCase();
+    const chordLines = sec.pairs.map(p => p.chords).filter(Boolean);
+    const hasLyricsInPairs = sec.pairs.some(p => p.lyrics && p.lyrics.trim());
+
+    if (!chordDict[secNorm] || !hasLyricsInPairs) {
+      chordDict[secNorm] = {
+        label: sec.label,
+        chordLines,
+        pairs: sec.pairs,
+        hasLyrics: hasLyricsInPairs
+      };
+    }
+  });
+
+  // Step 3: Parse presentation lyrics into structured section map
+  const presentationMap = parsePresentationLyricsSections(presentationLyricsRaw);
+  const presentationKeys = Object.keys(presentationMap);
+
+  const finalSections = [];
+  const processedChordKeys = new Set();
+
+  const findChordMatch = (pKey) => {
+    const pNorm = pKey.replace(/[\d\s]+$/, '').trim().toUpperCase();
+    for (const cKey of Object.keys(chordDict)) {
+      if (pNorm === cKey || pKey.toUpperCase().includes(cKey) || cKey.includes(pNorm)) {
+        return cKey;
+      }
+    }
+    return null;
+  };
+
+  // Map presentation lyrics sections and attach matching chords dynamically
+  presentationKeys.forEach(pKey => {
+    const lyricsLines = presentationMap[pKey];
+    if (!lyricsLines || lyricsLines.length === 0) return;
+
+    const matchedChordKey = findChordMatch(pKey);
+    const newPairs = [];
+
+    if (matchedChordKey && chordDict[matchedChordKey]) {
+      processedChordKeys.add(matchedChordKey);
+      const cData = chordDict[matchedChordKey];
+
+      if (cData.hasLyrics && cData.pairs && cData.pairs.length > 0) {
+        cData.pairs.forEach(p => newPairs.push(p));
+      } else if (cData.chordLines && cData.chordLines.length > 0) {
+        lyricsLines.forEach((lyricLine, idx) => {
+          const assignedChord = cData.chordLines[idx % cData.chordLines.length] || '';
+          newPairs.push({
+            chords: assignedChord,
+            lyrics: lyricLine
+          });
+        });
+      }
+    } else {
+      lyricsLines.forEach(lyricLine => {
+        newPairs.push({ chords: '', lyrics: lyricLine });
+      });
+    }
+
+    finalSections.push({
+      label: pKey,
+      pairs: newPairs
+    });
+  });
+
+  // Include Standalone Instrumental / Chords-Only sections (Intro, Interlude, Post-Chorus, Outro)
+  rawSections.forEach(sec => {
+    const secNorm = sec.label.replace(/[\d\s]+$/, '').trim().toUpperCase();
+    if (!processedChordKeys.has(secNorm)) {
+      const hasPresentationMatch = presentationKeys.some(pk => {
+        const pkNorm = pk.replace(/[\d\s]+$/, '').trim().toUpperCase();
+        return pkNorm === secNorm;
       });
 
-      if (matchedLyricsLines && matchedLyricsLines.length > 0) {
-        const hasLyricsInPairs = sec.pairs.some(p => p.lyrics && p.lyrics.trim());
-        if (!hasLyricsInPairs) {
-          const chordLines = sec.pairs.map(p => p.chords).filter(Boolean);
-          if (chordLines.length > 0) {
-            const newPairs = [];
-            matchedLyricsLines.forEach((lyricLine, idx) => {
-              const assignedChord = chordLines[idx % chordLines.length] || '';
-              newPairs.push({
-                chords: assignedChord,
-                lyrics: lyricLine
-              });
-            });
-            sec.pairs = newPairs;
-          }
+      if (!hasPresentationMatch) {
+        finalSections.push(sec);
+      }
+    }
+  });
+
+  return finalSections;
+}
+
+/**
+ * Parses space-aligned chord line and lyric line OR bracketed line into Word-Block tokens.
+ * Returns Array of { chord: string | null, text: string }
+ */
+export function parseLineToWordBlocks(chordLine = '', lyricLine = '') {
+  if (!chordLine && !lyricLine) return [];
+
+  // Handle ChordPro inline bracket format e.g. [C]SALAMAT SA [G/B]DAKILA
+  if (lyricLine.includes('[') || chordLine.includes('[')) {
+    const textToParse = lyricLine.includes('[') ? lyricLine : chordLine;
+    const blocks = [];
+    const parts = textToParse.split(/(\[[^\]]+\])/);
+    let pendingChord = null;
+
+    for (const part of parts) {
+      if (!part) continue;
+      if (part.startsWith('[') && part.endsWith(']')) {
+        pendingChord = part.slice(1, -1);
+      } else {
+        const words = part.split(/(\s+)/);
+        for (const w of words) {
+          if (!w) continue;
+          blocks.push({
+            chord: pendingChord,
+            text: w
+          });
+          pendingChord = null;
         }
       }
+    }
+    if (pendingChord) {
+      blocks.push({ chord: pendingChord, text: '' });
+    }
+    return blocks;
+  }
+
+  // If no lyrics, return chords as standalone blocks
+  if (!lyricLine || !lyricLine.trim()) {
+    if (!chordLine || !chordLine.trim()) return [];
+    const tokens = chordLine.split(/(\s+)/);
+    return tokens.map(tok => {
+      const clean = tok.replace(/[\(\)\|]/g, '').trim();
+      return {
+        chord: (CHORD_REGEX.test(clean) || clean.includes('/')) ? tok : null,
+        text: tok
+      };
     });
   }
 
-  return sections;
+  // Extract chords with character index positions from chordLine
+  const chordMatches = [];
+  const regex = /\S+/g;
+  let match;
+  while ((match = regex.exec(chordLine)) !== null) {
+    const clean = match[0].replace(/[\(\)\|]/g, '').trim();
+    if (CHORD_REGEX.test(clean) || clean.includes('/')) {
+      chordMatches.push({ chord: match[0], index: match.index });
+    }
+  }
+
+  // If no valid chords found, return lyric tokens
+  if (chordMatches.length === 0) {
+    const words = lyricLine.split(/(\s+)/);
+    return words.map(w => ({ chord: null, text: w }));
+  }
+
+  // Build word blocks by matching character indices
+  const wordBlocks = [];
+  let lyricIdx = 0;
+
+  for (let c = 0; c < chordMatches.length; c++) {
+    const { chord, index } = chordMatches[c];
+    const nextChordIndex = c + 1 < chordMatches.length ? chordMatches[c + 1].index : lyricLine.length;
+
+    // Add unchorded lyrics before this chord position
+    if (index > lyricIdx) {
+      const precedingText = lyricLine.substring(lyricIdx, index);
+      const preWords = precedingText.split(/(\s+)/);
+      for (const pw of preWords) {
+        if (pw) wordBlocks.push({ chord: null, text: pw });
+      }
+      lyricIdx = index;
+    }
+
+    // Capture text segment for this chord up to next chord position
+    const endSegmentIdx = Math.max(lyricIdx + 1, Math.min(nextChordIndex, lyricLine.length));
+    const chordSegmentText = lyricLine.substring(lyricIdx, endSegmentIdx);
+    lyricIdx = endSegmentIdx;
+
+    const segmentWords = chordSegmentText.split(/(\s+)/);
+    let assigned = false;
+    for (const sw of segmentWords) {
+      if (!sw) continue;
+      wordBlocks.push({
+        chord: !assigned ? chord : null,
+        text: sw
+      });
+      assigned = true;
+    }
+  }
+
+  // Append remaining lyrics
+  if (lyricIdx < lyricLine.length) {
+    const remainingText = lyricLine.substring(lyricIdx);
+    const remWords = remainingText.split(/(\s+)/);
+    for (const rw of remWords) {
+      if (rw) wordBlocks.push({ chord: null, text: rw });
+    }
+  }
+
+  return wordBlocks;
 }
