@@ -522,16 +522,12 @@ function OperatorDashboard() {
 
   // Animate the live output preview in the operator panel whenever the slide text changes (2-Phase Exit & Entrance Sequence)
   useEffect(() => {
-    if (!activeSlideText && !prevLiveTextRef.current) {
-      setPreviewDisplayedText(activeSlideText || '');
-      return;
-    }
     if (activeSlideText === prevLiveTextRef.current) return;
 
     const anim = activeSlideStyle?.animation || 'Zoom In/Out';
     const isInstant = anim === 'None' || anim === 'Instant';
 
-    if (isInstant) {
+    if (isInstant || !activeSlideText) {
       prevLiveTextRef.current = activeSlideText;
       setPreviewDisplayedText(activeSlideText || '');
       setLivePreviewFading(false);
@@ -539,7 +535,7 @@ function OperatorDashboard() {
     }
 
     const totalMs = activeSlideStyle?.speed
-      ? parseFloat(activeSlideStyle.speed.match(/\d+(\.\d+)?/)?.[0] || 0.6) * 1000
+      ? parseFloat(activeSlideStyle.speed.toString().match(/\d+(\.\d+)?/)?.[0] || 0.6) * 1000
       : 600;
     const halfMs = Math.max(40, totalMs / 2);
 
@@ -1801,8 +1797,8 @@ function OperatorDashboard() {
     const rawBg = getEffectiveSlideBg(curSlideObj, slidesArr, selectedSong || liveSong);
     
     if (!rawBg || blackout) {
-      setPreviewCurrentBg({ src: '', type: 'none' });
-      setPreviewPrevBg({ src: '', type: 'none' });
+      setPreviewCurrentBg(prev => (prev.src === '' ? prev : { src: '', type: 'none' }));
+      setPreviewPrevBg(prev => (prev.src === '' ? prev : { src: '', type: 'none' }));
       setPreviewIsCrossfading(false);
       return;
     }
@@ -1830,7 +1826,7 @@ function OperatorDashboard() {
 
       return { src: formatted, type };
     });
-  }, [activeSlideIndex, slides, selectedSong, liveSong, blackout]);
+  }, [activeSlideIndex, selectedSong?.id, liveSong?.id, blackout]);
 
   // Metronome Click Track & Voice Cue Auto-Start/Stop Sync Effect
   useEffect(() => {
@@ -3219,16 +3215,18 @@ function OperatorDashboard() {
               )}
               {selectedSong ? (
                 <>
-                  <div className="h-14 border-b border-[var(--border-app)] bg-appPanel/60 px-5 flex items-center justify-between">
-                    <div>
-                      <h2 className="text-sm font-bold text-textMain tracking-wide">{selectedSong.title}</h2>
+                  <div className="min-h-[56px] py-1.5 border-b border-[var(--border-app)] bg-appPanel/60 px-4 flex items-center justify-between flex-wrap sm:flex-nowrap gap-2 overflow-x-auto">
+                    <div className="shrink-0 min-w-0">
+                      <h2 className="text-sm font-bold text-textMain tracking-wide truncate max-w-[140px] sm:max-w-[220px]" title={selectedSong.title}>
+                        {selectedSong.title}
+                      </h2>
                     </div>
-                    <div className="flex items-center gap-6">
-                      {/* Minimal Live Metronome & Click Track Control Bar */}
-                      <div className="flex items-center gap-2 bg-appBg/80 border border-[var(--border-app)] px-2.5 py-1 rounded-lg text-xs font-mono select-none">
+                    <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap shrink-0">
+                      {/* Minimal Live Metronome & Click Track Control Bar (BORDERLESS) */}
+                      <div className="flex items-center gap-2 px-1 py-0.5 rounded-lg text-xs font-mono select-none border-0">
                         {/* Beat Pulse Indicator */}
                         <div 
-                          className={`w-3 h-3 rounded-full transition-all duration-75 ${
+                          className={`w-2.5 h-2.5 rounded-full transition-all duration-75 shrink-0 ${
                             currentBeatIndex === 0 
                               ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.9)] scale-110' 
                               : currentBeatIndex > 0 
@@ -3237,10 +3235,10 @@ function OperatorDashboard() {
                           }`}
                           title={metronomeActive ? `Beat ${currentBeatIndex + 1}` : 'Click Track Inactive'}
                         />
-                        <span className="text-textMain font-bold text-[11px]">
+                        <span className="text-textMain font-bold text-[11px] whitespace-nowrap">
                           {selectedSong.bpm || parseInt(selectedSong.tempo) || 120} BPM
                         </span>
-                        <span className="text-textMuted text-[10px]">
+                        <span className="text-textMuted text-[10px] whitespace-nowrap">
                           ({selectedSong.time_signature || selectedSong.timeSignature || '4/4'})
                         </span>
                         
@@ -3261,7 +3259,7 @@ function OperatorDashboard() {
                             });
                             await fetchSongs();
                           }}
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono transition ${
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono transition whitespace-nowrap ${
                             (selectedSong.enable_click || selectedSong.enableClick)
                               ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-sm' 
                               : 'bg-appBg text-textMuted hover:text-textMain border border-[var(--border-app)]'
@@ -3288,7 +3286,7 @@ function OperatorDashboard() {
                             });
                             await fetchSongs();
                           }}
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono transition ${
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono transition whitespace-nowrap ${
                             (selectedSong.enable_voice_cues || selectedSong.enableVoiceCues)
                               ? 'bg-purple-500/20 text-purple-400 border border-purple-500/40 shadow-sm' 
                               : 'bg-appBg text-textMuted hover:text-textMain border border-[var(--border-app)]'
@@ -3316,7 +3314,7 @@ function OperatorDashboard() {
                             });
                             await fetchSongs();
                           }}
-                          className="p-0.5 px-1.5 bg-appBg border border-[var(--border-app)] rounded text-textMain text-[10px] font-mono focus:outline-none"
+                          className="p-0.5 px-1.5 bg-appBg border border-[var(--border-app)] rounded text-textMain text-[10px] font-mono focus:outline-none whitespace-nowrap"
                           title="Select Voice Gender for Section Cues"
                         >
                           <option value="female">Voice: Female</option>
@@ -3325,15 +3323,15 @@ function OperatorDashboard() {
                       </div>
 
                       {/* Slide Preview Size Control */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-textMuted uppercase tracking-wider font-semibold">Preview Size:</span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="text-[10px] text-textMuted uppercase tracking-wider font-semibold whitespace-nowrap">PREVIEW SIZE:</span>
                         <input 
                           type="range"
                           min="50"
                           max="200"
                           value={slidePreviewSize}
                           onChange={(e) => setSlidePreviewSize(parseInt(e.target.value))}
-                          className="w-24 h-1 bg-[#10141D] rounded-lg appearance-none cursor-pointer accent-brand"
+                          className="w-16 sm:w-20 h-1 bg-[#10141D] rounded-lg appearance-none cursor-pointer accent-brand"
                           title="Slide Preview Size Control"
                         />
                         <input 
@@ -3342,7 +3340,7 @@ function OperatorDashboard() {
                           max="300"
                           value={slidePreviewSize}
                           onChange={(e) => setSlidePreviewSize(Math.min(300, Math.max(30, parseInt(e.target.value) || 100)))}
-                          className="w-12 p-0.5 text-center bg-appBg border border-[var(--border-app)] rounded text-textMain text-[10px] focus:outline-none focus:border-brand font-mono"
+                          className="w-10 p-0.5 text-center bg-appBg border border-[var(--border-app)] rounded text-textMain text-[10px] focus:outline-none focus:border-brand font-mono"
                           title="Slide Preview Size Input"
                         />
                         <span className="text-[10px] font-mono text-textMuted select-none">%</span>
@@ -3351,7 +3349,7 @@ function OperatorDashboard() {
                       {selectedSong.author !== 'PowerPoint Import' && selectedSong.author !== 'PDF Import' && (
                         <button 
                           onClick={handleOpenEdit}
-                          className="flex items-center gap-1 px-2.5 py-1 bg-brand text-white hover:bg-brand/80 rounded text-[11px] font-semibold transition"
+                          className="flex items-center gap-1 px-2.5 py-1 bg-brand text-white hover:bg-brand/80 rounded text-[11px] font-semibold transition shrink-0 whitespace-nowrap"
                         >
                           <Edit className="h-3 w-3" />
                           Edit Song
