@@ -4,6 +4,7 @@ import './index.css';
 import appLogo from './logo.png';
 import BibleMenu from './BibleMenu';
 import { KEYS, getSemitoneDifference, transposeChordChart } from '../utils/chordUtils.js';
+import { metronomeEngine } from '../utils/metronomeEngine';
 import { 
   useLibraryStore, 
   usePresentationStore, 
@@ -47,7 +48,9 @@ import {
   Square,
   Wifi,
   Smartphone,
-  Tv
+  Tv,
+  Repeat,
+  VolumeX
 } from 'lucide-react';
 import QRCode from 'qrcode';
 
@@ -64,13 +67,18 @@ if (typeof URL.parse !== 'function') {
 
 const formatBgPath = (pathStr) => {
   if (!pathStr) return '';
-  if (pathStr.startsWith('#') || pathStr.startsWith('rgb') || pathStr.startsWith('hsl') || pathStr === 'transparent') {
-    return pathStr;
+  let str = pathStr.toString().trim();
+  if (str.startsWith('#') || str.startsWith('rgb') || str.startsWith('hsl') || str === 'transparent') {
+    return str;
   }
-  if (pathStr.startsWith('file:///') || pathStr.startsWith('http://') || pathStr.startsWith('https://') || pathStr.startsWith('worshipflow-asset://')) {
-    return pathStr;
+  if (str.startsWith('http://') || str.startsWith('https://') || str.startsWith('worshipflow-asset://')) {
+    return str;
   }
-  const cleanPath = pathStr.replace(/\\/g, '/');
+  // Strip any accidental multiple file:/// or file:// prefixes (e.g. file:///file:///)
+  while (str.toLowerCase().startsWith('file:/')) {
+    str = str.replace(/^file:\/+/i, '');
+  }
+  const cleanPath = str.replace(/\\/g, '/');
   return `file:///${cleanPath.startsWith('/') ? cleanPath.slice(1) : cleanPath}`;
 };
 
@@ -395,9 +403,27 @@ function OperatorDashboard() {
   const [editSongChordsRaw, setEditSongChordsRaw] = useState('');
   const [songModalTab, setSongModalTab] = useState('lyrics'); // 'lyrics' | 'chords'
 
-  // Song Musical Key states
+  // Song Musical Key & Tempo states
   const [newSongKey, setNewSongKey] = useState('C');
   const [editSongKey, setEditSongKey] = useState('C');
+
+  // Metronome Click Track & Section Voice Cue states
+  const [newSongBpm, setNewSongBpm] = useState(120);
+  const [newSongTimeSignature, setNewSongTimeSignature] = useState('4/4');
+  const [newSongEnableClick, setNewSongEnableClick] = useState(false);
+  const [newSongEnableVoiceCues, setNewSongEnableVoiceCues] = useState(false);
+  const [newSongVoiceGender, setNewSongVoiceGender] = useState('female');
+
+  const [editSongBpm, setEditSongBpm] = useState(120);
+  const [editSongTimeSignature, setEditSongTimeSignature] = useState('4/4');
+  const [editSongEnableClick, setEditSongEnableClick] = useState(false);
+  const [editSongEnableVoiceCues, setEditSongEnableVoiceCues] = useState(false);
+  const [editSongVoiceGender, setEditSongVoiceGender] = useState('female');
+
+  const [metronomeActive, setMetronomeActive] = useState(false);
+  const [currentBeatIndex, setCurrentBeatIndex] = useState(-1);
+  const [selectedAudioDeviceId, setSelectedAudioDeviceId] = useState(() => localStorage.getItem('metronomeAudioDevice') || '');
+  const lastSpokenSectionRef = React.useRef('');
 
   const handleKeyChange = (targetKey, isAddModal) => {
     const currentKey = isAddModal ? newSongKey : editSongKey;
@@ -1444,6 +1470,24 @@ function OperatorDashboard() {
         activeSlide.style,
         isBible
       );
+
+      // Trigger Advance Section Voice Cue ONLY when entering a NEW section (e.g. Verse 1 -> Chorus -> Bridge)
+      const activeSongObj = songObject || selectedSong;
+      if (activeSlide && activeSlide.label && activeSongObj) {
+        const shouldVoiceCue = activeSongObj.enable_voice_cues || activeSongObj.enableVoiceCues;
+        if (shouldVoiceCue) {
+          const rawLabel = activeSlide.label.toString().toUpperCase().trim();
+          let sectionBase = rawLabel.startsWith('VERSE') 
+            ? (rawLabel.split(/\s+/)[0] + ' ' + (rawLabel.match(/\d+/) || ['1'])[0])
+            : rawLabel.replace(/x\d+/gi, '').replace(/\d+/g, '').trim();
+
+          if (sectionBase && sectionBase !== lastSpokenSectionRef.current) {
+            metronomeEngine.setVoiceGender(activeSongObj.voice_gender || activeSongObj.voiceGender || 'female');
+            metronomeEngine.triggerVoiceCue(activeSlide.label);
+            lastSpokenSectionRef.current = sectionBase;
+          }
+        }
+      }
       if (songObject && songObject.author === 'Media') {
         setMediaPlaying(true);
       }
@@ -1727,6 +1771,44 @@ function OperatorDashboard() {
       }
     }
   }, [selectedSong]);
+
+  // Metronome Click Track & Voice Cue Auto-Start/Stop Sync Effect
+  useEffect(() => {
+    if (blackout || clearLyrics || !selectedSong) {
+      metronomeEngine.stop();
+      setMetronomeActive(false);
+      return;
+    }
+
+    const songBpm = selectedSong.bpm || parseInt(selectedSong.tempo) || 120;
+    const songTs = selectedSong.time_signature || selectedSong.timeSignature || '4/4';
+    const shouldClick = !!selectedSong.enable_click || !!selectedSong.enableClick;
+    const shouldVoiceCue = !!selectedSong.enable_voice_cues || !!selectedSong.enableVoiceCues;
+
+    if (shouldClick || shouldVoiceCue) {
+      metronomeEngine.start({
+        bpm: songBpm,
+        timeSignature: songTs,
+        enableClick: shouldClick,
+        enableVoiceCues: shouldVoiceCue,
+        deviceId: selectedAudioDeviceId
+      });
+      setMetronomeActive(true);
+    } else {
+      metronomeEngine.stop();
+      setMetronomeActive(false);
+    }
+  }, [selectedSong, blackout, clearLyrics, selectedAudioDeviceId]);
+
+  // Metronome Visual Beat Pulse Listener
+  useEffect(() => {
+    metronomeEngine.setOnBeatCallback((beatIdx) => {
+      setCurrentBeatIndex(beatIdx);
+    });
+    return () => {
+      metronomeEngine.setOnBeatCallback(null);
+    };
+  }, []);
 
   // Handle incoming mobile remote control WebSocket command events
   useEffect(() => {
@@ -2219,7 +2301,12 @@ function OperatorDashboard() {
         title: newSongTitle,
         author: 'WorshipFlow',
         key: newSongKey,
-        tempo: '',
+        tempo: String(newSongBpm),
+        bpm: newSongBpm,
+        timeSignature: newSongTimeSignature,
+        enableClick: newSongEnableClick,
+        enableVoiceCues: newSongEnableVoiceCues,
+        voiceGender: newSongVoiceGender,
         contentJson,
         chordsText: newSongChordsRaw
       });
@@ -2235,6 +2322,11 @@ function OperatorDashboard() {
       setNewSongSlidesRaw('');
       setNewSongChordsRaw('');
       setNewSongKey('C');
+      setNewSongBpm(120);
+      setNewSongTimeSignature('4/4');
+      setNewSongEnableClick(false);
+      setNewSongEnableVoiceCues(false);
+      setNewSongVoiceGender('female');
       setSongModalTab('lyrics');
       setIsAddSongOpen(false);
     } catch (err) {
@@ -2249,6 +2341,11 @@ function OperatorDashboard() {
     setEditSongSlidesRaw(formatSlidesToRaw(slides));
     setEditSongChordsRaw(selectedSong.chords_text || '');
     setEditSongKey(selectedSong.key || 'C');
+    setEditSongBpm(selectedSong.bpm || parseInt(selectedSong.tempo) || 120);
+    setEditSongTimeSignature(selectedSong.time_signature || selectedSong.timeSignature || '4/4');
+    setEditSongEnableClick(!!selectedSong.enable_click || !!selectedSong.enableClick);
+    setEditSongEnableVoiceCues(!!selectedSong.enable_voice_cues || !!selectedSong.enableVoiceCues);
+    setEditSongVoiceGender(selectedSong.voice_gender || selectedSong.voiceGender || 'female');
     setSongModalTab('lyrics');
 
     if (slides && slides.length > 0) {
@@ -2313,7 +2410,12 @@ function OperatorDashboard() {
         title: editSongTitle,
         author: 'WorshipFlow',
         key: editSongKey,
-        tempo: '',
+        tempo: String(editSongBpm),
+        bpm: editSongBpm,
+        timeSignature: editSongTimeSignature,
+        enableClick: editSongEnableClick,
+        enableVoiceCues: editSongEnableVoiceCues,
+        voiceGender: editSongVoiceGender,
         contentJson,
         chordsText: editSongChordsRaw
       });
@@ -3062,6 +3164,106 @@ function OperatorDashboard() {
                       <h2 className="text-sm font-bold text-textMain tracking-wide">{selectedSong.title}</h2>
                     </div>
                     <div className="flex items-center gap-6">
+                      {/* Minimal Live Metronome & Click Track Control Bar */}
+                      <div className="flex items-center gap-2 bg-appBg/80 border border-[var(--border-app)] px-2.5 py-1 rounded-lg text-xs font-mono select-none">
+                        {/* Beat Pulse Indicator */}
+                        <div 
+                          className={`w-3 h-3 rounded-full transition-all duration-75 ${
+                            currentBeatIndex === 0 
+                              ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.9)] scale-110' 
+                              : currentBeatIndex > 0 
+                                ? 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.8)]' 
+                                : 'bg-slate-700/50'
+                          }`}
+                          title={metronomeActive ? `Beat ${currentBeatIndex + 1}` : 'Click Track Inactive'}
+                        />
+                        <span className="text-textMain font-bold text-[11px]">
+                          {selectedSong.bpm || parseInt(selectedSong.tempo) || 120} BPM
+                        </span>
+                        <span className="text-textMuted text-[10px]">
+                          ({selectedSong.time_signature || selectedSong.timeSignature || '4/4'})
+                        </span>
+                        
+                        {/* Click Track Toggle */}
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const nextClickState = !(selectedSong.enable_click || selectedSong.enableClick);
+                            await saveSong({
+                              ...selectedSong,
+                              bpm: selectedSong.bpm || parseInt(selectedSong.tempo) || 120,
+                              timeSignature: selectedSong.time_signature || '4/4',
+                              enableClick: nextClickState,
+                              enableVoiceCues: !!(selectedSong.enable_voice_cues || selectedSong.enableVoiceCues),
+                              voiceGender: selectedSong.voice_gender || 'female',
+                              contentJson: selectedSong.content_json,
+                              chordsText: selectedSong.chords_text
+                            });
+                            await fetchSongs();
+                          }}
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono transition ${
+                            (selectedSong.enable_click || selectedSong.enableClick)
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-sm' 
+                              : 'bg-appBg text-textMuted hover:text-textMain border border-[var(--border-app)]'
+                          }`}
+                          title="Toggle Click Track for this song"
+                        >
+                          {(selectedSong.enable_click || selectedSong.enableClick) ? 'Click ON' : 'Click OFF'}
+                        </button>
+
+                        {/* Voice Section Cue Toggle */}
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const nextCueState = !(selectedSong.enable_voice_cues || selectedSong.enableVoiceCues);
+                            await saveSong({
+                              ...selectedSong,
+                              bpm: selectedSong.bpm || parseInt(selectedSong.tempo) || 120,
+                              timeSignature: selectedSong.time_signature || '4/4',
+                              enableClick: !!(selectedSong.enable_click || selectedSong.enableClick),
+                              enableVoiceCues: nextCueState,
+                              voiceGender: selectedSong.voice_gender || 'female',
+                              contentJson: selectedSong.content_json,
+                              chordsText: selectedSong.chords_text
+                            });
+                            await fetchSongs();
+                          }}
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono transition ${
+                            (selectedSong.enable_voice_cues || selectedSong.enableVoiceCues)
+                              ? 'bg-purple-500/20 text-purple-400 border border-purple-500/40 shadow-sm' 
+                              : 'bg-appBg text-textMuted hover:text-textMain border border-[var(--border-app)]'
+                          }`}
+                          title="Toggle Advance Voice Cues for Stage Monitoring"
+                        >
+                          {(selectedSong.enable_voice_cues || selectedSong.enableVoiceCues) ? 'Cue ON' : 'Cue OFF'}
+                        </button>
+
+                        {/* Offline Voice Gender Selector */}
+                        <select
+                          value={selectedSong.voice_gender || selectedSong.voiceGender || 'female'}
+                          onChange={async (e) => {
+                            const newGender = e.target.value;
+                            metronomeEngine.setVoiceGender(newGender);
+                            await saveSong({
+                              ...selectedSong,
+                              bpm: selectedSong.bpm || parseInt(selectedSong.tempo) || 120,
+                              timeSignature: selectedSong.time_signature || '4/4',
+                              enableClick: !!(selectedSong.enable_click || selectedSong.enableClick),
+                              enableVoiceCues: !!(selectedSong.enable_voice_cues || selectedSong.enableVoiceCues),
+                              voiceGender: newGender,
+                              contentJson: selectedSong.content_json,
+                              chordsText: selectedSong.chords_text
+                            });
+                            await fetchSongs();
+                          }}
+                          className="p-0.5 px-1.5 bg-appBg border border-[var(--border-app)] rounded text-textMain text-[10px] font-mono focus:outline-none"
+                          title="Select Voice Gender for Section Cues"
+                        >
+                          <option value="female">Voice: Female</option>
+                          <option value="male">Voice: Male</option>
+                        </select>
+                      </div>
+
                       {/* Slide Preview Size Control */}
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] text-textMuted uppercase tracking-wider font-semibold">Preview Size:</span>
@@ -3100,19 +3302,19 @@ function OperatorDashboard() {
 
                   {/* Slides Grid / Media Player */}
                   {isMediaItem ? (
-                    /* High-fidelity premium media player interface */
-                    <div className="flex-1 flex flex-col items-center justify-center p-6 bg-appBg/50 overflow-y-auto">
-                      <div className="flex flex-col items-center justify-center max-w-xl w-full space-y-6">
-                        {/* Media Header with Badge */}
-                        <div className="flex justify-between items-center w-full pb-3 border-b border-[var(--border-app)]/30">
-                          <h3 className="text-sm font-bold text-textMain tracking-wide truncate max-w-[70%]">{selectedSong.title}</h3>
-                          <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase tracking-wider bg-brand/20 text-brand`}>
+                    /* Minimal Integrated Media Player Interface */
+                    <div className="flex-1 flex flex-col items-center justify-center p-4 bg-appBg/50 overflow-y-auto">
+                      <div className="flex flex-col items-center justify-center max-w-2xl w-full space-y-3">
+                        {/* Media Title & Type Header */}
+                        <div className="flex justify-between items-center w-full px-1">
+                          <h3 className="text-sm font-bold text-textMain tracking-wide truncate max-w-[75%]">{selectedSong.title}</h3>
+                          <span className="px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase tracking-wider bg-brand/20 text-brand border border-brand/30">
                             {getMediaType(slides[0]?.bgAsset).toUpperCase()}
                           </span>
                         </div>
 
-                        {/* Player Preview Canvas */}
-                        <div className="aspect-video w-full max-w-lg bg-black rounded-xl border border-[var(--border-app)] relative overflow-hidden flex items-center justify-center shadow-inner">
+                        {/* Video / Audio Container with Attached Controls at Bottom */}
+                        <div className="aspect-video w-full max-w-xl bg-black rounded-xl border border-[var(--border-app)] relative overflow-hidden flex items-center justify-center shadow-2xl group">
                           {getMediaType(slides[0]?.bgAsset) === 'video' && (
                             <video 
                               ref={operatorMediaRef}
@@ -3144,88 +3346,86 @@ function OperatorDashboard() {
                               />
                             </div>
                           )}
-                        </div>
 
-                        {/* Player Custom Professional Controller Bar */}
-                        <div className="w-full bg-[#1e293b]/30 border border-[var(--border-app)] rounded-xl px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                          {/* Project Live Button */}
-                          <button
-                            onClick={() => handleSelectSlide(0, slides, selectedSong)}
-                            className={`px-4 py-2.5 rounded-lg font-extrabold text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all ${
-                              liveSong && selectedSong && liveSong.id === selectedSong.id
-                                ? 'bg-emerald-700/35 text-emerald-400 border border-emerald-500/30 cursor-default'
-                                : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg active:scale-95'
-                            }`}
-                          >
-                            <Tv className="h-4 w-4" />
-                            {liveSong && selectedSong && liveSong.id === selectedSong.id ? 'Live on Projector' : 'Project Live'}
-                          </button>
-
-                          {/* Playback Controls Group */}
-                          <div className="flex items-center gap-3">
+                          {/* Minimal Integrated Media Controls attached directly at the bottom edge of the video preview */}
+                          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/95 via-black/80 to-transparent p-3 pt-6 flex items-center justify-between gap-3 z-20 backdrop-blur-[2px]">
+                            {/* Live Projection Toggle Button */}
                             <button
-                              onClick={() => setMediaPlaying(true)}
-                              className={`p-2.5 rounded-lg transition-all ${
-                                mediaPlaying 
-                                  ? 'bg-brand text-white shadow-lg shadow-brand/20' 
-                                  : 'bg-[#10141D] text-textMuted hover:text-textMain hover:bg-[#10141D]/80'
+                              onClick={() => handleSelectSlide(0, slides, selectedSong)}
+                              className={`px-3 py-1.5 rounded font-extrabold text-[11px] uppercase tracking-wider flex items-center gap-1.5 transition-all ${
+                                liveSong && selectedSong && liveSong.id === selectedSong.id
+                                  ? 'bg-emerald-500/25 text-emerald-400 border border-emerald-500/40'
+                                  : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-md active:scale-95'
                               }`}
-                              title="Play"
                             >
-                              <Play className="h-4 w-4 fill-current" />
-                            </button>
-                            
-                            <button
-                              onClick={() => setMediaPlaying(false)}
-                              className={`p-2.5 rounded-lg transition-all ${
-                                !mediaPlaying 
-                                  ? 'bg-[#E2E8F0] text-slate-900 shadow-lg' 
-                                  : 'bg-[#10141D] text-textMuted hover:text-textMain hover:bg-[#10141D]/80'
-                              }`}
-                              title="Pause"
-                            >
-                              <Pause className="h-4 w-4 fill-current" />
+                              <Tv className="h-3.5 w-3.5" />
+                              {liveSong && selectedSong && liveSong.id === selectedSong.id ? 'Live on Projector' : 'Project Live'}
                             </button>
 
-                            <button
-                              onClick={() => {
-                                setMediaPlaying(false);
-                                if (operatorMediaRef.current) {
-                                  operatorMediaRef.current.currentTime = 0;
-                                }
-                              }}
-                              className="p-2.5 rounded-lg bg-[#10141D] text-textMuted hover:text-textMain hover:bg-[#10141D]/80 transition-all"
-                              title="Stop & Reset"
-                            >
-                              <Square className="h-4 w-4 fill-current" />
-                            </button>
-                            
-                            {/* Loop Video/Audio Toggle */}
-                            <button
-                              onClick={() => setMediaLoop(!mediaLoop)}
-                              className={`p-2.5 rounded-lg transition-all ${
-                                mediaLoop 
-                                  ? 'bg-emerald-500/20 border border-emerald-500 text-emerald-400 font-bold' 
-                                  : 'bg-[#10141D] border border-transparent text-textMuted hover:text-textMain'
-                              }`}
-                              title="Toggle Loop"
-                            >
-                              <Sliders className="h-4 w-4" />
-                            </button>
-                          </div>
+                            {/* Playback Transport Controls (Play/Pause, Stop, Loop) */}
+                            <div className="flex items-center gap-1.5">
+                              {/* Play / Pause Toggle */}
+                              <button
+                                onClick={() => setMediaPlaying(!mediaPlaying)}
+                                className={`p-1.5 px-2.5 rounded text-xs font-bold transition flex items-center gap-1 ${
+                                  mediaPlaying 
+                                    ? 'bg-brand text-white shadow-md' 
+                                    : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'
+                                }`}
+                                title={mediaPlaying ? 'Pause Playback' : 'Play Media'}
+                              >
+                                {mediaPlaying ? <Pause className="h-3.5 w-3.5 fill-current" /> : <Play className="h-3.5 w-3.5 fill-current" />}
+                                <span>{mediaPlaying ? 'Pause' : 'Play'}</span>
+                              </button>
 
-                          {/* Volume Slider Group */}
-                          <div className="flex items-center gap-3 flex-1 max-w-[200px]">
-                            <Volume2 className="h-4 w-4 text-textMuted" />
-                            <input 
-                              type="range"
-                              min="0"
-                              max="100"
-                              value={mediaVolume}
-                              onChange={(e) => setMediaVolume(parseInt(e.target.value))}
-                              className="w-full h-1.5 bg-[#10141D] rounded-lg appearance-none cursor-pointer accent-brand"
-                            />
-                            <span className="text-[10px] font-mono text-textMuted w-8 text-right">{mediaVolume}%</span>
+                              {/* Stop & Reset */}
+                              <button
+                                onClick={() => {
+                                  setMediaPlaying(false);
+                                  if (operatorMediaRef.current) {
+                                    operatorMediaRef.current.currentTime = 0;
+                                  }
+                                }}
+                                className="p-1.5 rounded bg-white/10 hover:bg-white/20 text-white/80 hover:text-white border border-white/10 transition"
+                                title="Stop Playback"
+                              >
+                                <Square className="h-3.5 w-3.5 fill-current" />
+                              </button>
+
+                              {/* Accurate Loop Icon (Lucide Repeat) */}
+                              <button
+                                onClick={() => setMediaLoop(!mediaLoop)}
+                                className={`px-2 py-1 rounded text-xs font-mono font-bold transition flex items-center gap-1 border ${
+                                  mediaLoop 
+                                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50' 
+                                    : 'bg-white/5 text-white/60 border-white/10 hover:text-white'
+                                }`}
+                                title="Toggle Video Loop"
+                              >
+                                <Repeat className="h-3.5 w-3.5" />
+                                <span>Loop {mediaLoop ? 'ON' : 'OFF'}</span>
+                              </button>
+                            </div>
+
+                            {/* Volume & Mute Controls */}
+                            <div className="flex items-center gap-2 max-w-[140px]">
+                              <button
+                                onClick={() => setMediaVolume(mediaVolume > 0 ? 0 : 100)}
+                                className="text-white/70 hover:text-white transition"
+                                title={mediaVolume > 0 ? 'Mute' : 'Unmute'}
+                              >
+                                {mediaVolume > 0 ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5 text-red-400" />}
+                              </button>
+                              <input 
+                                type="range"
+                                min="0"
+                                max="100"
+                                value={mediaVolume}
+                                onChange={(e) => setMediaVolume(parseInt(e.target.value))}
+                                className="w-full h-1 bg-white/30 rounded appearance-none cursor-pointer accent-brand"
+                              />
+                              <span className="text-[10px] font-mono text-white/70 w-6 text-right">{mediaVolume}%</span>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -5377,30 +5577,105 @@ function OperatorDashboard() {
                 }}
                 className="lg:col-span-7 flex flex-col gap-4 overflow-y-auto pr-1 text-xs"
               >
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                  <div className="md:col-span-3 flex flex-col gap-1.5">
-                    <label className="text-textMuted font-semibold font-mono text-[11px]">Song Title</label>
-                    <input 
-                      type="text" 
-                      required 
-                      placeholder="" 
-                      value={newSongTitle}
-                      onChange={e => setNewSongTitle(e.target.value)}
-                      className="p-2.5 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain focus:outline-none"
-                    />
+                <div className="flex flex-col gap-2 bg-appBg/60 border border-[var(--border-app)] p-3 rounded-lg">
+                  {/* Row 1: Title, Key, BPM, Time Sig */}
+                  <div className="grid grid-cols-12 gap-2 items-end">
+                    <div className="col-span-12 md:col-span-5 flex flex-col gap-1">
+                      <label className="text-textMuted font-semibold font-mono text-[10px] uppercase tracking-wider">Song Title</label>
+                      <input 
+                        type="text" 
+                        required 
+                        placeholder="Title" 
+                        value={newSongTitle}
+                        onChange={e => setNewSongTitle(e.target.value)}
+                        className="p-1.5 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain focus:outline-none text-xs font-semibold"
+                      />
+                    </div>
+
+                    <div className="col-span-4 md:col-span-2 flex flex-col gap-1">
+                      <label className="text-textMuted font-semibold font-mono text-[10px] uppercase tracking-wider">Key</label>
+                      <select
+                        value={newSongKey}
+                        onChange={e => handleKeyChange(e.target.value, true)}
+                        className="p-1.5 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain font-mono font-bold focus:outline-none text-xs"
+                      >
+                        {KEYS.map(k => (
+                          <option key={k} value={k}>{k}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="col-span-4 md:col-span-2 flex flex-col gap-1">
+                      <label className="text-textMuted font-semibold font-mono text-[10px] uppercase tracking-wider">BPM</label>
+                      <input 
+                        type="number"
+                        min="30"
+                        max="300"
+                        value={newSongBpm}
+                        onChange={e => setNewSongBpm(parseInt(e.target.value) || 120)}
+                        className="p-1.5 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain font-mono font-bold focus:outline-none text-xs text-center"
+                      />
+                    </div>
+
+                    <div className="col-span-4 md:col-span-3 flex flex-col gap-1">
+                      <label className="text-textMuted font-semibold font-mono text-[10px] uppercase tracking-wider">Time Sig.</label>
+                      <select
+                        value={newSongTimeSignature}
+                        onChange={e => setNewSongTimeSignature(e.target.value)}
+                        className="p-1.5 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain font-mono font-bold focus:outline-none text-xs"
+                      >
+                        <option value="4/4">4/4</option>
+                        <option value="3/4">3/4</option>
+                        <option value="6/8">6/8</option>
+                        <option value="2/4">2/4</option>
+                      </select>
+                    </div>
                   </div>
 
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-textMuted font-semibold font-mono text-[11px]">Song Key</label>
-                    <select
-                      value={newSongKey}
-                      onChange={e => handleKeyChange(e.target.value, true)}
-                      className="p-2.5 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain font-mono font-bold focus:outline-none"
-                    >
-                      {KEYS.map(k => (
-                        <option key={k} value={k}>Key: {k}</option>
-                      ))}
-                    </select>
+                  {/* Row 2: Metronome & Voice Cue Controls (Cleanly positioned below!) */}
+                  <div className="flex items-center justify-between pt-2 border-t border-[var(--border-app)]/40 text-xs">
+                    <span className="text-[10px] font-mono font-bold text-textMuted uppercase tracking-wider">Metronome & Voice Cues</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setNewSongEnableClick(!newSongEnableClick)}
+                        className={`px-2.5 py-1 rounded text-[11px] font-bold font-mono transition border ${
+                          newSongEnableClick 
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' 
+                            : 'bg-appBg text-textMuted border-[var(--border-app)] hover:text-textMain'
+                        }`}
+                        title="Toggle Click Track"
+                      >
+                        Click {newSongEnableClick ? 'ON' : 'OFF'}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setNewSongEnableVoiceCues(!newSongEnableVoiceCues)}
+                        className={`px-2.5 py-1 rounded text-[11px] font-bold font-mono transition border ${
+                          newSongEnableVoiceCues 
+                            ? 'bg-purple-500/20 text-purple-400 border-purple-500/40' 
+                            : 'bg-appBg text-textMuted border-[var(--border-app)] hover:text-textMain'
+                        }`}
+                        title="Toggle Section Voice Cues"
+                      >
+                        Cue {newSongEnableVoiceCues ? 'ON' : 'OFF'}
+                      </button>
+
+                      <select
+                        value={newSongVoiceGender}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setNewSongVoiceGender(val);
+                          metronomeEngine.setVoiceGender(val);
+                        }}
+                        className="p-1 px-2 bg-appBg border border-[var(--border-app)] rounded text-textMain text-[11px] font-mono focus:outline-none"
+                        title="Voice Gender for Section Cues"
+                      >
+                        <option value="female">Female Voice</option>
+                        <option value="male">Male Voice</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
 
@@ -5435,14 +5710,14 @@ function OperatorDashboard() {
 
                 {songModalTab === 'lyrics' ? (
                   <>
-                    {/* Text Styling toolbar */}
-                    <div className="bg-appBg border border-[var(--border-app)] rounded-t-lg p-3 grid grid-cols-4 md:grid-cols-7 gap-3 items-end">
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">Font</label>
+                    {/* Text Styling toolbar - Compact & Ultra-tight */}
+                    <div className="bg-appBg border border-[var(--border-app)] rounded-t-lg p-2.5 flex flex-wrap gap-x-1.5 gap-y-2.5 items-end text-xs">
+                      <div className="flex flex-col gap-0.5 min-w-[95px] flex-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">Font</label>
                         <select 
                           value={songFont} 
                           onChange={e => setSongFont(e.target.value)}
-                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none text-xs w-full"
                         >
                           <option value="Inter">Inter</option>
                           <option value="Poppins">Poppins</option>
@@ -5468,22 +5743,22 @@ function OperatorDashboard() {
                         </select>
                       </div>
                       
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">Size (px)</label>
+                      <div className="flex flex-col gap-0.5 w-14">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">Size (px)</label>
                         <input 
                           type="number" 
                           value={songSize} 
                           onChange={e => setSongSize(parseInt(e.target.value) || 60)}
-                          className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none text-xs font-mono"
                         />
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">Weight</label>
+                      <div className="flex flex-col gap-0.5 min-w-[85px]">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">Weight</label>
                         <select 
                           value={songWeight} 
                           onChange={e => setSongWeight(e.target.value)}
-                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none text-xs w-full"
                         >
                           <option value="normal">Normal</option>
                           <option value="semibold">Semibold</option>
@@ -5492,8 +5767,8 @@ function OperatorDashboard() {
                         </select>
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">Line Spacing</label>
+                      <div className="flex flex-col gap-0.5 w-16">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">Line Spacing</label>
                         <input 
                           type="number" 
                           step="0.1"
@@ -5501,54 +5776,54 @@ function OperatorDashboard() {
                           max="3.0"
                           value={songLineHeight} 
                           onChange={e => setSongLineHeight(parseFloat(e.target.value) || 1.4)}
-                          className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none text-xs font-mono"
                         />
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">Char Spacing</label>
+                      <div className="flex flex-col gap-0.5 w-16">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">Char Spacing</label>
                         <input 
                           type="number" 
                           min="-5"
                           max="20"
                           value={songLetterSpacing} 
                           onChange={e => setSongLetterSpacing(parseInt(e.target.value) || 0)}
-                          className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none text-xs font-mono"
                         />
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">Color</label>
-                        <div className="flex gap-1 items-center">
+                      <div className="flex flex-col gap-0.5">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">Color</label>
+                        <div className="flex gap-1 items-center bg-appPanel border border-[var(--border-app)] px-1 py-0.5 rounded h-[26px]">
                           <input 
                             type="color" 
                             value={songColor} 
                             onChange={e => setSongColor(e.target.value)}
-                            className="w-6 h-5 bg-transparent border-0 cursor-pointer p-0"
+                            className="w-4 h-4 bg-transparent border-0 cursor-pointer p-0"
                           />
                           <span className="text-[8px] font-mono text-textMuted uppercase">{songColor}</span>
                         </div>
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">Bg Color</label>
-                        <div className="flex gap-1 items-center">
+                      <div className="flex flex-col gap-0.5">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">Bg Color</label>
+                        <div className="flex gap-1 items-center bg-appPanel border border-[var(--border-app)] px-1 py-0.5 rounded h-[26px]">
                           <input 
                             type="color" 
                             value={songBgColor} 
                             onChange={e => setSongBgColor(e.target.value)}
-                            className="w-6 h-5 bg-transparent border-0 cursor-pointer p-0"
+                            className="w-4 h-4 bg-transparent border-0 cursor-pointer p-0"
                           />
                           <span className="text-[8px] font-mono text-textMuted uppercase">{songBgColor}</span>
                         </div>
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">Bg Opacity</label>
+                      <div className="flex flex-col gap-0.5 min-w-[70px]">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">Bg Opacity</label>
                         <select 
                           value={songBgOpacity} 
                           onChange={e => setSongBgOpacity(e.target.value)}
-                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none text-xs font-mono"
                         >
                           <option value="0%">0%</option>
                           <option value="20%">20%</option>
@@ -5559,12 +5834,12 @@ function OperatorDashboard() {
                         </select>
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">Align</label>
+                      <div className="flex flex-col gap-0.5 min-w-[80px]">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">Align</label>
                         <select 
                           value={songAlign} 
                           onChange={e => setSongAlign(e.target.value)}
-                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none text-xs w-full"
                         >
                           <option value="left">Left</option>
                           <option value="center">Center</option>
@@ -5572,12 +5847,12 @@ function OperatorDashboard() {
                         </select>
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">Vertical</label>
+                      <div className="flex flex-col gap-0.5 min-w-[80px]">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">Vertical</label>
                         <select 
                           value={songVertical} 
                           onChange={e => setSongVertical(e.target.value)}
-                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none text-xs w-full"
                         >
                           <option value="top">Top</option>
                           <option value="center">Center</option>
@@ -5585,49 +5860,49 @@ function OperatorDashboard() {
                         </select>
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">BG Height (%)</label>
+                      <div className="flex flex-col gap-0.5 w-16">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">BG Height</label>
                         <input 
                           type="number" 
                           min="10"
                           max="100"
                           value={songBgHeight} 
                           onChange={e => setSongBgHeight(parseInt(e.target.value) || 100)}
-                          className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none text-xs font-mono"
                         />
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">BG Width (%)</label>
+                      <div className="flex flex-col gap-0.5 w-16">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">BG Width</label>
                         <input 
                           type="number" 
                           min="10"
                           max="100"
                           value={songBgWidth} 
                           onChange={e => setSongBgWidth(parseInt(e.target.value) || 100)}
-                          className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none text-xs font-mono"
                         />
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">BG Radius (px)</label>
+                      <div className="flex flex-col gap-0.5 w-16">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">BG Radius</label>
                         <input 
                           type="number" 
                           min="0"
                           max="100"
                           value={songBgRadius} 
                           onChange={e => setSongBgRadius(parseInt(e.target.value) || 0)}
-                          className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none text-xs font-mono"
                         />
                       </div>
 
-                      <div className="flex flex-col gap-1 col-span-2">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">Anim & Speed</label>
-                        <div className="flex gap-2">
+                      <div className="flex flex-col gap-0.5 min-w-[210px] flex-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">Anim & Speed</label>
+                        <div className="flex gap-1">
                           <select 
                             value={songAnimation} 
                             onChange={e => setSongAnimation(e.target.value)}
-                            className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none flex-1"
+                            className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none text-xs flex-1"
                           >
                             <option value="None">None</option>
                             <option value="Fade">Fade</option>
@@ -5639,7 +5914,7 @@ function OperatorDashboard() {
                           <select 
                             value={songSpeed} 
                             onChange={e => setSongSpeed(e.target.value)}
-                            className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none flex-1"
+                            className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none text-xs flex-1"
                           >
                             <option value="Fast (0.3s)">Fast (0.3s)</option>
                             <option value="Medium (0.6s)">Medium (0.6s)</option>
@@ -5853,30 +6128,105 @@ function OperatorDashboard() {
                 }}
                 className="lg:col-span-7 flex flex-col gap-4 overflow-y-auto pr-1 text-xs"
               >
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                  <div className="md:col-span-3 flex flex-col gap-1.5">
-                    <label className="text-textMuted font-semibold font-mono text-[11px]">Song Title</label>
-                    <input 
-                      type="text" 
-                      required 
-                      placeholder=""
-                      value={editSongTitle}
-                      onChange={e => setEditSongTitle(e.target.value)}
-                      className="p-2.5 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain focus:outline-none"
-                    />
+                <div className="flex flex-col gap-2 bg-appBg/60 border border-[var(--border-app)] p-3 rounded-lg">
+                  {/* Row 1: Title, Key, BPM, Time Sig */}
+                  <div className="grid grid-cols-12 gap-2 items-end">
+                    <div className="col-span-12 md:col-span-5 flex flex-col gap-1">
+                      <label className="text-textMuted font-semibold font-mono text-[10px] uppercase tracking-wider">Song Title</label>
+                      <input 
+                        type="text" 
+                        required 
+                        placeholder="Title" 
+                        value={editSongTitle}
+                        onChange={e => setEditSongTitle(e.target.value)}
+                        className="p-1.5 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain focus:outline-none text-xs font-semibold"
+                      />
+                    </div>
+
+                    <div className="col-span-4 md:col-span-2 flex flex-col gap-1">
+                      <label className="text-textMuted font-semibold font-mono text-[10px] uppercase tracking-wider">Key</label>
+                      <select
+                        value={editSongKey}
+                        onChange={e => handleKeyChange(e.target.value, false)}
+                        className="p-1.5 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain font-mono font-bold focus:outline-none text-xs"
+                      >
+                        {KEYS.map(k => (
+                          <option key={k} value={k}>{k}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="col-span-4 md:col-span-2 flex flex-col gap-1">
+                      <label className="text-textMuted font-semibold font-mono text-[10px] uppercase tracking-wider">BPM</label>
+                      <input 
+                        type="number"
+                        min="30"
+                        max="300"
+                        value={editSongBpm}
+                        onChange={e => setEditSongBpm(parseInt(e.target.value) || 120)}
+                        className="p-1.5 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain font-mono font-bold focus:outline-none text-xs text-center"
+                      />
+                    </div>
+
+                    <div className="col-span-4 md:col-span-3 flex flex-col gap-1">
+                      <label className="text-textMuted font-semibold font-mono text-[10px] uppercase tracking-wider">Time Sig.</label>
+                      <select
+                        value={editSongTimeSignature}
+                        onChange={e => setEditSongTimeSignature(e.target.value)}
+                        className="p-1.5 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain font-mono font-bold focus:outline-none text-xs"
+                      >
+                        <option value="4/4">4/4</option>
+                        <option value="3/4">3/4</option>
+                        <option value="6/8">6/8</option>
+                        <option value="2/4">2/4</option>
+                      </select>
+                    </div>
                   </div>
 
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-textMuted font-semibold font-mono text-[11px]">Song Key</label>
-                    <select
-                      value={editSongKey}
-                      onChange={e => handleKeyChange(e.target.value, false)}
-                      className="p-2.5 bg-appBg border border-[var(--border-app)] rounded focus:border-brand text-textMain font-mono font-bold focus:outline-none"
-                    >
-                      {KEYS.map(k => (
-                        <option key={k} value={k}>Key: {k}</option>
-                      ))}
-                    </select>
+                  {/* Row 2: Metronome & Voice Cue Controls (Cleanly positioned below!) */}
+                  <div className="flex items-center justify-between pt-2 border-t border-[var(--border-app)]/40 text-xs">
+                    <span className="text-[10px] font-mono font-bold text-textMuted uppercase tracking-wider">Metronome & Voice Cues</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditSongEnableClick(!editSongEnableClick)}
+                        className={`px-2.5 py-1 rounded text-[11px] font-bold font-mono transition border ${
+                          editSongEnableClick 
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' 
+                            : 'bg-appBg text-textMuted border-[var(--border-app)] hover:text-textMain'
+                        }`}
+                        title="Toggle Click Track"
+                      >
+                        Click {editSongEnableClick ? 'ON' : 'OFF'}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setEditSongEnableVoiceCues(!editSongEnableVoiceCues)}
+                        className={`px-2.5 py-1 rounded text-[11px] font-bold font-mono transition border ${
+                          editSongEnableVoiceCues 
+                            ? 'bg-purple-500/20 text-purple-400 border-purple-500/40' 
+                            : 'bg-appBg text-textMuted border-[var(--border-app)] hover:text-textMain'
+                        }`}
+                        title="Toggle Section Voice Cues"
+                      >
+                        Cue {editSongEnableVoiceCues ? 'ON' : 'OFF'}
+                      </button>
+
+                      <select
+                        value={editSongVoiceGender}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setEditSongVoiceGender(val);
+                          metronomeEngine.setVoiceGender(val);
+                        }}
+                        className="p-1 px-2 bg-appBg border border-[var(--border-app)] rounded text-textMain text-[11px] font-mono focus:outline-none"
+                        title="Voice Gender for Section Cues"
+                      >
+                        <option value="female">Female Voice</option>
+                        <option value="male">Male Voice</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
 
@@ -5911,14 +6261,14 @@ function OperatorDashboard() {
 
                 {songModalTab === 'lyrics' ? (
                   <>
-                    {/* Text Styling toolbar */}
-                    <div className="bg-appBg border border-[var(--border-app)] rounded-t-lg p-3 grid grid-cols-4 md:grid-cols-7 gap-3 items-end">
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">Font</label>
+                    {/* Text Styling toolbar - Compact & Ultra-tight */}
+                    <div className="bg-appBg border border-[var(--border-app)] rounded-t-lg p-2.5 flex flex-wrap gap-x-1.5 gap-y-2.5 items-end text-xs">
+                      <div className="flex flex-col gap-0.5 min-w-[95px] flex-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">Font</label>
                         <select 
                           value={songFont} 
                           onChange={e => setSongFont(e.target.value)}
-                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none text-xs w-full"
                         >
                           <option value="Inter">Inter</option>
                           <option value="Poppins">Poppins</option>
@@ -5944,22 +6294,22 @@ function OperatorDashboard() {
                         </select>
                       </div>
                       
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">Size (px)</label>
+                      <div className="flex flex-col gap-0.5 w-14">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">Size (px)</label>
                         <input 
                           type="number" 
                           value={songSize} 
                           onChange={e => setSongSize(parseInt(e.target.value) || 60)}
-                          className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none text-xs font-mono"
                         />
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">Weight</label>
+                      <div className="flex flex-col gap-0.5 min-w-[85px]">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">Weight</label>
                         <select 
                           value={songWeight} 
                           onChange={e => setSongWeight(e.target.value)}
-                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none text-xs w-full"
                         >
                           <option value="normal">Normal</option>
                           <option value="semibold">Semibold</option>
@@ -5968,8 +6318,8 @@ function OperatorDashboard() {
                         </select>
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">Line Spacing</label>
+                      <div className="flex flex-col gap-0.5 w-16">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">Line Spacing</label>
                         <input 
                           type="number" 
                           step="0.1"
@@ -5977,54 +6327,54 @@ function OperatorDashboard() {
                           max="3.0"
                           value={songLineHeight} 
                           onChange={e => setSongLineHeight(parseFloat(e.target.value) || 1.4)}
-                          className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none text-xs font-mono"
                         />
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">Char Spacing</label>
+                      <div className="flex flex-col gap-0.5 w-16">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">Char Spacing</label>
                         <input 
                           type="number" 
                           min="-5"
                           max="20"
                           value={songLetterSpacing} 
                           onChange={e => setSongLetterSpacing(parseInt(e.target.value) || 0)}
-                          className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none text-xs font-mono"
                         />
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">Color</label>
-                        <div className="flex gap-1 items-center">
+                      <div className="flex flex-col gap-0.5">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">Color</label>
+                        <div className="flex gap-1 items-center bg-appPanel border border-[var(--border-app)] px-1 py-0.5 rounded h-[26px]">
                           <input 
                             type="color" 
                             value={songColor} 
                             onChange={e => setSongColor(e.target.value)}
-                            className="w-6 h-5 bg-transparent border-0 cursor-pointer p-0"
+                            className="w-4 h-4 bg-transparent border-0 cursor-pointer p-0"
                           />
                           <span className="text-[8px] font-mono text-textMuted uppercase">{songColor}</span>
                         </div>
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">Bg Color</label>
-                        <div className="flex gap-1 items-center">
+                      <div className="flex flex-col gap-0.5">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">Bg Color</label>
+                        <div className="flex gap-1 items-center bg-appPanel border border-[var(--border-app)] px-1 py-0.5 rounded h-[26px]">
                           <input 
                             type="color" 
                             value={songBgColor} 
                             onChange={e => setSongBgColor(e.target.value)}
-                            className="w-6 h-5 bg-transparent border-0 cursor-pointer p-0"
+                            className="w-4 h-4 bg-transparent border-0 cursor-pointer p-0"
                           />
                           <span className="text-[8px] font-mono text-textMuted uppercase">{songBgColor}</span>
                         </div>
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">Bg Opacity</label>
+                      <div className="flex flex-col gap-0.5 min-w-[70px]">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">Bg Opacity</label>
                         <select 
                           value={songBgOpacity} 
                           onChange={e => setSongBgOpacity(e.target.value)}
-                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none text-xs font-mono"
                         >
                           <option value="0%">0%</option>
                           <option value="20%">20%</option>
@@ -6035,12 +6385,12 @@ function OperatorDashboard() {
                         </select>
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">Align</label>
+                      <div className="flex flex-col gap-0.5 min-w-[80px]">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">Align</label>
                         <select 
                           value={songAlign} 
                           onChange={e => setSongAlign(e.target.value)}
-                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none text-xs w-full"
                         >
                           <option value="left">Left</option>
                           <option value="center">Center</option>
@@ -6048,12 +6398,12 @@ function OperatorDashboard() {
                         </select>
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">Vertical</label>
+                      <div className="flex flex-col gap-0.5 min-w-[80px]">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">Vertical</label>
                         <select 
                           value={songVertical} 
                           onChange={e => setSongVertical(e.target.value)}
-                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none"
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none text-xs w-full"
                         >
                           <option value="top">Top</option>
                           <option value="center">Center</option>
@@ -6061,49 +6411,49 @@ function OperatorDashboard() {
                         </select>
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">BG Height (%)</label>
+                      <div className="flex flex-col gap-0.5 w-16">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">BG Height</label>
                         <input 
                           type="number" 
                           min="10"
                           max="100"
                           value={songBgHeight} 
                           onChange={e => setSongBgHeight(parseInt(e.target.value) || 100)}
-                          className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none text-xs font-mono"
                         />
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">BG Width (%)</label>
+                      <div className="flex flex-col gap-0.5 w-16">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">BG Width</label>
                         <input 
                           type="number" 
                           min="10"
                           max="100"
                           value={songBgWidth} 
                           onChange={e => setSongBgWidth(parseInt(e.target.value) || 100)}
-                          className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none text-xs font-mono"
                         />
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">BG Radius (px)</label>
+                      <div className="flex flex-col gap-0.5 w-16">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">BG Radius</label>
                         <input 
                           type="number" 
                           min="0"
                           max="100"
                           value={songBgRadius} 
                           onChange={e => setSongBgRadius(parseInt(e.target.value) || 0)}
-                          className="p-0.5 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none"
+                          className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain text-center focus:outline-none text-xs font-mono"
                         />
                       </div>
 
-                      <div className="flex flex-col gap-1 col-span-2">
-                        <label className="text-[9px] text-textMuted uppercase font-mono">Anim & Speed</label>
-                        <div className="flex gap-2">
+                      <div className="flex flex-col gap-0.5 min-w-[210px] flex-1">
+                        <label className="text-[9px] text-textMuted uppercase font-mono tracking-tight">Anim & Speed</label>
+                        <div className="flex gap-1">
                           <select 
                             value={songAnimation} 
                             onChange={e => setSongAnimation(e.target.value)}
-                            className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none flex-1"
+                            className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none text-xs flex-1"
                           >
                             <option value="None">None</option>
                             <option value="Fade">Fade</option>
@@ -6115,7 +6465,7 @@ function OperatorDashboard() {
                           <select 
                             value={songSpeed} 
                             onChange={e => setSongSpeed(e.target.value)}
-                            className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none flex-1"
+                            className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none text-xs flex-1"
                           >
                             <option value="Fast (0.3s)">Fast (0.3s)</option>
                             <option value="Medium (0.6s)">Medium (0.6s)</option>

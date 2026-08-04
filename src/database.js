@@ -41,15 +41,23 @@ function createTables() {
           author TEXT,
           [key] TEXT,
           tempo TEXT,
+          bpm INTEGER DEFAULT 120,
+          time_signature TEXT DEFAULT '4/4',
+          enable_click INTEGER DEFAULT 0,
+          enable_voice_cues INTEGER DEFAULT 0,
+          voice_gender TEXT DEFAULT 'female',
           content_json TEXT NOT NULL,
           chords_text TEXT
         )
       `);
 
-      // Migration: Add chords_text column if missing from existing database
-      db.run("ALTER TABLE songs ADD COLUMN chords_text TEXT", (err) => {
-        // Ignore error if column already exists
-      });
+      // Migration: Add columns if missing from existing database
+      db.run("ALTER TABLE songs ADD COLUMN chords_text TEXT", () => {});
+      db.run("ALTER TABLE songs ADD COLUMN bpm INTEGER DEFAULT 120", () => {});
+      db.run("ALTER TABLE songs ADD COLUMN time_signature TEXT DEFAULT '4/4'", () => {});
+      db.run("ALTER TABLE songs ADD COLUMN enable_click INTEGER DEFAULT 0", () => {});
+      db.run("ALTER TABLE songs ADD COLUMN enable_voice_cues INTEGER DEFAULT 0", () => {});
+      db.run("ALTER TABLE songs ADD COLUMN voice_gender TEXT DEFAULT 'female'", () => {});
 
       // 2. Bibles Table (Indexed for sub-millisecond lookup)
       db.run(`
@@ -141,7 +149,7 @@ function seedInitialData() {
 // Database query functions wrapped in Promises
 function getAllSongs() {
   return new Promise((resolve, reject) => {
-    db.all('SELECT id, title, author, [key], tempo FROM songs ORDER BY title ASC', (err, rows) => {
+    db.all('SELECT id, title, author, [key], tempo, bpm, time_signature, enable_click, enable_voice_cues, voice_gender FROM songs ORDER BY title ASC', (err, rows) => {
       if (err) reject(err);
       else resolve(rows);
     });
@@ -152,7 +160,7 @@ function searchSongs(query) {
   return new Promise((resolve, reject) => {
     const wildCard = `%${query}%`;
     db.all(
-      'SELECT id, title, author, [key], tempo, content_json FROM songs WHERE title LIKE ? OR content_json LIKE ? ORDER BY title ASC',
+      'SELECT id, title, author, [key], tempo, bpm, time_signature, enable_click, enable_voice_cues, voice_gender, content_json FROM songs WHERE title LIKE ? OR content_json LIKE ? ORDER BY title ASC',
       [wildCard, wildCard],
       (err, rows) => {
         if (err) reject(err);
@@ -184,27 +192,32 @@ function getSongsByIds(ids) {
   });
 }
 
-function saveSong(id, title, author, key, tempo, contentJson, chordsText = '') {
+function saveSong(id, title, author, key, tempo, contentJson, chordsText = '', bpm = 120, timeSignature = '4/4', enableClick = 0, enableVoiceCues = 0, voiceGender = 'female') {
   return new Promise((resolve, reject) => {
     const chordsVal = chordsText || '';
+    const bpmVal = parseInt(bpm, 10) || parseInt(tempo, 10) || 120;
+    const tsVal = timeSignature || '4/4';
+    const clickVal = enableClick ? 1 : 0;
+    const cuesVal = enableVoiceCues ? 1 : 0;
+    const genderVal = voiceGender === 'male' ? 'male' : 'female';
+    const tempoVal = tempo || String(bpmVal);
+
     if (id) {
-      // Update existing song (using escaped [key] column name)
       db.run(
-        'UPDATE songs SET title = ?, author = ?, [key] = ?, tempo = ?, content_json = ?, chords_text = ? WHERE id = ?',
-        [title, author, key, tempo, contentJson, chordsVal, id],
+        'UPDATE songs SET title = ?, author = ?, [key] = ?, tempo = ?, bpm = ?, time_signature = ?, enable_click = ?, enable_voice_cues = ?, voice_gender = ?, content_json = ?, chords_text = ? WHERE id = ?',
+        [title, author, key, tempoVal, bpmVal, tsVal, clickVal, cuesVal, genderVal, contentJson, chordsVal, id],
         function (err) {
           if (err) reject(err);
-          else resolve({ id, title, author, key, tempo, content_json: contentJson, chords_text: chordsVal });
+          else resolve({ id, title, author, key, tempo: tempoVal, bpm: bpmVal, time_signature: tsVal, enable_click: clickVal, enable_voice_cues: cuesVal, voice_gender: genderVal, content_json: contentJson, chords_text: chordsVal });
         }
       );
     } else {
-      // Insert new song (using escaped [key] column name)
       db.run(
-        'INSERT INTO songs (title, author, [key], tempo, content_json, chords_text) VALUES (?, ?, ?, ?, ?, ?)',
-        [title, author, key, tempo, contentJson, chordsVal],
+        'INSERT INTO songs (title, author, [key], tempo, bpm, time_signature, enable_click, enable_voice_cues, voice_gender, content_json, chords_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [title, author, key, tempoVal, bpmVal, tsVal, clickVal, cuesVal, genderVal, contentJson, chordsVal],
         function (err) {
           if (err) reject(err);
-          else resolve({ id: this.lastID, title, author, key, tempo, content_json: contentJson, chords_text: chordsVal });
+          else resolve({ id: this.lastID, title, author, key, tempo: tempoVal, bpm: bpmVal, time_signature: tsVal, enable_click: clickVal, enable_voice_cues: cuesVal, voice_gender: genderVal, content_json: contentJson, chords_text: chordsVal });
         }
       );
     }

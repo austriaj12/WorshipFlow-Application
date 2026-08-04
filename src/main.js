@@ -426,8 +426,8 @@ ipcMain.handle('db:get-song', async (event, songId) => {
   return await db.getSongWithContent(songId);
 });
 
-ipcMain.handle('db:save-song', async (event, { id, title, author, key, tempo, contentJson, chordsText }) => {
-  return await db.saveSong(id, title, author, key, tempo, contentJson, chordsText);
+ipcMain.handle('db:save-song', async (event, { id, title, author, key, tempo, contentJson, chordsText, bpm, timeSignature, enableClick, enableVoiceCues, voiceGender }) => {
+  return await db.saveSong(id, title, author, key, tempo, contentJson, chordsText, bpm, timeSignature, enableClick, enableVoiceCues, voiceGender);
 });
 
 ipcMain.handle('db:delete-song', async (event, songId) => {
