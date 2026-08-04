@@ -472,6 +472,11 @@ function OperatorDashboard() {
   const [previewDisplayedText, setPreviewDisplayedText] = useState('');
   const prevLiveTextRef = React.useRef('');
 
+  const [previewLayerA, setPreviewLayerA] = useState({ src: '', type: 'none', opacity: 1, zIndex: 20 });
+  const [previewLayerB, setPreviewLayerB] = useState({ src: '', type: 'none', opacity: 0, zIndex: 10 });
+  const previewActiveLayerRef = React.useRef('A');
+  const previewCurrentBgSrcRef = React.useRef('');
+
   useEffect(() => {
     if (window.api && window.api.getAppVersion) {
       window.api.getAppVersion().then(v => setAppVersion(v));
@@ -1790,16 +1795,16 @@ function OperatorDashboard() {
     }
   }, [selectedSong]);
 
-  // Sync Live Output Preview Monitor background crossfade
+  // Sync Live Output Preview Monitor background crossfade (Flick-Free Dual-Layer A/B Engine)
   useEffect(() => {
     const slidesArr = getSlidesArray();
     const curSlideObj = slidesArr && slidesArr[activeSlideIndex];
     const rawBg = getEffectiveSlideBg(curSlideObj, slidesArr, selectedSong || liveSong);
     
     if (!rawBg || blackout) {
-      setPreviewCurrentBg(prev => (prev.src === '' ? prev : { src: '', type: 'none' }));
-      setPreviewPrevBg(prev => (prev.src === '' ? prev : { src: '', type: 'none' }));
-      setPreviewIsCrossfading(false);
+      setPreviewLayerA({ src: '', type: 'none', opacity: 0, zIndex: 10 });
+      setPreviewLayerB({ src: '', type: 'none', opacity: 0, zIndex: 10 });
+      previewCurrentBgSrcRef.current = '';
       return;
     }
 
@@ -1807,25 +1812,34 @@ function OperatorDashboard() {
     const type = isBgColor(rawBg) ? 'color' : (/\.(mp4|webm|mov|avi)($|\?)/i.test(rawBg) ? 'video' : 'image');
     const hasTransition = (activeSlideIndex > 0 && slidesArr && slidesArr[activeSlideIndex - 1]?.transitionToNext === 'fade') || (curSlideObj?.transitionToNext === 'fade');
 
-    setPreviewCurrentBg(prev => {
-      if (prev.src === formatted && prev.type === type) {
-        return prev;
-      }
+    if (previewCurrentBgSrcRef.current === formatted) {
+      return;
+    }
 
-      if (hasTransition && prev.src) {
-        setPreviewPrevBg(prev);
-        setPreviewIsCrossfading(true);
-        setTimeout(() => {
-          setPreviewIsCrossfading(false);
-          setPreviewPrevBg({ src: '', type: 'none' });
-        }, 2200);
+    const isFade = hasTransition && previewCurrentBgSrcRef.current !== '';
+    previewCurrentBgSrcRef.current = formatted;
+
+    if (previewActiveLayerRef.current === 'A') {
+      if (isFade) {
+        setPreviewLayerB({ src: formatted, type, opacity: 1, zIndex: 10 });
+        setPreviewLayerA(prev => ({ ...prev, opacity: 0, zIndex: 20 }));
+        previewActiveLayerRef.current = 'B';
       } else {
-        setPreviewPrevBg({ src: '', type: 'none' });
-        setPreviewIsCrossfading(false);
+        setPreviewLayerB({ src: formatted, type, opacity: 1, zIndex: 20 });
+        setPreviewLayerA({ src: '', type: 'none', opacity: 0, zIndex: 10 });
+        previewActiveLayerRef.current = 'B';
       }
-
-      return { src: formatted, type };
-    });
+    } else {
+      if (isFade) {
+        setPreviewLayerA({ src: formatted, type, opacity: 1, zIndex: 10 });
+        setPreviewLayerB(prev => ({ ...prev, opacity: 0, zIndex: 20 }));
+        previewActiveLayerRef.current = 'A';
+      } else {
+        setPreviewLayerA({ src: formatted, type, opacity: 1, zIndex: 20 });
+        setPreviewLayerB({ src: '', type: 'none', opacity: 0, zIndex: 10 });
+        previewActiveLayerRef.current = 'A';
+      }
+    }
   }, [activeSlideIndex, selectedSong?.id, liveSong?.id, blackout]);
 
   // Metronome Click Track & Voice Cue Auto-Start/Stop Sync Effect
@@ -3492,7 +3506,7 @@ function OperatorDashboard() {
                     <div className="flex-1 overflow-y-auto p-4">
                       {slides.length > 0 ? (
                         /* Use flex wrap with custom slide card width matching slidePreviewSize setting */
-                        <div className="flex flex-wrap items-start justify-start gap-2.5">
+                        <div className="flex flex-wrap items-start justify-start gap-1">
                           {slides.map((slide, index) => {
                             const isActive = (bibleLiveSlides !== null || (liveSong && selectedSong && liveSong.id === selectedSong.id)) && index === activeSlideIndex;
                             const isSelected = selectedSlideIndexes.includes(index);
@@ -3503,61 +3517,66 @@ function OperatorDashboard() {
                                 {/* Transition Hotspot Zone between slides */}
                                 {index > 0 && (
                                   <div 
-                                    className="flex flex-col items-center justify-center self-stretch relative -mx-1"
-                                    style={{ width: '8px', minHeight: '60px' }}
-                                    onMouseEnter={() => setHoveredTransitionGap(index)}
-                                    onMouseLeave={() => setHoveredTransitionGap(null)}
+                                    className="flex flex-col items-center justify-center self-stretch relative -mx-1.5 z-10 group"
+                                    style={{ width: '20px', minHeight: '60px' }}
                                   >
-                                    {/* Visible connector when transition is active */}
+                                    {/* Visible connector vertical glow line when transition is active */}
                                     {prevHasTransition && (
                                       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                                         <div className="w-0.5 h-full bg-gradient-to-b from-transparent via-emerald-400/80 to-transparent rounded-full shadow-[0_0_8px_rgba(52,211,153,0.5)]" />
                                       </div>
                                     )}
-                                    {/* Hover reveal button */}
-                                    {hoveredTransitionGap === index && (
-                                      <button
-                                        onClick={async (e) => {
-                                          e.stopPropagation();
-                                          if (!selectedSong || bibleLiveSlides) return;
-                                          const prevIdx = index - 1;
-                                          const updatedSlides = [...slides];
-                                          const current = updatedSlides[prevIdx].transitionToNext;
-                                          updatedSlides[prevIdx].transitionToNext = current === 'fade' ? 'none' : 'fade';
-                                          const contentJson = JSON.stringify(updatedSlides);
-                                          try {
-                                            await saveSong({
-                                              id: selectedSong.id,
-                                              title: selectedSong.title,
-                                              author: selectedSong.author || 'WorshipFlow',
-                                              key: selectedSong.key || '',
-                                              tempo: selectedSong.tempo || '',
-                                              contentJson
-                                            });
-                                          } catch (err) {
-                                            console.error('Failed to save transition', err);
-                                          }
-                                        }}
-                                        className={`z-20 p-1 rounded-full border shadow-lg transition-all duration-150 ${
-                                          slides[index - 1]?.transitionToNext === 'fade'
-                                            ? 'bg-emerald-500/30 border-emerald-400/60 text-emerald-300 shadow-emerald-500/20'
-                                            : 'bg-appPanel/90 border-[var(--border-app)] text-textMuted hover:text-brand hover:border-brand/50'
-                                        }`}
-                                        title={slides[index - 1]?.transitionToNext === 'fade' ? 'Remove Fade Transition' : 'Add Fade Transition'}
-                                      >
-                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
-                                          <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 2a5 5 0 0 1 0 10V3z" />
-                                        </svg>
-                                      </button>
-                                    )}
-                                    {/* Active fade indicator icon (always visible when transition is set) */}
-                                    {!hoveredTransitionGap && prevHasTransition && (
-                                      <div className="z-10 p-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-400">
-                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-2.5 w-2.5">
-                                          <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 2a5 5 0 0 1 0 10V3z" />
-                                        </svg>
-                                      </div>
-                                    )}
+                                    
+                                    {/* Clickable Transition Connector Button (Hidden by default, reveals on hover) */}
+                                    <button
+                                      type="button"
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        if (!selectedSong || bibleLiveSlides) return;
+                                        const prevIdx = index - 1;
+                                        const updatedSlides = [...slides];
+                                        const isCurrentlyActive = updatedSlides[prevIdx]?.transitionToNext === 'fade';
+                                        const nextTransition = isCurrentlyActive ? 'none' : 'fade';
+                                        
+                                        updatedSlides[prevIdx] = { ...updatedSlides[prevIdx], transitionToNext: nextTransition };
+                                        
+                                        const contentJson = JSON.stringify(updatedSlides);
+
+                                        const updatedSongObj = {
+                                          ...selectedSong,
+                                          id: selectedSong.id,
+                                          title: selectedSong.title,
+                                          author: selectedSong.author || 'WorshipFlow',
+                                          key: selectedSong.key || '',
+                                          tempo: selectedSong.tempo || '',
+                                          bpm: selectedSong.bpm || parseInt(selectedSong.tempo) || 120,
+                                          timeSignature: selectedSong.time_signature || selectedSong.timeSignature || '4/4',
+                                          enableClick: !!(selectedSong.enable_click || selectedSong.enableClick),
+                                          enableVoiceCues: !!(selectedSong.enable_voice_cues || selectedSong.enableVoiceCues),
+                                          voiceGender: selectedSong.voice_gender || selectedSong.voiceGender || 'female',
+                                          bgAsset: selectedSong.bg_asset || selectedSong.bgAsset || '',
+                                          contentJson,
+                                          content_json: contentJson
+                                        };
+
+                                        useLibraryStore.setState({ selectedSong: updatedSongObj });
+                                        try {
+                                          await saveSong(updatedSongObj);
+                                        } catch (err) {
+                                          console.error('Failed to save transition', err);
+                                        }
+                                      }}
+                                      className={`z-20 p-1.5 rounded-full border shadow-lg transition-all duration-150 cursor-pointer ${
+                                        prevHasTransition
+                                          ? 'bg-emerald-500/30 border-emerald-400/80 text-emerald-300 shadow-emerald-500/30 scale-100 hover:scale-110 opacity-100'
+                                          : 'bg-appPanel/90 border-[var(--border-app)] text-textMuted hover:text-emerald-400 hover:border-emerald-400/60 hover:bg-emerald-500/20 opacity-0 group-hover:opacity-100 hover:scale-110'
+                                      }`}
+                                      title={prevHasTransition ? 'Remove Fade Transition' : 'Add Slow-Motion Fade Transition'}
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
+                                        <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 2a5 5 0 0 1 0 10V3z" />
+                                      </svg>
+                                    </button>
                                   </div>
                                 )}
                                 {/* Slide Card */}
@@ -5370,36 +5389,38 @@ function OperatorDashboard() {
                       // Regular slide background with 2.2s slow-motion crossfade
                       !showOnProjector && !showTimerOnProjector && (
                         <>
-                          {/* Previous Preview Background Layer (Fading Out 1 -> 0 over 2200ms) */}
-                          {previewPrevBg.src && previewPrevBg.type !== 'color' && (
+                          {/* Preview Layer A */}
+                          {previewLayerA.src && previewLayerA.type !== 'color' && (
                             <div 
-                              className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-10"
+                              className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none"
                               style={{
-                                transition: 'opacity 2200ms cubic-bezier(0.4, 0, 0.2, 1)',
-                                opacity: previewIsCrossfading ? 0 : 1
+                                zIndex: previewLayerA.zIndex,
+                                opacity: previewLayerA.opacity,
+                                transition: 'opacity 2200ms cubic-bezier(0.4, 0, 0.2, 1)'
                               }}
                             >
-                              {previewPrevBg.type === 'video' ? (
-                                <SharedVideoCanvas src={previewPrevBg.src} maxResWidth={1280} fps={60} className="w-full h-full object-cover" />
+                              {previewLayerA.type === 'video' ? (
+                                <SharedVideoCanvas src={previewLayerA.src} maxResWidth={1280} fps={60} className="w-full h-full object-cover" />
                               ) : (
-                                <img src={previewPrevBg.src} className="w-full h-full object-cover" alt="" />
+                                <img src={previewLayerA.src} className="w-full h-full object-cover" alt="" />
                               )}
                             </div>
                           )}
 
-                          {/* Current Preview Background Layer (Fading In 0 -> 1 over 2200ms) */}
-                          {previewCurrentBg.src && previewCurrentBg.type !== 'color' && (
+                          {/* Preview Layer B */}
+                          {previewLayerB.src && previewLayerB.type !== 'color' && (
                             <div 
-                              className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-20"
+                              className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none"
                               style={{
-                                transition: previewIsCrossfading ? 'opacity 2200ms cubic-bezier(0.4, 0, 0.2, 1)' : 'opacity 300ms ease-in-out',
-                                opacity: 1
+                                zIndex: previewLayerB.zIndex,
+                                opacity: previewLayerB.opacity,
+                                transition: 'opacity 2200ms cubic-bezier(0.4, 0, 0.2, 1)'
                               }}
                             >
-                              {previewCurrentBg.type === 'video' ? (
-                                <SharedVideoCanvas src={previewCurrentBg.src} maxResWidth={1280} fps={60} className="w-full h-full object-cover" />
+                              {previewLayerB.type === 'video' ? (
+                                <SharedVideoCanvas src={previewLayerB.src} maxResWidth={1280} fps={60} className="w-full h-full object-cover" />
                               ) : (
-                                <img src={previewCurrentBg.src} className="w-full h-full object-cover" alt="" />
+                                <img src={previewLayerB.src} className="w-full h-full object-cover" alt="" />
                               )}
                             </div>
                           )}

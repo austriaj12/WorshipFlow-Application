@@ -87,41 +87,54 @@ function ProjectorScreen() {
   const [isCrossfading, setIsCrossfading] = useState(false);
 
   const currentVideoRef = React.useRef(null);
-  const prevVideoRef = React.useRef(null);
+  const [layerA, setLayerA] = useState({ src: '', type: 'none', opacity: 1, zIndex: 20 });
+  const [layerB, setLayerB] = useState({ src: '', type: 'none', opacity: 0, zIndex: 10 });
+  const activeLayerRef = React.useRef('A');
+  const currentBgSrcRef = React.useRef('');
+  const videoARef = React.useRef(null);
+  const videoBRef = React.useRef(null);
 
-  // Deterministic background asset manager effect
+  // Deterministic Flick-Free Dual-Layer A/B Background Crossfade Engine
   useEffect(() => {
     const rawBg = slide.blackout ? '' : (slide.bgAsset || '');
     if (slide.blackout || !rawBg) {
-      setCurrentBg({ src: '', type: 'none' });
-      setPrevBg({ src: '', type: 'none' });
+      setLayerA({ src: '', type: 'none', opacity: 0, zIndex: 10 });
+      setLayerB({ src: '', type: 'none', opacity: 0, zIndex: 10 });
+      currentBgSrcRef.current = '';
       return;
     }
 
     const formatted = formatBgPath(rawBg);
     const type = isBgColor(rawBg) ? 'color' : (/\.(mp4|webm|mov|avi)($|\?)/i.test(rawBg) ? 'video' : 'image');
 
-    setCurrentBg(prev => {
-      // If the current background asset and type are ALREADY identical, return unchanged state!
-      if (prev.src === formatted && prev.type === type) {
-        return prev;
-      }
+    if (currentBgSrcRef.current === formatted) {
+      return;
+    }
 
-      const isFade = slide.transitionToNext === 'fade';
-      if (isFade && prev.src) {
-        setPrevBg(prev);
-        setIsCrossfading(true);
-        setTimeout(() => {
-          setIsCrossfading(false);
-          setPrevBg({ src: '', type: 'none' });
-        }, 2200);
+    const isFade = slide.transitionToNext === 'fade' && currentBgSrcRef.current !== '';
+    currentBgSrcRef.current = formatted;
+
+    if (activeLayerRef.current === 'A') {
+      if (isFade) {
+        setLayerB({ src: formatted, type, opacity: 1, zIndex: 10 });
+        setLayerA(prev => ({ ...prev, opacity: 0, zIndex: 20 }));
+        activeLayerRef.current = 'B';
       } else {
-        setPrevBg({ src: '', type: 'none' });
-        setIsCrossfading(false);
+        setLayerB({ src: formatted, type, opacity: 1, zIndex: 20 });
+        setLayerA({ src: '', type: 'none', opacity: 0, zIndex: 10 });
+        activeLayerRef.current = 'B';
       }
-
-      return { src: formatted, type };
-    });
+    } else {
+      if (isFade) {
+        setLayerA({ src: formatted, type, opacity: 1, zIndex: 10 });
+        setLayerB(prev => ({ ...prev, opacity: 0, zIndex: 20 }));
+        activeLayerRef.current = 'A';
+      } else {
+        setLayerA({ src: formatted, type, opacity: 1, zIndex: 20 });
+        setLayerB({ src: '', type: 'none', opacity: 0, zIndex: 10 });
+        activeLayerRef.current = 'A';
+      }
+    }
   }, [slide.bgAsset, slide.blackout, slide.transitionToNext]);
 
   // Sync playback attributes on active video element
@@ -383,51 +396,20 @@ function ProjectorScreen() {
         }}
         className="select-none font-sans"
       >
-        {/* Previous Background Layer (Fading Out 1 -> 0 over 2200ms) */}
-        {prevBg.src && (
+        {/* Background Layer A */}
+        {layerA.src && (
           <div 
-            className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-10"
+            className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none"
             style={{
-              transition: 'opacity 2200ms cubic-bezier(0.4, 0, 0.2, 1)',
-              opacity: isCrossfading ? 0 : 1
+              zIndex: layerA.zIndex,
+              opacity: layerA.opacity,
+              transition: 'opacity 2200ms cubic-bezier(0.4, 0, 0.2, 1)'
             }}
           >
-            {prevBg.type === 'video' && (
+            {layerA.type === 'video' && (
               <video 
-                ref={prevVideoRef}
-                src={prevBg.src} 
-                autoPlay 
-                muted={slide.mediaPlaying !== undefined ? false : true} 
-                playsInline 
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-              />
-            )}
-            {prevBg.type === 'image' && (
-              <img 
-                src={prevBg.src} 
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-                alt="" 
-              />
-            )}
-            {prevBg.type === 'color' && (
-              <div style={{ width: '100%', height: '100%', backgroundColor: prevBg.src }} />
-            )}
-          </div>
-        )}
-
-        {/* Current Active Background Layer (Fading In 0 -> 1 over 2200ms when crossfading) */}
-        {currentBg.src && (
-          <div 
-            className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-20"
-            style={{
-              transition: slide.transitionToNext === 'fade' ? 'opacity 2200ms cubic-bezier(0.4, 0, 0.2, 1)' : 'opacity 300ms ease-in-out',
-              opacity: 1
-            }}
-          >
-            {currentBg.type === 'video' && (
-              <video 
-                ref={currentVideoRef}
-                src={currentBg.src} 
+                ref={videoARef}
+                src={layerA.src} 
                 autoPlay 
                 loop={!!slide.mediaLoop}
                 muted={slide.mediaPlaying !== undefined ? false : true} 
@@ -435,15 +417,49 @@ function ProjectorScreen() {
                 style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
               />
             )}
-            {currentBg.type === 'image' && (
+            {layerA.type === 'image' && (
               <img 
-                src={currentBg.src} 
+                src={layerA.src} 
                 style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
                 alt="WorshipFlow Background" 
               />
             )}
-            {currentBg.type === 'color' && (
-              <div style={{ width: '100%', height: '100%', backgroundColor: currentBg.src }} />
+            {layerA.type === 'color' && (
+              <div style={{ width: '100%', height: '100%', backgroundColor: layerA.src }} />
+            )}
+          </div>
+        )}
+
+        {/* Background Layer B */}
+        {layerB.src && (
+          <div 
+            className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none"
+            style={{
+              zIndex: layerB.zIndex,
+              opacity: layerB.opacity,
+              transition: 'opacity 2200ms cubic-bezier(0.4, 0, 0.2, 1)'
+            }}
+          >
+            {layerB.type === 'video' && (
+              <video 
+                ref={videoBRef}
+                src={layerB.src} 
+                autoPlay 
+                loop={!!slide.mediaLoop}
+                muted={slide.mediaPlaying !== undefined ? false : true} 
+                playsInline 
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+              />
+            )}
+            {layerB.type === 'image' && (
+              <img 
+                src={layerB.src} 
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                alt="WorshipFlow Background" 
+              />
+            )}
+            {layerB.type === 'color' && (
+              <div style={{ width: '100%', height: '100%', backgroundColor: layerB.src }} />
             )}
           </div>
         )}

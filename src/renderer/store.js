@@ -58,12 +58,12 @@ export const useLibraryStore = create((set, get) => ({
     set({ loading: true });
     try {
       if (window.api) {
-        const saved = await window.api.saveSong(songData);
+        const payload = {
+          ...songData,
+          contentJson: songData.contentJson || songData.content_json || '[]'
+        };
+        const saved = await window.api.saveSong(payload);
         await get().fetchSongs();
-        // Refresh detail window if editing active song
-        if (get().selectedSong && get().selectedSong.id === saved.id) {
-          await get().selectSong(saved.id);
-        }
         return saved;
       }
     } catch (err) {
