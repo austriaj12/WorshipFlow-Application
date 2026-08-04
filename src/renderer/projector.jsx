@@ -11,6 +11,22 @@ const getMediaType = (url) => {
   return 'unknown';
 };
 
+const formatBgPath = (pathStr) => {
+  if (!pathStr) return '';
+  let str = pathStr.toString().trim();
+  if (str.startsWith('#') || str.startsWith('rgb') || str.startsWith('hsl') || str === 'transparent') {
+    return str;
+  }
+  if (str.startsWith('http://') || str.startsWith('https://') || str.startsWith('worshipflow-asset://')) {
+    return str;
+  }
+  while (str.toLowerCase().startsWith('file:/')) {
+    str = str.replace(/^file:\/+/i, '');
+  }
+  const cleanPath = str.replace(/\\/g, '/');
+  return `file:///${cleanPath.startsWith('/') ? cleanPath.slice(1) : cleanPath}`;
+};
+
 function ProjectorScreen() {
   const [slide, setSlide] = useState({
     text: '',
@@ -65,172 +81,145 @@ function ProjectorScreen() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Double buffering video states
-  const [videoA, setVideoA] = useState({ src: '', active: false, opacity: 0 });
-  const [videoB, setVideoB] = useState({ src: '', active: false, opacity: 0 });
-  const [activeImage, setActiveImage] = useState('');
-  
-  const videoRefA = React.useRef(null);
-  const videoRefB = React.useRef(null);
+  // Background rendering states
+  const [currentBg, setCurrentBg] = useState({ src: '', type: 'none' });
+  const [prevBg, setPrevBg] = useState({ src: '', type: 'none' });
+  const [isCrossfading, setIsCrossfading] = useState(false);
 
-  // Single-fire background asset sync effect with instant activation and double buffering
+  const currentVideoRef = React.useRef(null);
+  const prevVideoRef = React.useRef(null);
+
+  // Deterministic background asset manager effect
   useEffect(() => {
-    const targetBg = slide.blackout ? '' : (slide.bgAsset || '');
-    const isVid = /\.(mp4|webm|mov|avi)($|\?)/i.test(targetBg);
-    
-    if (slide.blackout || !targetBg) {
-      setVideoA({ src: '', active: false, opacity: 0 });
-      setVideoB({ src: '', active: false, opacity: 0 });
-      setActiveImage('');
-      if (videoRefA.current) {
-        videoRefA.current.pause();
-        videoRefA.current.removeAttribute('src');
-        videoRefA.current.load();
-      }
-      if (videoRefB.current) {
-        videoRefB.current.pause();
-        videoRefB.current.removeAttribute('src');
-        videoRefB.current.load();
-      }
+    const rawBg = slide.blackout ? '' : (slide.bgAsset || '');
+    if (slide.blackout || !rawBg) {
+      setCurrentBg({ src: '', type: 'none' });
+      setPrevBg({ src: '', type: 'none' });
       return;
     }
 
-    if (!isVid) {
-      // It's an image or static asset: clear/unload videos, set image
-      setVideoA({ src: '', active: false, opacity: 0 });
-      setVideoB({ src: '', active: false, opacity: 0 });
-      setActiveImage(targetBg);
-      if (videoRefA.current) videoRefA.current.pause();
-      if (videoRefB.current) videoRefB.current.pause();
-      return;
-    }
+    const formatted = formatBgPath(rawBg);
+    const type = isBgColor(rawBg) ? 'color' : (/\.(mp4|webm|mov|avi)($|\?)/i.test(rawBg) ? 'video' : 'image');
 
-    // It's a video: instant switch with double buffering
-    setActiveImage('');
-    const useB = videoA.active || videoA.opacity > 0;
-
-    if (useB) {
-      setVideoB({ src: targetBg, active: true, opacity: 1 });
-      setVideoA(prev => ({ ...prev, active: false, opacity: 0 }));
-      if (videoRefA.current) videoRefA.current.pause();
-      if (videoRefB.current) {
-        videoRefB.current.play().catch(() => {});
+    setCurrentBg(prev => {
+      // If the current background asset and type are ALREADY identical, return unchanged state!
+      if (prev.src === formatted && prev.type === type) {
+        return prev;
       }
-    } else {
-      setVideoA({ src: targetBg, active: true, opacity: 1 });
-      setVideoB(prev => ({ ...prev, active: false, opacity: 0 }));
-      if (videoRefB.current) videoRefB.current.pause();
-      if (videoRefA.current) {
-        videoRefA.current.play().catch(() => {});
-      }
-    }
-  }, [slide.bgAsset, slide.blackout]);
 
-  // Sync playback attributes on active/inactive video elements
-  useEffect(() => {
-    const applyVideoState = (videoEl, isCurrentActive) => {
-      if (!videoEl) return;
-      videoEl.loop = !!slide.mediaLoop;
-      videoEl.volume = (slide.mediaVolume !== undefined ? slide.mediaVolume : 100) / 100;
-      if (isCurrentActive && slide.mediaPlaying) {
-        videoEl.play().catch(() => {});
+      const isFade = slide.transitionToNext === 'fade';
+      if (isFade && prev.src) {
+        setPrevBg(prev);
+        setIsCrossfading(true);
+        setTimeout(() => {
+          setIsCrossfading(false);
+          setPrevBg({ src: '', type: 'none' });
+        }, 2200);
       } else {
-        videoEl.pause();
+        setPrevBg({ src: '', type: 'none' });
+        setIsCrossfading(false);
       }
-    };
-    applyVideoState(videoRefA.current, videoA.active);
-    applyVideoState(videoRefB.current, videoB.active);
-  }, [slide.mediaPlaying, slide.mediaLoop, slide.mediaVolume, videoA.active, videoB.active, videoA.src, videoB.src]);
 
-  // Sync audio tag directly if applicable
+      return { src: formatted, type };
+    });
+  }, [slide.bgAsset, slide.blackout, slide.transitionToNext]);
+
+  // Sync playback attributes on active video element
   useEffect(() => {
-    const audioEl = document.getElementById('projector-audio');
-    if (audioEl) {
-      audioEl.loop = !!slide.mediaLoop;
-      audioEl.volume = (slide.mediaVolume !== undefined ? slide.mediaVolume : 100) / 100;
-      if (slide.mediaPlaying) {
-        audioEl.play().catch(() => {});
+    if (currentVideoRef.current && currentBg.type === 'video') {
+      currentVideoRef.current.loop = !!slide.mediaLoop;
+      currentVideoRef.current.volume = (slide.mediaVolume !== undefined ? slide.mediaVolume : 100) / 100;
+      if (slide.mediaPlaying !== false) {
+        currentVideoRef.current.play().catch(() => {});
       } else {
-        audioEl.pause();
+        currentVideoRef.current.pause();
       }
     }
-  }, [slide.mediaPlaying, slide.mediaLoop, slide.mediaVolume, slide.bgAsset]);
-
-  const handleVideoCanPlay = (bufferName) => {
-    if (bufferName === 'A') {
-      setVideoA(prev => ({ ...prev, active: true, opacity: 1 }));
-      setVideoB(prev => ({ ...prev, active: false, opacity: 0 }));
-      if (videoRefB.current) videoRefB.current.pause();
-      if (videoRefA.current && slide.mediaPlaying) {
-        videoRefA.current.play().catch(() => {});
-      }
-    } else {
-      setVideoB(prev => ({ ...prev, active: true, opacity: 1 }));
-      setVideoA(prev => ({ ...prev, active: false, opacity: 0 }));
-      if (videoRefA.current) videoRefA.current.pause();
-      if (videoRefB.current && slide.mediaPlaying) {
-        videoRefB.current.play().catch(() => {});
-      }
-    }
-  };
+  }, [slide.mediaPlaying, slide.mediaLoop, slide.mediaVolume, currentBg.src, currentBg.type]);
 
   const parseSpeedToMs = (speedStr) => {
     if (!speedStr) return 600;
     const match = speedStr.match(/(\d+(\.\d+)?)/);
-    if (match) {
-      return parseFloat(match[1]) * 1000;
+    return match ? parseFloat(match[1]) * 1000 : 600;
+  };
+
+  const textAnimTimeoutRef = React.useRef(null);
+
+  const handleIncomingSlide = (slideData) => {
+    if (!slideData) return;
+
+    const current = slideRef.current;
+    const isNewSlide = current.text !== slideData.text || 
+                       current.label !== slideData.label || 
+                       current.bgAsset !== slideData.bgAsset;
+
+    if (!isNewSlide) {
+      setSlide(slideData);
+      return;
     }
-    return 600;
+
+    const anim = slideData.style?.animation || 'Zoom In/Out';
+    if (anim === 'Instant' || anim === 'None') {
+      if (textAnimTimeoutRef.current) clearTimeout(textAnimTimeoutRef.current);
+      setSlide(slideData);
+      setIsFading(false);
+      return;
+    }
+
+    const totalMs = parseSpeedToMs(slideData.style?.speed);
+    const halfMs = Math.max(40, totalMs / 2);
+
+    if (textAnimTimeoutRef.current) clearTimeout(textAnimTimeoutRef.current);
+
+    // Phase 1: Current text slide plays exit transition
+    setIsFading(true);
+
+    // Phase 2: After exit transition finishes (opacity is 0), switch to new slide text and play entrance transition
+    textAnimTimeoutRef.current = setTimeout(() => {
+      setSlide(slideData);
+      setIsFading(false);
+    }, halfMs);
   };
 
   useEffect(() => {
-    if (window.api) {
-      window.api.onSlideRender((slideData) => {
-        const currentSlide = slideRef.current;
-
-        if (
-          currentSlide.text === slideData.text &&
-          currentSlide.label === slideData.label &&
-          currentSlide.blackout === slideData.blackout &&
-          currentSlide.clearLyrics === slideData.clearLyrics &&
-          currentSlide.bgAsset === slideData.bgAsset
-        ) {
-          setSlide(slideData);
-          return;
-        }
-
-        // Determine if this slide transition is set to manual 'fade'
-        const isFadeForced = slideData.transitionToNext === 'fade';
-        const speedStr = (slideData.style && slideData.style.speed) || 'Medium (0.6s)';
-        const anim = (slideData.style && slideData.style.animation) || 'Zoom In/Out';
-
-        if (!isFadeForced) {
-          // If no transition has been explicitly added, make it instant
-          setSlide(slideData);
-          setIsFading(false);
-          return;
-        }
-
-        // Trigger smooth fade transition
-        setIsFading(true);
-        
-        // Immediately sync the background asset so it doesn't lag/revert
-        setSlide(prev => ({
-          ...prev,
-          bgAsset: slideData.bgAsset,
-          blackout: slideData.blackout,
-          mediaPlaying: slideData.mediaPlaying,
-          mediaLoop: slideData.mediaLoop,
-          mediaVolume: slideData.mediaVolume
-        }));
-
-        const speedMs = parseSpeedToMs(speedStr) / 2;
-        setTimeout(() => {
-          setSlide(slideData);
-          setIsFading(false);
-        }, speedMs);
-      });
+    // 1. Electron IPC Listener
+    if (window.api && window.api.onSlideRender) {
+      window.api.onSlideRender(handleIncomingSlide);
     }
+
+    // 2. BroadcastChannel Listener (For browser tabs & popouts)
+    let bc = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      bc = new BroadcastChannel('worshipflow-slide-channel');
+      bc.onmessage = (event) => {
+        if (event.data) {
+          handleIncomingSlide(event.data);
+        }
+      };
+    }
+
+    // 3. StorageEvent Listener
+    const handleStorage = (e) => {
+      if (e.key === 'worshipflow-current-slide' && e.newValue) {
+        try {
+          handleIncomingSlide(JSON.parse(e.newValue));
+        } catch (err) {}
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+
+    // Initial check from localStorage if present
+    try {
+      const saved = localStorage.getItem('worshipflow-current-slide');
+      if (saved) {
+        handleIncomingSlide(JSON.parse(saved));
+      }
+    } catch (e) {}
+
+    return () => {
+      if (bc) bc.close();
+      window.removeEventListener('storage', handleStorage);
+    };
   }, []);
 
   const getLyricsContainerStyle = () => {
@@ -239,49 +228,80 @@ function ProjectorScreen() {
     const fontVal = slide.style.font || 'Inter';
     const colorVal = slide.style.color || '#ffffff';
 
-    const weightMap = {
-      'normal': 400,
-      'semibold': 600,
-      'bold': 700,
-      'extrabold': 800
-    };
-    const weightVal = weightMap[slide.style.weight] || slide.style.weight || 700;
-    
-    return {
+    const weightMap = { 'normal': 400, 'semibold': 600, 'bold': 700, 'extrabold': 800 };
+    const baseStyle = {
       fontFamily: `'${fontVal}', sans-serif`,
       fontSize: `${baseSize}px`,
-      fontWeight: weightVal,
-      color: colorVal,
-      textAlign: slide.style.align || 'center',
+      fontWeight: weightMap[slide.style.weight] || slide.style.weight || 700,
       lineHeight: slide.style.lineHeight || 1.4,
       letterSpacing: `${slide.style.letterSpacing || 0}px`,
+      color: colorVal,
+      textAlign: slide.style.align || 'center',
       whiteSpace: 'pre-wrap',
       wordBreak: 'keep-all',
       overflowWrap: 'break-word',
-      willChange: 'transform, opacity',
-      transform: 'translate3d(0,0,0)'
+      margin: 0,
+      padding: 0
     };
+
+    if (slide.style.bgOpacity && slide.style.bgOpacity > 0) {
+      const hex = slide.style.bgColor || '#000000';
+      const alpha = slide.style.bgOpacity;
+      let r = 0, g = 0, b = 0;
+      if (hex.length === 7) {
+        r = parseInt(hex.slice(1, 3), 16);
+        g = parseInt(hex.slice(3, 5), 16);
+        b = parseInt(hex.slice(5, 7), 16);
+      }
+      const rgbaBg = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      const radiusVal = slide.style.bgRadius !== undefined ? slide.style.bgRadius : 12;
+      const bgW = slide.style.bgWidth !== undefined ? slide.style.bgWidth : 100;
+      const bgH = slide.style.bgHeight !== undefined ? slide.style.bgHeight : 100;
+      const formattedW = typeof bgW === 'number' || !bgW.toString().endsWith('%') ? `${bgW}%` : bgW;
+      const formattedH = typeof bgH === 'number' || !bgH.toString().endsWith('%') ? `${bgH}%` : bgH;
+
+      return {
+        ...baseStyle,
+        backgroundColor: rgbaBg,
+        borderRadius: `${radiusVal}px`,
+        width: formattedW,
+        height: formattedH,
+        padding: '0.4em 0.8em',
+        boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: slide.style.vertical === 'top' ? 'flex-start' : slide.style.vertical === 'bottom' ? 'flex-end' : 'center',
+        alignItems: slide.style.align === 'left' ? 'flex-start' : slide.style.align === 'right' ? 'flex-end' : 'center'
+      };
+    }
+    return baseStyle;
+  };
+
+  const isBgColor = (bg) => {
+    if (!bg) return false;
+    return bg.startsWith('#') || bg.startsWith('rgb') || bg.startsWith('hsl');
   };
 
   const getOverlayPillStyle = () => {
     if (!slide.style) return {};
     const hex = slide.style.bgColor || '#000000';
-    const opacityStr = slide.style.bgOpacity || '0%';
-    const opacity = parseInt(opacityStr) || 0;
+    const opacityStr = slide.style.bgOpacity !== undefined ? slide.style.bgOpacity : '0%';
+    const opacity = typeof opacityStr === 'number' ? opacityStr : (parseInt(opacityStr) || 0);
     if (opacity === 0) return { backgroundColor: 'transparent' };
     
-    const r = parseInt(hex.slice(1, 3), 16) || 0;
-    const g = parseInt(hex.slice(3, 5), 16) || 0;
-    const b = parseInt(hex.slice(5, 7), 16) || 0;
+    let r = 0, g = 0, b = 0;
+    if (typeof hex === 'string' && hex.length === 7) {
+      r = parseInt(hex.slice(1, 3), 16) || 0;
+      g = parseInt(hex.slice(3, 5), 16) || 0;
+      b = parseInt(hex.slice(5, 7), 16) || 0;
+    }
     
-    const radius = slide.style.bgRadius !== undefined ? slide.style.bgRadius : 4;
+    const radius = slide.style.bgRadius !== undefined ? slide.style.bgRadius : 12;
 
     const baseStyle = {
-      backgroundColor: `rgba(${r}, ${g}, ${b}, ${opacity / 100})`,
+      backgroundColor: `rgba(${r}, ${g}, ${b}, ${opacity > 1 ? opacity / 100 : opacity})`,
       borderRadius: `${radius}px`,
       padding: '0.4em 0.8em',
-      willChange: 'transform, opacity',
-      transform: 'translate3d(0,0,0)',
       display: 'flex',
       flexDirection: 'column',
       justifyContent: slide.style.vertical === 'top' ? 'flex-start' : slide.style.vertical === 'bottom' ? 'flex-end' : 'center',
@@ -308,16 +328,10 @@ function ProjectorScreen() {
     return `${totalMs / 2}ms`;
   };
 
-  const isBgColor = (bg) => {
-    if (!bg) return false;
-    return bg.startsWith('#') || bg.startsWith('rgb') || bg.startsWith('hsl');
-  };
-
   const getAnimationStyles = () => {
     const anim = slide.style?.animation || 'Zoom In/Out';
-    const slideDuration = anim === 'Instant' ? '0ms' : getTransitionDuration();
+    const slideDuration = (anim === 'Instant' || anim === 'None') ? '0ms' : getTransitionDuration();
     const opacityDuration = isClearLyricsToggling ? '150ms' : slideDuration;
-    const transformDuration = slideDuration;
     
     let transformVal = 'translate3d(0,0,0)';
     if (anim === 'Zoom In/Out') {
@@ -329,10 +343,19 @@ function ProjectorScreen() {
     } else if (anim === 'Slide Up') {
       transformVal = isFading ? 'translate3d(0, 40px, 0)' : 'translate3d(0, 0, 0)';
     }
-    
+
+    let targetOpacity = 1;
+    if (slide.clearLyrics) {
+      targetOpacity = 0;
+    } else if (anim === 'Fade Out') {
+      targetOpacity = isFading ? 0 : 1;
+    } else if (isFading) {
+      targetOpacity = 0;
+    }
+
     return {
-      transition: anim === 'Instant' ? 'none' : `opacity ${opacityDuration} ease-in-out, transform ${transformDuration} ease-in-out`,
-      opacity: (slide.clearLyrics || isFading) ? 0 : 1,
+      transition: (anim === 'Instant' || anim === 'None') ? 'none' : `opacity ${opacityDuration} ease-in-out, transform ${slideDuration} ease-in-out`,
+      opacity: targetOpacity,
       transform: transformVal,
       willChange: 'transform, opacity',
       width: '96%',
@@ -343,100 +366,9 @@ function ProjectorScreen() {
     };
   };
 
-  const bgOpacityVal = 1.0;
-
   return (
     <div className="w-screen h-screen bg-black overflow-hidden relative flex items-center justify-center">
-      {/* Double Buffering Video Layers with 100% Fullscreen Cover */}
-      {videoA.src && (
-        <div 
-          className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none"
-          style={{
-            zIndex: 1,
-            transition: 'opacity 300ms ease-in-out',
-            opacity: videoA.opacity,
-            willChange: 'opacity'
-          }}
-        >
-          <video 
-            ref={videoRefA}
-            src={videoA.src} 
-            preload="auto"
-            muted={slide.mediaPlaying !== undefined ? false : true}
-            playsInline 
-            autoPlay
-            onCanPlayThrough={() => handleVideoCanPlay('A')}
-            onLoadedData={() => handleVideoCanPlay('A')}
-            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', margin: 0, padding: 0 }} 
-          />
-        </div>
-      )}
-
-      {videoB.src && (
-        <div 
-          className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none"
-          style={{
-            zIndex: 2,
-            transition: 'opacity 300ms ease-in-out',
-            opacity: videoB.opacity,
-            willChange: 'opacity'
-          }}
-        >
-          <video 
-            ref={videoRefB}
-            src={videoB.src} 
-            preload="auto"
-            muted={slide.mediaPlaying !== undefined ? false : true}
-            playsInline 
-            autoPlay
-            onCanPlayThrough={() => handleVideoCanPlay('B')}
-            onLoadedData={() => handleVideoCanPlay('B')}
-            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', margin: 0, padding: 0 }} 
-          />
-        </div>
-      )}
-
-      {/* Image Layer with 100% Fullscreen Cover */}
-      {activeImage && (
-        <div 
-          className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-3"
-        >
-          <img 
-            src={activeImage} 
-            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', opacity: bgOpacityVal }} 
-            alt="WorshipFlow Background" 
-          />
-        </div>
-      )}
-
-      {/* 2.5 Solid Color Background Layer */}
-      {((slide.bgAsset && isBgColor(slide.bgAsset)) || (slide.style?.background && isBgColor(slide.style.background))) && !slide.blackout && (
-        <div 
-          style={{
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            height: '100%',
-            top: '50%',
-            transform: 'translateY(-50%)',
-            backgroundColor: slide.bgAsset && isBgColor(slide.bgAsset) ? slide.bgAsset : slide.style?.background || '#000000',
-            zIndex: 10
-          }}
-        />
-      )}
-
-      {/* 3. Audio Layer (Pushes audio playback to projector window when track active) */}
-      {activeBgAsset && getMediaType(activeBgAsset) === 'audio' && (
-        <audio 
-          id="projector-audio"
-          src={activeBgAsset} 
-          autoPlay 
-          style={{ display: 'none' }} 
-        />
-      )}
-
-      {/* 3. Gradient Dimming Overlay (Removed to show full-brightness backgrounds) */}
-
+      {/* Scaled 1920x1080 Canvas Viewport */}
       <div 
         style={{
           width: '1920px',
@@ -444,14 +376,77 @@ function ProjectorScreen() {
           transform: `scale(${scale})`,
           transformOrigin: 'center center',
           flexShrink: 0,
-          backgroundColor: slide.bgAsset && !slide.blackout && isBgColor(slide.bgAsset) ? slide.bgAsset : 'transparent',
+          backgroundColor: currentBg.type === 'color' ? currentBg.src : '#000000',
           position: 'relative',
           overflow: 'hidden',
-          zIndex: 30
+          zIndex: 10
         }}
         className="select-none font-sans"
       >
-        {/* Top Left Reference Label (Removed, now rendered inline above text) */}
+        {/* Previous Background Layer (Fading Out 1 -> 0 over 2200ms) */}
+        {prevBg.src && (
+          <div 
+            className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-10"
+            style={{
+              transition: 'opacity 2200ms cubic-bezier(0.4, 0, 0.2, 1)',
+              opacity: isCrossfading ? 0 : 1
+            }}
+          >
+            {prevBg.type === 'video' && (
+              <video 
+                ref={prevVideoRef}
+                src={prevBg.src} 
+                autoPlay 
+                muted={slide.mediaPlaying !== undefined ? false : true} 
+                playsInline 
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+              />
+            )}
+            {prevBg.type === 'image' && (
+              <img 
+                src={prevBg.src} 
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                alt="" 
+              />
+            )}
+            {prevBg.type === 'color' && (
+              <div style={{ width: '100%', height: '100%', backgroundColor: prevBg.src }} />
+            )}
+          </div>
+        )}
+
+        {/* Current Active Background Layer (Fading In 0 -> 1 over 2200ms when crossfading) */}
+        {currentBg.src && (
+          <div 
+            className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-20"
+            style={{
+              transition: slide.transitionToNext === 'fade' ? 'opacity 2200ms cubic-bezier(0.4, 0, 0.2, 1)' : 'opacity 300ms ease-in-out',
+              opacity: 1
+            }}
+          >
+            {currentBg.type === 'video' && (
+              <video 
+                ref={currentVideoRef}
+                src={currentBg.src} 
+                autoPlay 
+                loop={!!slide.mediaLoop}
+                muted={slide.mediaPlaying !== undefined ? false : true} 
+                playsInline 
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+              />
+            )}
+            {currentBg.type === 'image' && (
+              <img 
+                src={currentBg.src} 
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                alt="WorshipFlow Background" 
+              />
+            )}
+            {currentBg.type === 'color' && (
+              <div style={{ width: '100%', height: '100%', backgroundColor: currentBg.src }} />
+            )}
+          </div>
+        )}
 
         {/* Foreground Canvas: Text Lyrics Render Layer */}
         <div 

@@ -345,8 +345,12 @@ function OperatorDashboard() {
   const [newSectionNameInline, setNewSectionNameInline] = useState('');
 
   // Slide Transition Hotspot State
-
   const [hoveredTransitionGap, setHoveredTransitionGap] = useState(null); // index of the gap being hovered
+
+  // Live Output Preview Monitor Background Crossfade States
+  const [previewCurrentBg, setPreviewCurrentBg] = useState({ src: '', type: 'none' });
+  const [previewPrevBg, setPreviewPrevBg] = useState({ src: '', type: 'none' });
+  const [previewIsCrossfading, setPreviewIsCrossfading] = useState(false);
 
   // Right-click context menu for playlist items
   const [playlistContextMenu, setPlaylistContextMenu] = useState(null); // { x, y, itemId, itemName, itemIndex }
@@ -465,6 +469,7 @@ function OperatorDashboard() {
 
   // Live Output preview animation states
   const [livePreviewFading, setLivePreviewFading] = useState(false);
+  const [previewDisplayedText, setPreviewDisplayedText] = useState('');
   const prevLiveTextRef = React.useRef('');
 
   useEffect(() => {
@@ -515,29 +520,39 @@ function OperatorDashboard() {
     }
   };
 
-  // Animate the live output preview in the operator panel whenever the slide text changes
+  // Animate the live output preview in the operator panel whenever the slide text changes (2-Phase Exit & Entrance Sequence)
   useEffect(() => {
-    if (!activeSlideText && !prevLiveTextRef.current) return; // skip initial empty → empty
-    if (activeSlideText === prevLiveTextRef.current) return;   // same text, no animation
+    if (!activeSlideText && !prevLiveTextRef.current) {
+      setPreviewDisplayedText(activeSlideText || '');
+      return;
+    }
+    if (activeSlideText === prevLiveTextRef.current) return;
 
     const anim = activeSlideStyle?.animation || 'Zoom In/Out';
     const isInstant = anim === 'None' || anim === 'Instant';
 
-    // For None/Instant: just update the ref and show text immediately, no fading
     if (isInstant) {
       prevLiveTextRef.current = activeSlideText;
+      setPreviewDisplayedText(activeSlideText || '');
       setLivePreviewFading(false);
       return;
     }
 
-    const speedMs = activeSlideStyle?.speed
-      ? parseFloat(activeSlideStyle.speed.match(/\d+(\.\d+)?/)?.[0] || 0.3) * 500
-      : 300;
+    const totalMs = activeSlideStyle?.speed
+      ? parseFloat(activeSlideStyle.speed.match(/\d+(\.\d+)?/)?.[0] || 0.6) * 1000
+      : 600;
+    const halfMs = Math.max(40, totalMs / 2);
+
+    // Phase 1: Current text slide plays exit transition
     setLivePreviewFading(true);
+
+    // Phase 2: After exit transition finishes (opacity 0), switch to new slide text and play entrance transition
     const t = setTimeout(() => {
       prevLiveTextRef.current = activeSlideText;
+      setPreviewDisplayedText(activeSlideText || '');
       setLivePreviewFading(false);
-    }, speedMs);
+    }, halfMs);
+
     return () => clearTimeout(t);
   }, [activeSlideText, clearLyrics, blackout]);
 
@@ -1675,14 +1690,18 @@ function OperatorDashboard() {
               blackout
             };
           } else {
-            // Send regular slide
+            // Send regular slide with dynamically resolved background asset
+            const activeSlideObj = slides && slides[activeSlideIndex];
+            const resolvedBg = getEffectiveSlideBg(activeSlideObj, slides, selectedSong || liveSong);
+            const finalBgAsset = resolvedBg ? formatBgPath(resolvedBg) : (activeBgAsset || '');
+
             slidePayload = {
               text: activeSlideText,
               label: activeSlideLabel || `Slide ${activeSlideIndex + 1}`,
-              bgAsset: activeBgAsset,
+              bgAsset: finalBgAsset,
               style: activeSlideStyle,
               isImportedSlide: !!(slides && slides[activeSlideIndex] && slides[activeSlideIndex].bgAsset),
-              transitionToNext: (activeSlideIndex > 0 && slides && slides[activeSlideIndex - 1]?.transitionToNext === 'fade') ? 'fade' : 'none',
+              transitionToNext: ((activeSlideIndex > 0 && slides && slides[activeSlideIndex - 1]?.transitionToNext === 'fade') || (activeSlideObj?.transitionToNext === 'fade')) ? 'fade' : 'none',
               countdownActive: false,
               timerActive: false,
               blackout,
@@ -1696,10 +1715,13 @@ function OperatorDashboard() {
         } catch (err) {
           console.error('Failed to clone slide update payload, trying selective serialize:', err);
           try {
+            const activeSlideObj = slides && slides[activeSlideIndex];
+            const resolvedBg = getEffectiveSlideBg(activeSlideObj, slides, selectedSong || liveSong);
+            const finalBgAsset = resolvedBg ? formatBgPath(resolvedBg) : (activeBgAsset || '');
             window.api.sendSlideUpdate({
               text: activeSlideText,
               label: activeSlideLabel || `Slide ${activeSlideIndex + 1}`,
-              bgAsset: activeBgAsset,
+              bgAsset: finalBgAsset,
               countdownActive: false,
               timerActive: false,
               blackout,
@@ -1771,6 +1793,44 @@ function OperatorDashboard() {
       }
     }
   }, [selectedSong]);
+
+  // Sync Live Output Preview Monitor background crossfade
+  useEffect(() => {
+    const slidesArr = getSlidesArray();
+    const curSlideObj = slidesArr && slidesArr[activeSlideIndex];
+    const rawBg = getEffectiveSlideBg(curSlideObj, slidesArr, selectedSong || liveSong);
+    
+    if (!rawBg || blackout) {
+      setPreviewCurrentBg({ src: '', type: 'none' });
+      setPreviewPrevBg({ src: '', type: 'none' });
+      setPreviewIsCrossfading(false);
+      return;
+    }
+
+    const formatted = formatBgPath(rawBg);
+    const type = isBgColor(rawBg) ? 'color' : (/\.(mp4|webm|mov|avi)($|\?)/i.test(rawBg) ? 'video' : 'image');
+    const hasTransition = (activeSlideIndex > 0 && slidesArr && slidesArr[activeSlideIndex - 1]?.transitionToNext === 'fade') || (curSlideObj?.transitionToNext === 'fade');
+
+    setPreviewCurrentBg(prev => {
+      if (prev.src === formatted && prev.type === type) {
+        return prev;
+      }
+
+      if (hasTransition && prev.src) {
+        setPreviewPrevBg(prev);
+        setPreviewIsCrossfading(true);
+        setTimeout(() => {
+          setPreviewIsCrossfading(false);
+          setPreviewPrevBg({ src: '', type: 'none' });
+        }, 2200);
+      } else {
+        setPreviewPrevBg({ src: '', type: 'none' });
+        setPreviewIsCrossfading(false);
+      }
+
+      return { src: formatted, type };
+    });
+  }, [activeSlideIndex, slides, selectedSong, liveSong, blackout]);
 
   // Metronome Click Track & Voice Cue Auto-Start/Stop Sync Effect
   useEffect(() => {
@@ -4351,24 +4411,27 @@ function OperatorDashboard() {
                       <select 
                         value={songAnimation} 
                         onChange={e => setSongAnimation(e.target.value)}
-                        className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none flex-1"
+                        className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none flex-1 text-xs"
                       >
                         <option value="None">None</option>
+                        <option value="Fade In">Fade In</option>
+                        <option value="Fade Out">Fade Out</option>
                         <option value="Fade">Fade</option>
                         <option value="Zoom In/Out">Zoom In/Out</option>
                         <option value="Slide Left">Slide Left</option>
                         <option value="Slide Right">Slide Right</option>
                         <option value="Slide Up">Slide Up</option>
                       </select>
-                      <select 
-                        value={songSpeed} 
-                        onChange={e => setSongSpeed(e.target.value)}
-                        className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none flex-1"
-                      >
-                        <option value="Fast (0.3s)">Fast (0.3s)</option>
-                        <option value="Medium (0.6s)">Medium (0.6s)</option>
-                        <option value="Slow (1.0s)">Slow (1.0s)</option>
-                      </select>
+                      <div className="flex items-center gap-1 bg-appPanel border border-[var(--border-app)] rounded px-2 py-0.5 flex-1">
+                        <input 
+                          type="text" 
+                          value={songSpeed} 
+                          onChange={e => setSongSpeed(e.target.value)}
+                          placeholder="0.6s"
+                          className="w-full bg-transparent text-textMain text-xs focus:outline-none"
+                        />
+                        <span className="text-[10px] text-textMuted font-mono">Secs</span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -5306,23 +5369,43 @@ function OperatorDashboard() {
                         <img src={formatBgPath(timerBgMedia)} className="w-full h-full object-cover" alt="" />
                       )
                     ) : (
-                      // Regular slide background
-                      !showOnProjector && !showTimerOnProjector && curSlideBgMedia && !isBgColor(curSlideBgMedia) && (
-                        /\.(mp4|webm|mov|avi)($|\?)/i.test(curSlideBgMedia) ? (
-                          <SharedVideoCanvas 
-                            src={curSlideBgMedia}
-                            maxResWidth={1280}
-                            fps={60}
-                            className="w-full h-full object-cover opacity-100" 
-                            style={{ willChange: 'transform', transform: 'translate3d(0,0,0)' }} 
-                          />
-                        ) : (
-                          <img 
-                            src={curSlideBgMedia} 
-                            className="w-full h-full object-cover opacity-100" 
-                            alt="" 
-                          />
-                        )
+                      // Regular slide background with 2.2s slow-motion crossfade
+                      !showOnProjector && !showTimerOnProjector && (
+                        <>
+                          {/* Previous Preview Background Layer (Fading Out 1 -> 0 over 2200ms) */}
+                          {previewPrevBg.src && previewPrevBg.type !== 'color' && (
+                            <div 
+                              className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-10"
+                              style={{
+                                transition: 'opacity 2200ms cubic-bezier(0.4, 0, 0.2, 1)',
+                                opacity: previewIsCrossfading ? 0 : 1
+                              }}
+                            >
+                              {previewPrevBg.type === 'video' ? (
+                                <SharedVideoCanvas src={previewPrevBg.src} maxResWidth={1280} fps={60} className="w-full h-full object-cover" />
+                              ) : (
+                                <img src={previewPrevBg.src} className="w-full h-full object-cover" alt="" />
+                              )}
+                            </div>
+                          )}
+
+                          {/* Current Preview Background Layer (Fading In 0 -> 1 over 2200ms) */}
+                          {previewCurrentBg.src && previewCurrentBg.type !== 'color' && (
+                            <div 
+                              className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-20"
+                              style={{
+                                transition: previewIsCrossfading ? 'opacity 2200ms cubic-bezier(0.4, 0, 0.2, 1)' : 'opacity 300ms ease-in-out',
+                                opacity: 1
+                              }}
+                            >
+                              {previewCurrentBg.type === 'video' ? (
+                                <SharedVideoCanvas src={previewCurrentBg.src} maxResWidth={1280} fps={60} className="w-full h-full object-cover" />
+                              ) : (
+                                <img src={previewCurrentBg.src} className="w-full h-full object-cover" alt="" />
+                              )}
+                            </div>
+                          )}
+                        </>
                       )
                     )}
                   </div>
@@ -5371,12 +5454,12 @@ function OperatorDashboard() {
                       className="z-10 flex flex-col justify-center items-center" 
                       style={liveOutputAnimStyle}
                     >
-                      {(!clearLyrics && !blackout) && activeSlideText && (
+                      {(!clearLyrics && !blackout) && (previewDisplayedText || activeSlideText) && (
                         <p 
                           className="projector-text-shadow"
                           style={getLivePreviewTextStyle()}
                         >
-                          {activeSlideText}
+                          {previewDisplayedText || activeSlideText}
                         </p>
                       )}
                     </div>
@@ -5905,21 +5988,24 @@ function OperatorDashboard() {
                             className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none text-xs flex-1"
                           >
                             <option value="None">None</option>
+                            <option value="Fade In">Fade In</option>
+                            <option value="Fade Out">Fade Out</option>
                             <option value="Fade">Fade</option>
                             <option value="Zoom In/Out">Zoom In/Out</option>
                             <option value="Slide Left">Slide Left</option>
                             <option value="Slide Right">Slide Right</option>
                             <option value="Slide Up">Slide Up</option>
                           </select>
-                          <select 
-                            value={songSpeed} 
-                            onChange={e => setSongSpeed(e.target.value)}
-                            className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none text-xs flex-1"
-                          >
-                            <option value="Fast (0.3s)">Fast (0.3s)</option>
-                            <option value="Medium (0.6s)">Medium (0.6s)</option>
-                            <option value="Slow (1.0s)">Slow (1.0s)</option>
-                          </select>
+                          <div className="flex items-center gap-1 bg-appPanel border border-[var(--border-app)] rounded px-2 py-0.5 flex-1">
+                            <input 
+                              type="text" 
+                              value={songSpeed} 
+                              onChange={e => setSongSpeed(e.target.value)}
+                              placeholder="0.6s"
+                              className="w-full bg-transparent text-textMain text-xs focus:outline-none"
+                            />
+                            <span className="text-[10px] text-textMuted font-mono">Secs</span>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -6456,21 +6542,24 @@ function OperatorDashboard() {
                             className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none text-xs flex-1"
                           >
                             <option value="None">None</option>
+                            <option value="Fade In">Fade In</option>
+                            <option value="Fade Out">Fade Out</option>
                             <option value="Fade">Fade</option>
                             <option value="Zoom In/Out">Zoom In/Out</option>
                             <option value="Slide Left">Slide Left</option>
                             <option value="Slide Right">Slide Right</option>
                             <option value="Slide Up">Slide Up</option>
                           </select>
-                          <select 
-                            value={songSpeed} 
-                            onChange={e => setSongSpeed(e.target.value)}
-                            className="p-1 bg-appPanel border border-[var(--border-app)] rounded text-textMain focus:outline-none text-xs flex-1"
-                          >
-                            <option value="Fast (0.3s)">Fast (0.3s)</option>
-                            <option value="Medium (0.6s)">Medium (0.6s)</option>
-                            <option value="Slow (1.0s)">Slow (1.0s)</option>
-                          </select>
+                          <div className="flex items-center gap-1 bg-appPanel border border-[var(--border-app)] rounded px-2 py-0.5 flex-1">
+                            <input 
+                              type="text" 
+                              value={songSpeed} 
+                              onChange={e => setSongSpeed(e.target.value)}
+                              placeholder="0.6s"
+                              className="w-full bg-transparent text-textMain text-xs focus:outline-none"
+                            />
+                            <span className="text-[10px] text-textMuted font-mono">Secs</span>
+                          </div>
                         </div>
                       </div>
                     </div>
