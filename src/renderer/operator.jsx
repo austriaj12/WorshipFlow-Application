@@ -82,6 +82,13 @@ const formatBgPath = (pathStr) => {
   return `file:///${cleanPath.startsWith('/') ? cleanPath.slice(1) : cleanPath}`;
 };
 
+const formatSecondsToMinSec = (totalSeconds) => {
+  const secs = Math.max(0, parseInt(totalSeconds, 10) || 0);
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+};
+
 const sharedVideoCache = {};
 
 const getOrCreateSharedVideo = (src) => {
