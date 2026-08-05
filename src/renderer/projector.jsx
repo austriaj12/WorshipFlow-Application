@@ -171,7 +171,7 @@ function ProjectorScreen() {
       return;
     }
 
-    const anim = slideData.style?.animation || 'Zoom In/Out';
+    const anim = slideData.style?.animation || 'Fade Out';
     if (anim === 'Instant' || anim === 'None') {
       if (textAnimTimeoutRef.current) clearTimeout(textAnimTimeoutRef.current);
       setSlide(slideData);

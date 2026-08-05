@@ -529,7 +529,7 @@ function OperatorDashboard() {
   useEffect(() => {
     if (activeSlideText === prevLiveTextRef.current) return;
 
-    const anim = activeSlideStyle?.animation || 'Zoom In/Out';
+    const anim = activeSlideStyle?.animation || 'Fade Out';
     const isInstant = anim === 'None' || anim === 'Instant';
 
     if (isInstant || !activeSlideText) {
@@ -585,8 +585,8 @@ function OperatorDashboard() {
   const [songBgOpacity, setSongBgOpacity] = useState('0%');
   const [songAlign, setSongAlign] = useState('center');
   const [songVertical, setSongVertical] = useState('center');
-  const [songAnimation, setSongAnimation] = useState('Zoom In/Out');
-  const [songSpeed, setSongSpeed] = useState('Medium (0.6s)');
+  const [songAnimation, setSongAnimation] = useState('Fade Out');
+  const [songSpeed, setSongSpeed] = useState('0.6');
   const [songBgHeight, setSongBgHeight] = useState(100);
   const [songBgWidth, setSongBgWidth] = useState(100);
   const [songBgRadius, setSongBgRadius] = useState(4);
@@ -1479,11 +1479,17 @@ function OperatorDashboard() {
                        || activeSlide.label?.includes('Scripture')
                        || activeSlide.isBible;
 
+      const effectiveStyle = {
+        ...(activeSlide.style || {}),
+        animation: songAnimation || activeSlide.style?.animation || 'Fade Out',
+        speed: songSpeed || activeSlide.style?.speed || '0.6'
+      };
+
       setLiveSlide(
         activeSlide.bgAsset ? '' : activeSlide.text, 
         activeSlide.label, 
         bgPath,
-        activeSlide.style,
+        effectiveStyle,
         isBible
       );
 
@@ -2217,7 +2223,7 @@ function OperatorDashboard() {
   const liveOutputAnimStyle = (() => {
     const overlayStyle = getLivePreviewOverlayStyle();
 
-    const anim = activeSlideStyle?.animation || 'Zoom In/Out';
+    const anim = activeSlideStyle?.animation || 'Fade Out';
     const speedMs = activeSlideStyle?.speed
       ? parseFloat(activeSlideStyle.speed.match(/\d+(\.\d+)?/)?.[0] || 0.3) * 500
       : 300;
@@ -2438,8 +2444,10 @@ function OperatorDashboard() {
       setSongBgOpacity(s.bgOpacity || '0%');
       setSongAlign(s.align || 'center');
       setSongVertical(s.vertical || 'center');
-      setSongAnimation(s.animation || 'Zoom In/Out');
-      setSongSpeed(s.speed || 'Medium (0.6s)');
+      const loadedAnim = s.animation || 'Fade Out';
+      setSongAnimation(loadedAnim === 'Zoom In/Out' ? 'Fade Out' : loadedAnim);
+      const loadedSpeed = s.speed || '0.6';
+      setSongSpeed(loadedSpeed === 'Medium (0.6s)' || loadedSpeed === 'medium' ? '0.6' : loadedSpeed);
       setSongBgHeight(s.bgHeight !== undefined ? parseInt(s.bgHeight) : 100);
       setSongBgWidth(s.bgWidth !== undefined ? parseInt(s.bgWidth) : 100);
       setSongBgRadius(s.bgRadius !== undefined ? parseInt(s.bgRadius) : 4);
@@ -2488,6 +2496,25 @@ function OperatorDashboard() {
         voiceGender: editSongVoiceGender,
         contentJson,
         chordsText: editSongChordsRaw
+      });
+      // Optimistic update so header reflects new BPM/time sig immediately
+      useLibraryStore.setState({
+        selectedSong: {
+          ...selectedSong,
+          title: editSongTitle,
+          bpm: editSongBpm,
+          tempo: String(editSongBpm),
+          time_signature: editSongTimeSignature,
+          timeSignature: editSongTimeSignature,
+          enable_click: editSongEnableClick ? 1 : 0,
+          enableClick: editSongEnableClick,
+          enable_voice_cues: editSongEnableVoiceCues ? 1 : 0,
+          enableVoiceCues: editSongEnableVoiceCues,
+          voice_gender: editSongVoiceGender,
+          voiceGender: editSongVoiceGender,
+          content_json: contentJson,
+          contentJson
+        }
       });
       setIsEditSongOpen(false);
     } catch (err) {
@@ -3261,6 +3288,8 @@ function OperatorDashboard() {
                           type="button"
                           onClick={async () => {
                             const nextClickState = !(selectedSong.enable_click || selectedSong.enableClick);
+                            const optimisticSong = { ...selectedSong, enable_click: nextClickState ? 1 : 0, enableClick: nextClickState };
+                            useLibraryStore.setState({ selectedSong: optimisticSong });
                             await saveSong({
                               ...selectedSong,
                               bpm: selectedSong.bpm || parseInt(selectedSong.tempo) || 120,
@@ -3271,7 +3300,6 @@ function OperatorDashboard() {
                               contentJson: selectedSong.content_json,
                               chordsText: selectedSong.chords_text
                             });
-                            await fetchSongs();
                           }}
                           className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono transition whitespace-nowrap ${
                             (selectedSong.enable_click || selectedSong.enableClick)
@@ -3288,6 +3316,8 @@ function OperatorDashboard() {
                           type="button"
                           onClick={async () => {
                             const nextCueState = !(selectedSong.enable_voice_cues || selectedSong.enableVoiceCues);
+                            const optimisticSong = { ...selectedSong, enable_voice_cues: nextCueState ? 1 : 0, enableVoiceCues: nextCueState };
+                            useLibraryStore.setState({ selectedSong: optimisticSong });
                             await saveSong({
                               ...selectedSong,
                               bpm: selectedSong.bpm || parseInt(selectedSong.tempo) || 120,
@@ -3298,7 +3328,6 @@ function OperatorDashboard() {
                               contentJson: selectedSong.content_json,
                               chordsText: selectedSong.chords_text
                             });
-                            await fetchSongs();
                           }}
                           className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono transition whitespace-nowrap ${
                             (selectedSong.enable_voice_cues || selectedSong.enableVoiceCues)
@@ -3316,6 +3345,8 @@ function OperatorDashboard() {
                           onChange={async (e) => {
                             const newGender = e.target.value;
                             metronomeEngine.setVoiceGender(newGender);
+                            const optimisticSong = { ...selectedSong, voice_gender: newGender, voiceGender: newGender };
+                            useLibraryStore.setState({ selectedSong: optimisticSong });
                             await saveSong({
                               ...selectedSong,
                               bpm: selectedSong.bpm || parseInt(selectedSong.tempo) || 120,
@@ -3326,7 +3357,6 @@ function OperatorDashboard() {
                               contentJson: selectedSong.content_json,
                               chordsText: selectedSong.chords_text
                             });
-                            await fetchSongs();
                           }}
                           className="p-0.5 px-1.5 bg-appBg border border-[var(--border-app)] rounded text-textMain text-[10px] font-mono focus:outline-none whitespace-nowrap"
                           title="Select Voice Gender for Section Cues"
