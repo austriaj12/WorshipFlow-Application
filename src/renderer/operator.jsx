@@ -2373,6 +2373,7 @@ function OperatorDashboard() {
         label, 
         text,
         bgAsset: existing?.bgAsset || '',
+        transitionToNext: existing?.transitionToNext || 'none',
         style: mergedStyle
       };
     });
