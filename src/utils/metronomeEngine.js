@@ -255,7 +255,7 @@ class MetronomeEngine {
         window.speechSynthesis.cancel(); // Clear any queued speech
         const speechText = cleanLabel.toUpperCase().startsWith('SLIDE') 
           ? cleanLabel 
-          : cleanLabel.replace(/x\d+/gi, '').replace(/\d+/g, '').trim() || cleanLabel;
+          : cleanLabel.replace(/x\d+/gi, '').trim() || cleanLabel;
           
         const utterance = new SpeechSynthesisUtterance(speechText);
         // Use natural 1.0 pitch and rate for organic, human-like voice quality

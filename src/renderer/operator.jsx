@@ -427,7 +427,7 @@ function OperatorDashboard() {
   const [metronomeActive, setMetronomeActive] = useState(false);
   const [currentBeatIndex, setCurrentBeatIndex] = useState(-1);
   const [selectedAudioDeviceId, setSelectedAudioDeviceId] = useState(() => localStorage.getItem('metronomeAudioDevice') || '');
-  const lastSpokenSectionRef = React.useRef('');
+  const lastSpokenSectionRef = React.useRef(''); // tracks songId::section::firstSlideIdx
 
   const handleKeyChange = (targetKey, isAddModal) => {
     const currentKey = isAddModal ? newSongKey : editSongKey;
@@ -834,6 +834,7 @@ function OperatorDashboard() {
           const currentStyle = slide.style || {};
           return {
             ...slide,
+            bgAsset: targetBg,
             style: {
               ...currentStyle,
               background: targetBg,
@@ -849,6 +850,7 @@ function OperatorDashboard() {
           const currentStyle = slide.style || {};
           return {
             ...slide,
+            bgAsset: targetBg,
             style: {
               ...currentStyle,
               background: targetBg,
@@ -863,6 +865,7 @@ function OperatorDashboard() {
         const currentStyle = slide.style || {};
         return {
           ...slide,
+          bgAsset: targetBg,
           style: {
             ...currentStyle,
             background: targetBg,
@@ -876,6 +879,17 @@ function OperatorDashboard() {
     setTimeout(() => setBgActionStatus('idle'), 1500);
 
     const contentJson = JSON.stringify(updatedSlides);
+    const updatedSongObj = {
+      ...selectedSong,
+      bgAsset: applyToTarget === 'all' ? targetBg : (selectedSong.bg_asset || selectedSong.bgAsset || ''),
+      bg_asset: applyToTarget === 'all' ? targetBg : (selectedSong.bg_asset || selectedSong.bgAsset || ''),
+      contentJson,
+      content_json: contentJson
+    };
+
+    // Optimistically update selectedSong in store so slide cards reflect the new background immediately
+    useLibraryStore.setState({ selectedSong: updatedSongObj });
+
     try {
       await saveSong({
         id: selectedSong.id,
@@ -883,18 +897,27 @@ function OperatorDashboard() {
         author: selectedSong.author || 'WorshipFlow',
         key: selectedSong.key || '',
         tempo: selectedSong.tempo || '',
-        contentJson
+        bgAsset: updatedSongObj.bgAsset,
+        contentJson,
+        content_json: contentJson
       });
       
       const activeSlide = updatedSlides[activeSlideIndex];
       if (activeSlide) {
+        const rawBg = getEffectiveSlideBg(activeSlide, updatedSlides, updatedSongObj);
+        const bgPath = formatBgPath(rawBg);
+        const effectiveStyle = {
+          ...(activeSlide.style || {}),
+          animation: songAnimation || activeSlide.style?.animation || 'Fade Out',
+          speed: songSpeed || activeSlide.style?.speed || '0.6'
+        };
         setLiveSlide(
-          activeSlide.text,
+          activeSlide.bgAsset ? '' : activeSlide.text,
           activeSlide.label,
-          targetBg,
-          activeSlide.style
+          bgPath,
+          effectiveStyle
         );
-}
+      }
     } catch (err) {
       console.error('Failed to apply background mutation:', err);
     }
@@ -1493,20 +1516,32 @@ function OperatorDashboard() {
         isBible
       );
 
-      // Trigger Advance Section Voice Cue ONLY when entering a NEW section (e.g. Verse 1 -> Chorus -> Bridge)
+      // Trigger Section Voice Cue ONLY on the FIRST slide of each section block instance (e.g. 1st Chorus, 2nd Chorus, 3rd Chorus, etc.)
       const activeSongObj = songObject || selectedSong;
       if (activeSlide && activeSlide.label && activeSongObj) {
         const shouldVoiceCue = activeSongObj.enable_voice_cues || activeSongObj.enableVoiceCues;
         if (shouldVoiceCue) {
-          const rawLabel = activeSlide.label.toString().toUpperCase().trim();
-          let sectionBase = rawLabel.startsWith('VERSE') 
-            ? (rawLabel.split(/\s+/)[0] + ' ' + (rawLabel.match(/\d+/) || ['1'])[0])
-            : rawLabel.replace(/x\d+/gi, '').replace(/\d+/g, '').trim();
+          const slidesList2 = slidesList || [];
+          const normalizeLabel = (l) => (l || '').toString().toUpperCase().trim().replace(/x\d+/gi, '').trim();
+          
+          const currLabel = normalizeLabel(activeSlide.label);
+          const prevLabel = index > 0 ? normalizeLabel(slidesList2[index - 1]?.label) : '';
 
-          if (sectionBase && sectionBase !== lastSpokenSectionRef.current) {
-            metronomeEngine.setVoiceGender(activeSongObj.voice_gender || activeSongObj.voiceGender || 'female');
-            metronomeEngine.triggerVoiceCue(activeSlide.label);
-            lastSpokenSectionRef.current = sectionBase;
+          // A slide is the start of a section block if it is index 0 OR its label differs from the previous slide
+          const isSectionStart = index === 0 || (currLabel !== prevLabel);
+
+          const songId = (activeSongObj.id || 'unknown').toString();
+          const cueKey = `${songId}::slide_${index}`;
+
+          if (isSectionStart && currLabel) {
+            if (lastSpokenSectionRef.current !== cueKey) {
+              metronomeEngine.setVoiceGender(activeSongObj.voice_gender || activeSongObj.voiceGender || 'female');
+              metronomeEngine.triggerVoiceCue(activeSlide.label);
+              lastSpokenSectionRef.current = cueKey;
+            }
+          } else {
+            // Mid-section slide (e.g. 2nd line of Chorus) — update tracking so revisiting section start re-fires
+            lastSpokenSectionRef.current = `${songId}::mid_${index}`;
           }
         }
       }
