@@ -23,8 +23,15 @@ const formatBgPath = (pathStr) => {
   while (str.toLowerCase().startsWith('file:/')) {
     str = str.replace(/^file:\/+/i, '');
   }
+  try { str = decodeURIComponent(str); } catch (e) {}
   const cleanPath = str.replace(/\\/g, '/');
-  return `file:///${cleanPath.startsWith('/') ? cleanPath.slice(1) : cleanPath}`;
+  const formattedPath = cleanPath.startsWith('/') ? cleanPath.slice(1) : cleanPath;
+  const parts = formattedPath.split('/');
+  const encodedParts = parts.map((part, i) => {
+    if (i === 0 && part.endsWith(':')) return part;
+    return encodeURIComponent(part);
+  });
+  return `file:///${encodedParts.join('/')}`;
 };
 
 function ProjectorScreen() {

@@ -78,8 +78,15 @@ const formatBgPath = (pathStr) => {
   while (str.toLowerCase().startsWith('file:/')) {
     str = str.replace(/^file:\/+/i, '');
   }
+  try { str = decodeURIComponent(str); } catch (e) {}
   const cleanPath = str.replace(/\\/g, '/');
-  return `file:///${cleanPath.startsWith('/') ? cleanPath.slice(1) : cleanPath}`;
+  const formattedPath = cleanPath.startsWith('/') ? cleanPath.slice(1) : cleanPath;
+  const parts = formattedPath.split('/');
+  const encodedParts = parts.map((part, i) => {
+    if (i === 0 && part.endsWith(':')) return part;
+    return encodeURIComponent(part);
+  });
+  return `file:///${encodedParts.join('/')}`;
 };
 
 const formatSecondsToMinSec = (totalSeconds) => {
@@ -101,15 +108,32 @@ const getOrCreateSharedVideo = (src) => {
     video.loop = true;
     video.autoplay = true;
     video.playsInline = true;
+    video.setAttribute('muted', '');
+    video.setAttribute('playsinline', '');
     video.style.position = 'absolute';
     video.style.width = '0px';
     video.style.height = '0px';
     video.style.pointerEvents = 'none';
     video.style.opacity = '0';
+
+    const tryPlay = () => {
+      if (video.paused) {
+        video.play().catch(() => {});
+      }
+    };
+
+    video.addEventListener('canplay', tryPlay);
+    video.addEventListener('loadeddata', tryPlay);
+    video.addEventListener('loadedmetadata', tryPlay);
+
     document.body.appendChild(video);
-    
-    video.play().catch(() => {});
+    tryPlay();
+
     sharedVideoCache[formatted] = video;
+  } else {
+    if (sharedVideoCache[formatted].paused) {
+      sharedVideoCache[formatted].play().catch(() => {});
+    }
   }
   return sharedVideoCache[formatted];
 };
@@ -159,7 +183,10 @@ const SharedVideoCanvas = ({ className, style, src, maxResWidth = 240, fps = 12 
       if (now - lastRenderTime < interval) return;
       lastRenderTime = now;
 
-      if (video && video.src && !video.paused && !video.ended && video.videoWidth > 0) {
+      if (video && video.src && video.videoWidth > 0) {
+        if (video.paused) {
+          video.play().catch(() => {});
+        }
         const targetW = maxResWidth;
         const targetH = Math.round(maxResWidth * (video.videoHeight / video.videoWidth || 0.5625));
 
@@ -3692,54 +3719,55 @@ function OperatorDashboard() {
                                     aspectRatio: '16/9'
                                   }}
                                 >
-                                  {/* Solid Color Background Layer */}
-                                  {((slide.style?.background && isBgColor(slide.style.background)) || (slide.bgAsset && isBgColor(slide.bgAsset))) && (
-                                    <div 
-                                      style={{
-                                        position: 'absolute',
-                                        left: 0,
-                                        right: 0,
-                                        height: slide.style?.bgHeight || '100%',
-                                        top: '50%',
-                                        transform: 'translateY(-50%)',
-                                        backgroundColor: (slide.bgAsset && isBgColor(slide.bgAsset)) ? slide.bgAsset : (slide.style?.background || '#000000'),
-                                        zIndex: 0
-                                      }}
-                                    />
-                                  )}
+                                   {/* Effective Slide Background (Media Video / Image / Solid Color) */}
+                                   {(() => {
+                                     const cardBg = slide.bgAsset || (slide.style && slide.style.background) || '';
+                                     if (!cardBg) return null;
 
-                                  {/* bgAsset: full-cover slide image (PowerPoint/PDF imports) */}
-                                  {slide.bgAsset && !isBgColor(slide.bgAsset) && (
-                                    <div className="absolute inset-0 z-0 w-full h-full">
-                                      <img 
-                                        src={formatBgPath(slide.bgAsset)}
-                                        className="w-full h-full object-cover opacity-100" 
-                                        loading="lazy"
-                                        alt=""
-                                      />
-                                    </div>
-                                  )}
-                                  {/* style.background overlay: shared video/image background for songs */}
-                                  {!slide.bgAsset && (slide.style && slide.style.background) && !isBgColor(slide.style.background) && (
-                                    <div className="absolute inset-0 z-0 w-full h-full">
-                                      {/\.(mp4|webm|mov|avi)($|\?)/i.test(slide.style.background) ? (
-                                        <SharedVideoCanvas 
-                                          src={slide.style.background}
-                                          maxResWidth={240}
-                                          fps={12}
-                                          className="w-full h-full object-cover opacity-100" 
-                                          style={{ willChange: 'transform', transform: 'translate3d(0,0,0)' }}
-                                        />
-                                      ) : (
-                                        <img 
-                                          src={formatBgPath(slide.style.background)} 
-                                          className="w-full h-full object-cover opacity-100" 
-                                          loading="lazy"
-                                          alt="" 
-                                        />
-                                      )}
-                                    </div>
-                                  )}
+                                     if (isBgColor(cardBg)) {
+                                       return (
+                                         <div 
+                                           style={{
+                                             position: 'absolute',
+                                             left: 0,
+                                             right: 0,
+                                             height: slide.style?.bgHeight || '100%',
+                                             top: '50%',
+                                             transform: 'translateY(-50%)',
+                                             backgroundColor: cardBg,
+                                             zIndex: 0
+                                           }}
+                                         />
+                                       );
+                                     }
+
+                                     const isVideo = /\.(mp4|webm|mov|avi)($|\?)/i.test(cardBg);
+                                     if (isVideo) {
+                                       return (
+                                         <div className="absolute inset-0 z-0 w-full h-full">
+                                           <SharedVideoCanvas 
+                                             src={cardBg}
+                                             maxResWidth={240}
+                                             fps={12}
+                                             className="w-full h-full object-cover opacity-100" 
+                                             style={{ willChange: 'transform', transform: 'translate3d(0,0,0)' }}
+                                           />
+                                         </div>
+                                       );
+                                     }
+
+                                     return (
+                                       <div className="absolute inset-0 z-0 w-full h-full">
+                                         <img 
+                                           src={formatBgPath(cardBg)} 
+                                           className="w-full h-full object-cover opacity-100" 
+                                           loading="lazy"
+                                           alt="" 
+                                         />
+                                       </div>
+                                     );
+                                   })()}
+
                                   <div className="z-10 flex justify-between">
                                     <span className="bg-black/70 px-1.5 py-0.5 rounded text-[8px] font-mono text-textMuted">{index + 1}</span>
                                     <span className={`px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase tracking-wider ${getLabelBadgeStyle(slide.label).bg} ${getLabelBadgeStyle(slide.label).text}`}>{slide.label}</span>
@@ -5441,9 +5469,7 @@ function OperatorDashboard() {
           {(() => {
             const targetSong = (liveSong && liveSong.id === selectedSong?.id) ? liveSong : selectedSong;
             const curSlideObj = slides && slides[activeSlideIndex];
-            const curSlideBgMedia = curSlideObj?.bgAsset 
-              ? `file:///${curSlideObj.bgAsset.replace(/\\/g, '/')}`
-              : (curSlideObj?.style?.background || targetSong?.bgAsset || targetSong?.style?.background || '');
+            const curSlideBgMedia = formatBgPath(curSlideObj?.bgAsset || curSlideObj?.style?.background || targetSong?.bgAsset || targetSong?.style?.background || '');
 
             return (
               <div 
@@ -5657,9 +5683,7 @@ function OperatorDashboard() {
               const nextSlideIndex = activeSlideIndex + 1;
               const currentSlide = slides && slides[nextSlideIndex];
               const previewBg = currentSlide 
-                ? (currentSlide.bgAsset 
-                    ? `file:///${currentSlide.bgAsset.replace(/\\/g, '/')}` 
-                    : (currentSlide.style && currentSlide.style.background) || '')
+                ? formatBgPath(currentSlide.bgAsset || currentSlide.style?.background || '')
                 : '';
               
               return (
@@ -6230,7 +6254,11 @@ function OperatorDashboard() {
                           }}
                         >
                           {slide.style?.background && !isBgColor(slide.style.background) && (
-                            <img src={slide.style.background} className="absolute inset-0 w-full h-full object-cover opacity-35 z-0" alt="" />
+                            /\.(mp4|webm|mov|avi)($|\?)/i.test(slide.style.background) ? (
+                              <SharedVideoCanvas src={slide.style.background} maxResWidth={240} fps={12} className="absolute inset-0 w-full h-full object-cover opacity-35 z-0" />
+                            ) : (
+                              <img src={formatBgPath(slide.style.background)} className="absolute inset-0 w-full h-full object-cover opacity-35 z-0" alt="" />
+                            )
                           )}
                           <div 
                             className="z-10"
@@ -6779,7 +6807,11 @@ function OperatorDashboard() {
                           }}
                         >
                           {slide.style?.background && !isBgColor(slide.style.background) && (
-                            <img src={slide.style.background} className="absolute inset-0 w-full h-full object-cover opacity-35 z-0" alt="" />
+                            /\.(mp4|webm|mov|avi)($|\?)/i.test(slide.style.background) ? (
+                              <SharedVideoCanvas src={slide.style.background} maxResWidth={240} fps={12} className="absolute inset-0 w-full h-full object-cover opacity-35 z-0" />
+                            ) : (
+                              <img src={formatBgPath(slide.style.background)} className="absolute inset-0 w-full h-full object-cover opacity-35 z-0" alt="" />
+                            )
                           )}
                           <div 
                             className="z-10"
