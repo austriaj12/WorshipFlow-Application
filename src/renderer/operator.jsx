@@ -1200,18 +1200,34 @@ function OperatorDashboard() {
     }
   };
 
+  const getDefaultPresentationName = () => {
+    if (presentationFilePath) {
+      const rawName = presentationFilePath.split(/[/\\]/).pop() || '';
+      return rawName.replace(/\.wflow$/i, '').replace(/\.json$/i, '');
+    }
+    if (playlist && playlist.length > 0) {
+      const firstSong = playlist.find(p => p.type === 'song' || p.name);
+      if (firstSong && firstSong.name) {
+        return firstSong.name;
+      }
+    }
+    return 'Presentation';
+  };
+
   const handleSavePresentation = async () => {
     if (!window.api || !window.api.savePresentation) return;
-    const res = await window.api.savePresentation(playlist, presentationFilePath);
-    if (res && res.success) {
+    const defaultName = getDefaultPresentationName();
+    const res = await window.api.savePresentation(playlist, presentationFilePath, defaultName);
+    if (res && res.success && res.filePath) {
       setPresentationFilePath(res.filePath);
     }
   };
 
   const handleSavePresentationAs = async () => {
     if (!window.api || !window.api.savePresentation) return;
-    const res = await window.api.savePresentation(playlist, null);
-    if (res && res.success) {
+    const defaultName = getDefaultPresentationName();
+    const res = await window.api.savePresentation(playlist, null, defaultName);
+    if (res && res.success && res.filePath) {
       setPresentationFilePath(res.filePath);
     }
   };
@@ -1771,18 +1787,16 @@ function OperatorDashboard() {
               blackout
             };
           } else {
-            // Send regular slide with dynamically resolved background asset
-            const activeSlideObj = slides && slides[activeSlideIndex];
-            const resolvedBg = getEffectiveSlideBg(activeSlideObj, slides, selectedSong || liveSong);
-            const finalBgAsset = resolvedBg ? formatBgPath(resolvedBg) : (activeBgAsset || '');
+            // Send regular slide with active live presentation background asset
+            const finalBgAsset = formatBgPath(activeBgAsset || liveSong?.bg_asset || liveSong?.bgAsset || '');
 
             slidePayload = {
               text: activeSlideText,
               label: activeSlideLabel || `Slide ${activeSlideIndex + 1}`,
               bgAsset: finalBgAsset,
               style: activeSlideStyle,
-              isImportedSlide: !!(slides && slides[activeSlideIndex] && slides[activeSlideIndex].bgAsset),
-              transitionToNext: ((activeSlideIndex > 0 && slides && slides[activeSlideIndex - 1]?.transitionToNext === 'fade') || (activeSlideObj?.transitionToNext === 'fade')) ? 'fade' : 'none',
+              isImportedSlide: false,
+              transitionToNext: 'none',
               countdownActive: false,
               timerActive: false,
               blackout,
@@ -1796,9 +1810,7 @@ function OperatorDashboard() {
         } catch (err) {
           console.error('Failed to clone slide update payload, trying selective serialize:', err);
           try {
-            const activeSlideObj = slides && slides[activeSlideIndex];
-            const resolvedBg = getEffectiveSlideBg(activeSlideObj, slides, selectedSong || liveSong);
-            const finalBgAsset = resolvedBg ? formatBgPath(resolvedBg) : (activeBgAsset || '');
+            const finalBgAsset = formatBgPath(activeBgAsset || liveSong?.bg_asset || liveSong?.bgAsset || '');
             window.api.sendSlideUpdate({
               text: activeSlideText,
               label: activeSlideLabel || `Slide ${activeSlideIndex + 1}`,
@@ -1815,7 +1827,7 @@ function OperatorDashboard() {
       }
     }
   }, [
-    activeSlideText, activeSlideLabel, activeBgAsset, activeSlideStyle, blackout, clearLyrics, stageMessage, slides, activeSlideIndex,
+    activeSlideText, activeSlideLabel, activeBgAsset, activeSlideStyle, blackout, clearLyrics, stageMessage, activeSlideIndex,
     stageLeftWidthPct, stagePanelVisibility, stagePanelHeights, stageShowClock, stageShowSlideIndex, stageShowNextPreview, stageTextStyle, stageUpNextFontSize,
     countdownActive, countdownMinutes, countdownSeconds, countdownTitle, countdownSubtext, countdownBgColor, countdownTextColor, countdownTitleSize, countdownTimeSize, countdownSubtextSize, countdownShowOn,
     timerActive, timerMinutes, timerSeconds, timerTitle, timerBgColor, timerTextColor, timerTitleSize, timerTimeSize, timerShowOn,
@@ -1870,16 +1882,9 @@ function OperatorDashboard() {
     } else {
       setActiveSlideIndex(0);
       setSelectedSlideIndexes([0]);
-      
-      const isMedia = selectedSong && selectedSong.author === 'Media';
-      // Sync live background asset: set new song's background or clear if none
-      const effectiveBg = getEffectiveSlideBg(slidesArr[0], slidesArr, selectedSong);
-      const bgPath = formatBgPath(effectiveBg);
-      const isBibleSlide = (selectedSong && (selectedSong.author === 'Bible' || selectedSong.author === 'Scripture')) || bibleLiveSlides !== null;
-      setLiveSlide(isMedia ? '' : activeSlideText, isMedia ? selectedSong.title : activeSlideLabel, bgPath, activeSlideStyle, isBibleSlide);
 
-      // Auto-play local media player only (do not push to projector)
-      if (isMedia) {
+      // Auto-play local media player preview only (do not push to live projector)
+      if (selectedSong && selectedSong.author === 'Media') {
         setMediaPlaying(true);
       }
     }
@@ -1887,11 +1892,9 @@ function OperatorDashboard() {
 
   // Sync Live Output Preview Monitor background crossfade (Flick-Free Dual-Layer A/B Engine)
   useEffect(() => {
-    const slidesArr = getSlidesArray();
-    const curSlideObj = slidesArr && slidesArr[activeSlideIndex];
-    const rawBg = getEffectiveSlideBg(curSlideObj, slidesArr, selectedSong || liveSong);
+    const rawBg = blackout ? '' : (activeBgAsset || '');
     
-    if (!rawBg || blackout) {
+    if (!rawBg) {
       setPreviewLayerA({ src: '', type: 'none', opacity: 0, zIndex: 10 });
       setPreviewLayerB({ src: '', type: 'none', opacity: 0, zIndex: 10 });
       previewCurrentBgSrcRef.current = '';
@@ -1900,37 +1903,23 @@ function OperatorDashboard() {
 
     const formatted = formatBgPath(rawBg);
     const type = isBgColor(rawBg) ? 'color' : (/\.(mp4|webm|mov|avi)($|\?)/i.test(rawBg) ? 'video' : 'image');
-    const hasTransition = (activeSlideIndex > 0 && slidesArr && slidesArr[activeSlideIndex - 1]?.transitionToNext === 'fade') || (curSlideObj?.transitionToNext === 'fade');
 
     if (previewCurrentBgSrcRef.current === formatted) {
       return;
     }
 
-    const isFade = hasTransition && previewCurrentBgSrcRef.current !== '';
     previewCurrentBgSrcRef.current = formatted;
 
     if (previewActiveLayerRef.current === 'A') {
-      if (isFade) {
-        setPreviewLayerB({ src: formatted, type, opacity: 1, zIndex: 10 });
-        setPreviewLayerA(prev => ({ ...prev, opacity: 0, zIndex: 20 }));
-        previewActiveLayerRef.current = 'B';
-      } else {
-        setPreviewLayerB({ src: formatted, type, opacity: 1, zIndex: 20 });
-        setPreviewLayerA({ src: '', type: 'none', opacity: 0, zIndex: 10 });
-        previewActiveLayerRef.current = 'B';
-      }
+      setPreviewLayerB({ src: formatted, type, opacity: 1, zIndex: 20 });
+      setPreviewLayerA({ src: '', type: 'none', opacity: 0, zIndex: 10 });
+      previewActiveLayerRef.current = 'B';
     } else {
-      if (isFade) {
-        setPreviewLayerA({ src: formatted, type, opacity: 1, zIndex: 10 });
-        setPreviewLayerB(prev => ({ ...prev, opacity: 0, zIndex: 20 }));
-        previewActiveLayerRef.current = 'A';
-      } else {
-        setPreviewLayerA({ src: formatted, type, opacity: 1, zIndex: 20 });
-        setPreviewLayerB({ src: '', type: 'none', opacity: 0, zIndex: 10 });
-        previewActiveLayerRef.current = 'A';
-      }
+      setPreviewLayerA({ src: formatted, type, opacity: 1, zIndex: 20 });
+      setPreviewLayerB({ src: '', type: 'none', opacity: 0, zIndex: 10 });
+      previewActiveLayerRef.current = 'A';
     }
-  }, [activeSlideIndex, selectedSong?.id, liveSong?.id, blackout]);
+  }, [activeBgAsset, blackout]);
 
   // Metronome Click Track & Voice Cue Auto-Start/Stop Sync Effect
   useEffect(() => {
@@ -3553,7 +3542,12 @@ function OperatorDashboard() {
                             <div className="flex items-center gap-1.5">
                               {/* Play / Pause Toggle */}
                               <button
-                                onClick={() => setMediaPlaying(!mediaPlaying)}
+                                onClick={() => {
+                                  const nextPlaying = !mediaPlaying;
+                                  setMediaPlaying(nextPlaying);
+                                  const bgPath = formatBgPath(slides[0]?.bgAsset || selectedSong?.bgAsset);
+                                  setLiveSlide('', selectedSong.title, bgPath, activeSlideStyle, false, nextPlaying, mediaLoop, mediaVolume);
+                                }}
                                 className={`p-1.5 px-2.5 rounded text-xs font-bold transition flex items-center gap-1 ${
                                   mediaPlaying 
                                     ? 'bg-brand text-white shadow-md' 
@@ -3572,6 +3566,8 @@ function OperatorDashboard() {
                                   if (operatorMediaRef.current) {
                                     operatorMediaRef.current.currentTime = 0;
                                   }
+                                  const bgPath = formatBgPath(slides[0]?.bgAsset || selectedSong?.bgAsset);
+                                  setLiveSlide('', selectedSong.title, bgPath, activeSlideStyle, false, false, mediaLoop, mediaVolume);
                                 }}
                                 className="p-1.5 rounded bg-white/10 hover:bg-white/20 text-white/80 hover:text-white border border-white/10 transition"
                                 title="Stop Playback"
@@ -3581,7 +3577,12 @@ function OperatorDashboard() {
 
                               {/* Accurate Loop Icon (Lucide Repeat) */}
                               <button
-                                onClick={() => setMediaLoop(!mediaLoop)}
+                                onClick={() => {
+                                  const nextLoop = !mediaLoop;
+                                  setMediaLoop(nextLoop);
+                                  const bgPath = formatBgPath(slides[0]?.bgAsset || selectedSong?.bgAsset);
+                                  setLiveSlide('', selectedSong.title, bgPath, activeSlideStyle, false, mediaPlaying, nextLoop, mediaVolume);
+                                }}
                                 className={`px-2 py-1 rounded text-xs font-mono font-bold transition flex items-center gap-1 border ${
                                   mediaLoop 
                                     ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50' 
@@ -3597,7 +3598,12 @@ function OperatorDashboard() {
                             {/* Volume & Mute Controls */}
                             <div className="flex items-center gap-2 max-w-[140px]">
                               <button
-                                onClick={() => setMediaVolume(mediaVolume > 0 ? 0 : 100)}
+                                onClick={() => {
+                                  const nextVol = mediaVolume > 0 ? 0 : 100;
+                                  setMediaVolume(nextVol);
+                                  const bgPath = formatBgPath(slides[0]?.bgAsset || selectedSong?.bgAsset);
+                                  setLiveSlide('', selectedSong.title, bgPath, activeSlideStyle, false, mediaPlaying, mediaLoop, nextVol);
+                                }}
                                 className="text-white/70 hover:text-white transition"
                                 title={mediaVolume > 0 ? 'Mute' : 'Unmute'}
                               >
@@ -3608,7 +3614,12 @@ function OperatorDashboard() {
                                 min="0"
                                 max="100"
                                 value={mediaVolume}
-                                onChange={(e) => setMediaVolume(parseInt(e.target.value))}
+                                onChange={(e) => {
+                                  const nextVol = parseInt(e.target.value) || 0;
+                                  setMediaVolume(nextVol);
+                                  const bgPath = formatBgPath(slides[0]?.bgAsset || selectedSong?.bgAsset);
+                                  setLiveSlide('', selectedSong.title, bgPath, activeSlideStyle, false, mediaPlaying, mediaLoop, nextVol);
+                                }}
                                 className="w-full h-1 bg-white/30 rounded appearance-none cursor-pointer accent-brand"
                               />
                               <span className="text-[10px] font-mono text-white/70 w-6 text-right">{mediaVolume}%</span>
@@ -5467,9 +5478,7 @@ function OperatorDashboard() {
             )}
           </h3>
           {(() => {
-            const targetSong = (liveSong && liveSong.id === selectedSong?.id) ? liveSong : selectedSong;
-            const curSlideObj = slides && slides[activeSlideIndex];
-            const curSlideBgMedia = formatBgPath(curSlideObj?.bgAsset || curSlideObj?.style?.background || targetSong?.bgAsset || targetSong?.style?.background || '');
+            const curSlideBgMedia = formatBgPath(activeBgAsset || liveSong?.bg_asset || liveSong?.bgAsset || liveSong?.style?.background || '');
 
             return (
               <div 
@@ -5680,10 +5689,11 @@ function OperatorDashboard() {
           ) : (
             /* Otherwise show next slide */
             (() => {
+              const activeLiveSlides = (liveSlides && liveSlides.length > 0) ? liveSlides : slides;
               const nextSlideIndex = activeSlideIndex + 1;
-              const currentSlide = slides && slides[nextSlideIndex];
+              const currentSlide = activeLiveSlides && activeLiveSlides[nextSlideIndex];
               const previewBg = currentSlide 
-                ? formatBgPath(currentSlide.bgAsset || currentSlide.style?.background || '')
+                ? formatBgPath(currentSlide.bgAsset || currentSlide.style?.background || liveSong?.bg_asset || liveSong?.bgAsset || '')
                 : '';
               
               return (
@@ -5730,7 +5740,7 @@ function OperatorDashboard() {
                         }}
                         className="whitespace-pre-line uppercase projector-text-shadow"
                       >
-                        {currentSlide.bgAsset ? '' : currentSlide.text}
+                        {(selectedSong?.author === 'PowerPoint Import' || selectedSong?.author === 'PDF Import' || selectedSong?.author === 'Media') ? '' : currentSlide.text}
                       </p>
                     ) : (
                       <p className="text-textMuted text-[10px] font-mono tracking-wider uppercase">END OF SONG</p>

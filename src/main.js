@@ -601,13 +601,14 @@ ipcMain.handle('media:select-directory', async () => {
   return result.filePaths[0]; // Returns path like D:\Alab Worship\assets\backgrounds
 });
 
-ipcMain.handle('media:save-presentation', async (event, { playlistData, filePath }) => {
+ipcMain.handle('media:save-presentation', async (event, { playlistData, filePath, defaultFileName }) => {
   try {
     let targetPath = filePath;
     if (!targetPath) {
+      const initialName = (defaultFileName || 'presentation').replace(/\.wflow$/i, '').replace(/\.json$/i, '');
       const result = await dialog.showSaveDialog({
         title: 'Save WorshipFlow Presentation',
-        defaultPath: 'presentation.wflow',
+        defaultPath: `${initialName}.wflow`,
         filters: [
           { name: 'WorshipFlow Presentation', extensions: ['wflow', 'json'] }
         ]

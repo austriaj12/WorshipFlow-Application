@@ -180,15 +180,46 @@ export const useLiveOutputStore = create((set, get) => ({
   isBible: false,
   blackout: false,
   clearLyrics: false,
+  mediaPlaying: true,
+  mediaLoop: true,
+  mediaVolume: 100,
 
-  setLiveSlide: (text, label, bgAsset, style, isBible = false) => {
+  setLiveSlide: (text, label, bgAsset, style, isBible = false, mediaPlaying = true, mediaLoop = true, mediaVolume = 100) => {
+    const payload = {
+      text,
+      label,
+      bgAsset,
+      style,
+      isBible,
+      mediaPlaying,
+      mediaLoop,
+      mediaVolume
+    };
+
     set({ 
       activeSlideText: text, 
       activeSlideLabel: label, 
       activeBgAsset: bgAsset, 
       activeSlideStyle: style,
-      isBible: isBible
+      isBible: isBible,
+      mediaPlaying,
+      mediaLoop,
+      mediaVolume
     });
+
+    if (window.api && window.api.renderSlide) {
+      window.api.renderSlide(payload);
+    }
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        const bc = new BroadcastChannel('worshipflow-slide-channel');
+        bc.postMessage(payload);
+        bc.close();
+      } catch (e) {}
+    }
+    try {
+      localStorage.setItem('worshipflow-current-slide', JSON.stringify(payload));
+    } catch (e) {}
   },
 
   setBlackout: (val) => {

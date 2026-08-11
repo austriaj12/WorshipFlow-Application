@@ -1,4 +1,4 @@
-﻿const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   notifyAppReady: () => ipcRenderer.send('app-ready'),
@@ -79,7 +79,7 @@ contextBridge.exposeInMainWorld('api', {
   updateTitleBar: (config) => ipcRenderer.send('window:update-titlebar', config),
 
   // File Presentation Open / Save Operations
-  savePresentation: (playlistData, filePath) => ipcRenderer.invoke('media:save-presentation', { playlistData, filePath }),
+  savePresentation: (playlistData, filePath, defaultFileName) => ipcRenderer.invoke('media:save-presentation', { playlistData, filePath, defaultFileName }),
   openPresentation: () => ipcRenderer.invoke('media:open-presentation'),
   
   // PPTX and PDF imports

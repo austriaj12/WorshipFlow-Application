@@ -146,16 +146,17 @@ function ProjectorScreen() {
 
   // Sync playback attributes on active video element
   useEffect(() => {
-    if (currentVideoRef.current && currentBg.type === 'video') {
-      currentVideoRef.current.loop = !!slide.mediaLoop;
-      currentVideoRef.current.volume = (slide.mediaVolume !== undefined ? slide.mediaVolume : 100) / 100;
-      if (slide.mediaPlaying !== false) {
-        currentVideoRef.current.play().catch(() => {});
+    const activeVideo = activeLayerRef.current === 'B' ? videoBRef.current : videoARef.current;
+    if (activeVideo) {
+      activeVideo.loop = slide.mediaLoop !== false;
+      activeVideo.volume = (slide.mediaVolume !== undefined ? slide.mediaVolume : 100) / 100;
+      if (slide.mediaPlaying === false) {
+        activeVideo.pause();
       } else {
-        currentVideoRef.current.pause();
+        activeVideo.play().catch(() => {});
       }
     }
-  }, [slide.mediaPlaying, slide.mediaLoop, slide.mediaVolume, currentBg.src, currentBg.type]);
+  }, [slide.mediaPlaying, slide.mediaLoop, slide.mediaVolume, layerA.src, layerB.src]);
 
   const parseSpeedToMs = (speedStr) => {
     if (!speedStr) return 600;
