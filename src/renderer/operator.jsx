@@ -834,6 +834,9 @@ function OperatorDashboard() {
       targetBg = stagedBgAsset;
     }
 
+    const isColor = bgType === 'color';
+    const assetPath = isColor ? '' : targetBg;
+
     let updatedSlides;
     if (applyToTarget === 'active') {
       updatedSlides = currentSlides.map((slide, idx) => {
@@ -841,7 +844,7 @@ function OperatorDashboard() {
           const currentStyle = slide.style || {};
           return {
             ...slide,
-            bgAsset: targetBg,
+            bgAsset: assetPath,
             style: {
               ...currentStyle,
               background: targetBg,
@@ -857,7 +860,7 @@ function OperatorDashboard() {
           const currentStyle = slide.style || {};
           return {
             ...slide,
-            bgAsset: targetBg,
+            bgAsset: assetPath,
             style: {
               ...currentStyle,
               background: targetBg,
@@ -872,7 +875,7 @@ function OperatorDashboard() {
         const currentStyle = slide.style || {};
         return {
           ...slide,
-          bgAsset: targetBg,
+          bgAsset: assetPath,
           style: {
             ...currentStyle,
             background: targetBg,
@@ -888,8 +891,8 @@ function OperatorDashboard() {
     const contentJson = JSON.stringify(updatedSlides);
     const updatedSongObj = {
       ...selectedSong,
-      bgAsset: applyToTarget === 'all' ? targetBg : (selectedSong.bg_asset || selectedSong.bgAsset || ''),
-      bg_asset: applyToTarget === 'all' ? targetBg : (selectedSong.bg_asset || selectedSong.bgAsset || ''),
+      bgAsset: applyToTarget === 'all' ? assetPath : (selectedSong.bg_asset || selectedSong.bgAsset || ''),
+      bg_asset: applyToTarget === 'all' ? assetPath : (selectedSong.bg_asset || selectedSong.bgAsset || ''),
       contentJson,
       content_json: contentJson
     };
@@ -918,8 +921,9 @@ function OperatorDashboard() {
           animation: songAnimation || activeSlide.style?.animation || 'Fade Out',
           speed: songSpeed || activeSlide.style?.speed || '0.6'
         };
+        const isImportMedia = selectedSong.author === 'PowerPoint Import' || selectedSong.author === 'PDF Import' || selectedSong.author === 'Media';
         setLiveSlide(
-          activeSlide.bgAsset ? '' : activeSlide.text,
+          isImportMedia ? '' : activeSlide.text,
           activeSlide.label,
           bgPath,
           effectiveStyle
@@ -1515,8 +1519,9 @@ function OperatorDashboard() {
         speed: songSpeed || activeSlide.style?.speed || '0.6'
       };
 
+      const isImportOrMedia = (songObject && (songObject.author === 'PowerPoint Import' || songObject.author === 'PDF Import' || songObject.author === 'Media')) || isBible;
       setLiveSlide(
-        activeSlide.bgAsset ? '' : activeSlide.text, 
+        isImportOrMedia ? '' : activeSlide.text, 
         activeSlide.label, 
         bgPath,
         effectiveStyle,
@@ -1815,6 +1820,15 @@ function OperatorDashboard() {
         operatorMediaRef.current.muted = false;
       }
     }
+
+    if (activeBgAsset && sharedVideoCache[formatBgPath(activeBgAsset)]) {
+      const vid = sharedVideoCache[formatBgPath(activeBgAsset)];
+      if (mediaPlaying) {
+        vid.play().catch(e => {});
+      } else {
+        vid.pause();
+      }
+    }
   }, [mediaPlaying, mediaLoop, activeBgAsset]);
 
   // Reset selected slide index to 0 or restore saved index when song changes (no auto go-live)
@@ -1830,14 +1844,15 @@ function OperatorDashboard() {
       setActiveSlideIndex(0);
       setSelectedSlideIndexes([0]);
       
+      const isMedia = selectedSong && selectedSong.author === 'Media';
       // Sync live background asset: set new song's background or clear if none
       const effectiveBg = getEffectiveSlideBg(slidesArr[0], slidesArr, selectedSong);
       const bgPath = formatBgPath(effectiveBg);
       const isBibleSlide = (selectedSong && (selectedSong.author === 'Bible' || selectedSong.author === 'Scripture')) || bibleLiveSlides !== null;
-      setLiveSlide(activeSlideText, activeSlideLabel, bgPath, activeSlideStyle, isBibleSlide);
+      setLiveSlide(isMedia ? '' : activeSlideText, isMedia ? selectedSong.title : activeSlideLabel, bgPath, activeSlideStyle, isBibleSlide);
 
       // Auto-play local media player only (do not push to projector)
-      if (selectedSong && selectedSong.author === 'Media') {
+      if (isMedia) {
         setMediaPlaying(true);
       }
     }
@@ -2872,7 +2887,7 @@ function OperatorDashboard() {
         {activeHeaderTab === 'presentation' && (
           <>
             {/* Left Column: Presentation Flow Lineup */}
-            <aside className="w-[23%] flex flex-col bg-appPanel border-r border-[var(--border-app)]">
+            <aside className="w-[22%] min-w-[200px] max-w-[280px] shrink-0 flex flex-col bg-appPanel border-r border-[var(--border-app)] select-none">
               {/* Sidebar Header / Title */}
               <div className="p-3 border-b border-[var(--border-app)] flex items-center justify-between">
                 <span className="font-bold text-xs uppercase text-textMain tracking-wider font-mono flex items-center gap-1.5">
@@ -3282,7 +3297,7 @@ function OperatorDashboard() {
             )}
 
             {/* Center Column: Slide Explorer */}
-            <section className="flex-1 flex flex-col bg-appBg">
+            <section className="flex-1 min-w-0 flex flex-col bg-appBg">
               {bibleLiveSlides && (
                 <div className="bg-emerald-950/80 border-b border-emerald-800/60 px-5 py-3 flex items-center justify-between text-xs text-emerald-400 font-bold uppercase tracking-wider backdrop-blur-md">
                   <span className="flex items-center gap-2">
@@ -3578,7 +3593,7 @@ function OperatorDashboard() {
                   ) : (
                     <div className="flex-1 overflow-y-auto p-4">
                       {slides.length > 0 ? (
-                        /* Use flex wrap with custom slide card width matching slidePreviewSize setting */
+                        /* Flex wrap layout matching slidePreviewSize setting */
                         <div className="flex flex-wrap items-start justify-start gap-1">
                           {slides.map((slide, index) => {
                             const isActive = (bibleLiveSlides !== null || (liveSong && selectedSong && liveSong.id === selectedSong.id)) && index === activeSlideIndex;
@@ -3671,13 +3686,14 @@ function OperatorDashboard() {
                                   className={`aspect-video rounded-lg relative overflow-hidden flex flex-col justify-between p-3 cursor-pointer group transition-all duration-200 border-2 ${(slide.bgAsset || (slide.style && slide.style.background)) ? 'bg-black' : 'bg-checkerboard'} ${getSlideCardBorderClass(slide.label, isActive, isSelected)}`}
                                   style={{
                                     containerType: 'inline-size',
-                                    width: `${slidePreviewSize * 2.8}px`,
-                                    minWidth: '140px',
-                                    maxWidth: '560px'
+                                    width: `${slidePreviewSize * 2.6}px`,
+                                    minWidth: '150px',
+                                    maxWidth: '420px',
+                                    aspectRatio: '16/9'
                                   }}
                                 >
                                   {/* Solid Color Background Layer */}
-                                  {slide.style?.background && isBgColor(slide.style.background) && (
+                                  {((slide.style?.background && isBgColor(slide.style.background)) || (slide.bgAsset && isBgColor(slide.bgAsset))) && (
                                     <div 
                                       style={{
                                         position: 'absolute',
@@ -3686,17 +3702,17 @@ function OperatorDashboard() {
                                         height: slide.style?.bgHeight || '100%',
                                         top: '50%',
                                         transform: 'translateY(-50%)',
-                                        backgroundColor: slide.style?.background || '#000000',
+                                        backgroundColor: (slide.bgAsset && isBgColor(slide.bgAsset)) ? slide.bgAsset : (slide.style?.background || '#000000'),
                                         zIndex: 0
                                       }}
                                     />
                                   )}
 
                                   {/* bgAsset: full-cover slide image (PowerPoint/PDF imports) */}
-                                  {slide.bgAsset && (
+                                  {slide.bgAsset && !isBgColor(slide.bgAsset) && (
                                     <div className="absolute inset-0 z-0 w-full h-full">
                                       <img 
-                                        src={`file:///${slide.bgAsset.replace(/\\/g, '/')}`}
+                                        src={formatBgPath(slide.bgAsset)}
                                         className="w-full h-full object-cover opacity-100" 
                                         loading="lazy"
                                         alt=""
@@ -3716,7 +3732,7 @@ function OperatorDashboard() {
                                         />
                                       ) : (
                                         <img 
-                                          src={slide.style.background} 
+                                          src={formatBgPath(slide.style.background)} 
                                           className="w-full h-full object-cover opacity-100" 
                                           loading="lazy"
                                           alt="" 
@@ -3726,7 +3742,7 @@ function OperatorDashboard() {
                                   )}
                                   <div className="z-10 flex justify-between">
                                     <span className="bg-black/70 px-1.5 py-0.5 rounded text-[8px] font-mono text-textMuted">{index + 1}</span>
-                                    {!slide.bgAsset && <span className={`px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase tracking-wider ${getLabelBadgeStyle(slide.label).bg} ${getLabelBadgeStyle(slide.label).text}`}>{slide.label}</span>}
+                                    <span className={`px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase tracking-wider ${getLabelBadgeStyle(slide.label).bg} ${getLabelBadgeStyle(slide.label).text}`}>{slide.label}</span>
                                   </div>
                                   <div 
                                     className="z-10 flex-1 flex flex-col w-full overflow-hidden"
@@ -3735,7 +3751,7 @@ function OperatorDashboard() {
                                       alignItems: slide.style?.align === 'left' ? 'flex-start' : slide.style?.align === 'right' ? 'flex-end' : 'center'
                                     }}
                                   >
-                                    {!slide.bgAsset && slide.text && (() => {
+                                    {slide.text && (() => {
                                       const hex = slide.style?.bgColor || '#000000';
                                       const opacityStr = slide.style?.bgOpacity || '0%';
                                       const opacity = parseInt(opacityStr) || 0;
@@ -5404,7 +5420,7 @@ function OperatorDashboard() {
           </section>
         )}
 
-      <aside className="w-[23%] flex flex-col bg-appPanel border-l border-[var(--border-app)]">
+      <aside className="w-[22%] min-w-[260px] max-w-[340px] shrink-0 flex flex-col bg-appPanel border-l border-[var(--border-app)] select-none">
         {/* Live Output */}
         <div className="p-4 border-b border-[var(--border-app)] bg-appBg">
           <h3 className="text-[11px] font-bold text-textMuted uppercase tracking-wider mb-2 font-mono flex items-center gap-1.5">
