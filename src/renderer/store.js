@@ -184,7 +184,7 @@ export const useLiveOutputStore = create((set, get) => ({
   mediaLoop: true,
   mediaVolume: 100,
 
-  setLiveSlide: (text, label, bgAsset, style, isBible = false, mediaPlaying = true, mediaLoop = true, mediaVolume = 100) => {
+  setLiveSlide: (text, label, bgAsset, style, isBible = false, mediaPlaying = true, mediaLoop = true, mediaVolume = 100, transitionToNext = 'none') => {
     const payload = {
       text,
       label,
@@ -193,7 +193,8 @@ export const useLiveOutputStore = create((set, get) => ({
       isBible,
       mediaPlaying,
       mediaLoop,
-      mediaVolume
+      mediaVolume,
+      transitionToNext
     };
 
     set({ 
@@ -204,7 +205,8 @@ export const useLiveOutputStore = create((set, get) => ({
       isBible: isBible,
       mediaPlaying,
       mediaLoop,
-      mediaVolume
+      mediaVolume,
+      activeTransition: transitionToNext
     });
 
     if (window.api && window.api.renderSlide) {

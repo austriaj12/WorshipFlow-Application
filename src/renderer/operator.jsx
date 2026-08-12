@@ -1563,12 +1563,19 @@ function OperatorDashboard() {
       };
 
       const isImportOrMedia = (songObject && (songObject.author === 'PowerPoint Import' || songObject.author === 'PDF Import' || songObject.author === 'Media')) || isBible;
+      const prevSlideObj = index > 0 ? slidesList[index - 1] : null;
+      const transitionToNext = ((prevSlideObj && prevSlideObj.transitionToNext === 'fade') || (activeSlide && activeSlide.transitionToNext === 'fade')) ? 'fade' : 'none';
+
       setLiveSlide(
         isImportOrMedia ? '' : activeSlide.text, 
         activeSlide.label, 
         bgPath,
         effectiveStyle,
-        isBible
+        isBible,
+        true,
+        true,
+        100,
+        transitionToNext
       );
 
       // Trigger Section Voice Cue ONLY on the FIRST slide of each section block instance (e.g. 1st Chorus, 2nd Chorus, 3rd Chorus, etc.)
@@ -1787,8 +1794,12 @@ function OperatorDashboard() {
               blackout
             };
           } else {
-            // Send regular slide with active live presentation background asset
+            // Send regular slide with active live presentation background asset & transition
             const finalBgAsset = formatBgPath(activeBgAsset || liveSong?.bg_asset || liveSong?.bgAsset || '');
+            const activeLiveSlides = (liveSlides && liveSlides.length > 0) ? liveSlides : slides;
+            const activeSlideObj = activeLiveSlides && activeLiveSlides[activeSlideIndex];
+            const prevSlideObj = activeSlideIndex > 0 && activeLiveSlides && activeLiveSlides[activeSlideIndex - 1];
+            const transitionToNext = ((prevSlideObj && prevSlideObj.transitionToNext === 'fade') || (activeSlideObj && activeSlideObj.transitionToNext === 'fade')) ? 'fade' : 'none';
 
             slidePayload = {
               text: activeSlideText,
@@ -1796,7 +1807,7 @@ function OperatorDashboard() {
               bgAsset: finalBgAsset,
               style: activeSlideStyle,
               isImportedSlide: false,
-              transitionToNext: 'none',
+              transitionToNext: transitionToNext,
               countdownActive: false,
               timerActive: false,
               blackout,
@@ -1892,7 +1903,7 @@ function OperatorDashboard() {
 
   // Sync Live Output Preview Monitor background crossfade (Flick-Free Dual-Layer A/B Engine)
   useEffect(() => {
-    const rawBg = blackout ? '' : (activeBgAsset || '');
+    const rawBg = blackout ? '' : (activeBgAsset || (liveSong ? (liveSong.bg_asset || liveSong.bgAsset || '') : ''));
     
     if (!rawBg) {
       setPreviewLayerA({ src: '', type: 'none', opacity: 0, zIndex: 10 });
@@ -1908,18 +1919,36 @@ function OperatorDashboard() {
       return;
     }
 
+    const activeLiveSlides = (liveSlides && liveSlides.length > 0) ? liveSlides : slides;
+    const activeSlideObj = activeLiveSlides && activeLiveSlides[activeSlideIndex];
+    const prevSlideObj = activeSlideIndex > 0 && activeLiveSlides && activeLiveSlides[activeSlideIndex - 1];
+    const hasTransition = (prevSlideObj?.transitionToNext === 'fade') || (activeSlideObj?.transitionToNext === 'fade');
+    const isFade = hasTransition && previewCurrentBgSrcRef.current !== '';
+
     previewCurrentBgSrcRef.current = formatted;
 
     if (previewActiveLayerRef.current === 'A') {
-      setPreviewLayerB({ src: formatted, type, opacity: 1, zIndex: 20 });
-      setPreviewLayerA({ src: '', type: 'none', opacity: 0, zIndex: 10 });
-      previewActiveLayerRef.current = 'B';
+      if (isFade) {
+        setPreviewLayerB({ src: formatted, type, opacity: 1, zIndex: 20 });
+        setPreviewLayerA(prev => ({ ...prev, opacity: 0, zIndex: 10 }));
+        previewActiveLayerRef.current = 'B';
+      } else {
+        setPreviewLayerB({ src: formatted, type, opacity: 1, zIndex: 20 });
+        setPreviewLayerA({ src: '', type: 'none', opacity: 0, zIndex: 10 });
+        previewActiveLayerRef.current = 'B';
+      }
     } else {
-      setPreviewLayerA({ src: formatted, type, opacity: 1, zIndex: 20 });
-      setPreviewLayerB({ src: '', type: 'none', opacity: 0, zIndex: 10 });
-      previewActiveLayerRef.current = 'A';
+      if (isFade) {
+        setPreviewLayerA({ src: formatted, type, opacity: 1, zIndex: 20 });
+        setPreviewLayerB(prev => ({ ...prev, opacity: 0, zIndex: 10 }));
+        previewActiveLayerRef.current = 'A';
+      } else {
+        setPreviewLayerA({ src: formatted, type, opacity: 1, zIndex: 20 });
+        setPreviewLayerB({ src: '', type: 'none', opacity: 0, zIndex: 10 });
+        previewActiveLayerRef.current = 'A';
+      }
     }
-  }, [activeBgAsset, blackout]);
+  }, [activeBgAsset, blackout, activeSlideIndex]);
 
   // Metronome Click Track & Voice Cue Auto-Start/Stop Sync Effect
   useEffect(() => {
