@@ -1529,7 +1529,7 @@ function OperatorDashboard() {
       if (firstSlide?.bgAsset) return firstSlide.bgAsset;
       if (firstSlide?.style && firstSlide?.style?.background) return firstSlide.style.background;
     }
-    return '';
+    return activeBgAsset || '';
   };
 
   // Sync state selection to trigger live preview text updates
@@ -2026,11 +2026,13 @@ function OperatorDashboard() {
             break;
           }
           case 'toggle-blackout': {
-            setBlackout(prev => !prev);
+            const currentBlackout = useLiveOutputStore.getState().blackout;
+            useLiveOutputStore.getState().setBlackout(!currentBlackout);
             break;
           }
           case 'toggle-clear-lyrics': {
-            setClearLyrics(prev => !prev);
+            const currentClear = useLiveOutputStore.getState().clearLyrics;
+            useLiveOutputStore.getState().setClearLyrics(!currentClear);
             break;
           }
           case 'select-playlist-item': {

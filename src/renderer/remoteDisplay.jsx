@@ -353,7 +353,6 @@ function RemoteDisplay() {
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={() => {
-                  setSlideData(prev => ({ ...prev, blackout: !prev.blackout }));
                   sendCommand('toggle-blackout');
                 }}
                 className={`py-3.5 px-3 rounded-xl font-bold text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 border transition active:scale-95 touch-target ${
@@ -367,7 +366,6 @@ function RemoteDisplay() {
 
               <button
                 onClick={() => {
-                  setSlideData(prev => ({ ...prev, clearLyrics: !prev.clearLyrics }));
                   sendCommand('toggle-clear-lyrics');
                 }}
                 className={`py-3.5 px-3 rounded-xl font-bold text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 border transition active:scale-95 touch-target ${

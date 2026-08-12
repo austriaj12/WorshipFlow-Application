@@ -226,10 +226,32 @@ export const useLiveOutputStore = create((set, get) => ({
 
   setBlackout: (val) => {
     set({ blackout: val });
+    if (window.api && window.api.sendSlideUpdate) {
+      const state = get();
+      window.api.sendSlideUpdate({
+        text: state.activeSlideText,
+        label: state.activeSlideLabel,
+        bgAsset: state.activeBgAsset,
+        style: state.activeSlideStyle,
+        blackout: val,
+        clearLyrics: state.clearLyrics
+      });
+    }
   },
 
   setClearLyrics: (val) => {
     set({ clearLyrics: val });
+    if (window.api && window.api.sendSlideUpdate) {
+      const state = get();
+      window.api.sendSlideUpdate({
+        text: state.activeSlideText,
+        label: state.activeSlideLabel,
+        bgAsset: state.activeBgAsset,
+        style: state.activeSlideStyle,
+        blackout: state.blackout,
+        clearLyrics: val
+      });
+    }
   }
 }));
 
