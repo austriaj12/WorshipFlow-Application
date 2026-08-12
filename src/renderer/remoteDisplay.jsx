@@ -122,7 +122,7 @@ function RemoteDisplay() {
             setSlideData(message.payload);
           } else if (message.type === 'stage-update') {
             setStageData(message.payload);
-            if (message.payload.slides) {
+            if (message.payload.slides && message.payload.slides.length > 0) {
               setSlides(message.payload.slides);
             }
             if (message.payload.activeSlideIndex !== undefined) {
@@ -254,10 +254,10 @@ function RemoteDisplay() {
     });
   };
 
-  // Send a library song to live
-  const handleSelectPlaylistSong = (songId) => {
-    if (!songId) return;
-    sendCommand('select-playlist-item', { songId });
+  // Send a presentation lineup item to live (song, ppt, media, etc.)
+  const handleSelectPlaylistItem = (item) => {
+    if (!item) return;
+    sendCommand('select-playlist-item', { itemId: item.id, songId: item.song_id, name: item.name });
   };
 
   // Add library song to playlist lineup
@@ -271,7 +271,9 @@ function RemoteDisplay() {
   const formatRemoteBgUrl = (bgAsset) => {
     if (!bgAsset) return '';
     if (bgAsset.startsWith('#')) return '';
-    const cleanPath = bgAsset.replace(/^worshipflow-asset:\/\/|^file:\/\/\//, '');
+    if (bgAsset.startsWith('http://') || bgAsset.startsWith('https://')) return bgAsset;
+    let cleanPath = bgAsset.replace(/^worshipflow-asset:\/\/|^file:\/\/\//, '');
+    cleanPath = cleanPath.replace(/^\/+/, '');
     return `${window.location.protocol}//${window.location.host}/local-asset/${encodeURIComponent(cleanPath)}`;
   };
 
@@ -290,57 +292,67 @@ function RemoteDisplay() {
           </div>
         </div>
         
-        {/* Live Output Preview Box with Background Media */}
-        <div 
-          className={`w-full aspect-video rounded-xl p-3 text-center transition flex flex-col justify-center items-center shadow-2xl relative overflow-hidden ${
-            slideData.blackout 
-              ? 'bg-black border border-rose-600/40 text-rose-500 font-bold font-mono text-xs uppercase' 
-              : 'border border-slate-700/80 text-white bg-slate-900/60'
-          }`}
-          style={{
-            ...(slideData.bgAsset && slideData.bgAsset.startsWith('#')
-              ? { backgroundColor: slideData.bgAsset }
-              : {})
-          }}
-        >
-          {/* Background image or video layer */}
-          {!slideData.blackout && slideData.bgAsset && !slideData.bgAsset.startsWith('#') && (
-            <div className="absolute inset-0 z-0 w-full h-full">
-              {/\.(mp4|webm|mov|avi)($|\?)/i.test(slideData.bgAsset) ? (
-                <video 
-                  src={formatRemoteBgUrl(slideData.bgAsset)} 
-                  autoPlay 
-                  muted 
-                  loop 
-                  playsInline 
-                  className="w-full h-full object-cover" 
-                />
-              ) : (
-                <img 
-                  src={formatRemoteBgUrl(slideData.bgAsset)} 
-                  className="w-full h-full object-cover" 
-                  alt="" 
-                />
-              )}
-              <div className="absolute inset-0 bg-black/40 z-[1]" />
-            </div>
-          )}
+        {/* Live Output Preview Box with Background Media (NO OPACITY OVERLAY) */}
+        {(() => {
+          const activeSlideObj = (slides && activeSlideIndex >= 0 && activeSlideIndex < slides.length) ? slides[activeSlideIndex] : (slides && slides[0]);
+          const effectiveHeaderBg = slideData.bgAsset || stageData.bgAsset || (activeSlideObj ? (activeSlideObj.bgAsset || (activeSlideObj.style && activeSlideObj.style.background)) : '') || (slides && slides[0] ? (slides[0].bgAsset || (slides[0].style && slides[0].style.background)) : '');
+          const formattedHeaderBg = formatRemoteBgUrl(effectiveHeaderBg);
+          const isHeaderVideo = /\.(mp4|webm|mov|avi)($|\?)/i.test(effectiveHeaderBg);
 
-          {slideData.blackout ? (
-            <span className="z-10 animate-pulse font-mono tracking-widest text-xs">● BLACKOUT ACTIVE</span>
-          ) : (
-            <div className="z-10 flex flex-col items-center justify-center w-full px-2">
-              <p className="line-clamp-3 leading-snug whitespace-pre-line text-xs font-black uppercase tracking-wide drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">
-                {slideData.clearLyrics ? '' : (slideData.text || '[ Screen Clear ]')}
-              </p>
-              {slideData.label && !slideData.clearLyrics && (
-                <span className="mt-1.5 px-2.5 py-0.5 rounded bg-brand/20 border border-brand/50 text-[9px] font-mono text-brand font-black uppercase tracking-wider backdrop-blur-md">
-                  {slideData.label}
-                </span>
+          return (
+            <div 
+              className={`w-full aspect-video rounded-xl p-3 text-center transition flex flex-col justify-center items-center shadow-2xl relative overflow-hidden ${
+                slideData.blackout 
+                  ? 'bg-black border border-rose-600/40 text-rose-500 font-bold font-mono text-xs uppercase' 
+                  : 'border border-slate-700/80 text-white bg-slate-900'
+              }`}
+              style={{
+                ...(effectiveHeaderBg && effectiveHeaderBg.startsWith('#')
+                  ? { backgroundColor: effectiveHeaderBg }
+                  : {})
+              }}
+            >
+              {/* Background image or video layer */}
+              {!slideData.blackout && formattedHeaderBg && (
+                <div className="absolute inset-0 z-0 w-full h-full">
+                  {isHeaderVideo ? (
+                    <video 
+                      src={formattedHeaderBg} 
+                      autoPlay 
+                      muted 
+                      loop 
+                      playsInline 
+                      className="w-full h-full object-cover" 
+                    />
+                  ) : (
+                    <img 
+                      src={formattedHeaderBg} 
+                      className="w-full h-full object-cover" 
+                      alt="" 
+                    />
+                  )}
+                </div>
+              )}
+
+              {slideData.blackout ? (
+                <span className="z-10 animate-pulse font-mono tracking-widest text-xs">● BLACKOUT ACTIVE</span>
+              ) : (
+                <div className="z-10 flex flex-col items-center justify-center w-full px-2">
+                  {slideData.text && !slideData.clearLyrics && (
+                    <p className="line-clamp-3 leading-snug whitespace-pre-line text-xs font-black uppercase tracking-wide drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">
+                      {slideData.text}
+                    </p>
+                  )}
+                  {slideData.text && slideData.label && !slideData.clearLyrics && (
+                    <span className="mt-1.5 px-2.5 py-0.5 rounded bg-brand/20 border border-brand/50 text-[9px] font-mono text-brand font-black uppercase tracking-wider backdrop-blur-md">
+                      {slideData.label}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
-          )}
-        </div>
+          );
+        })()}
       </header>
 
       {/* --- SCROLLABLE MAIN CONTENT (pb-28 to clear fixed footer) --- */}
@@ -403,7 +415,7 @@ function RemoteDisplay() {
                   return (
                     <div
                       key={item.id}
-                      onClick={() => handleSelectPlaylistSong(item.song_id)}
+                      onClick={() => handleSelectPlaylistItem(item)}
                       className={`p-3.5 rounded-xl border cursor-pointer active:scale-[0.99] transition flex items-center justify-between gap-3 min-h-[48px] touch-target ${
                         isCurrent 
                           ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 shadow-md' 
@@ -424,47 +436,86 @@ function RemoteDisplay() {
             {/* Active Slides Grid */}
             <div className="space-y-2.5">
               <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">Current Presentation</h4>
-              {slides.length > 0 && !slideData.blackout ? (
-                <div className="grid grid-cols-2 gap-2.5">
-                  {slides.map((slide, index) => {
-                    const isActive = index === activeSlideIndex;
-                    const bgUrl = formatRemoteBgUrl(slide.bgAsset || (slide.style && slide.style.background));
-                    
-                    return (
-                      <div 
-                        key={index}
-                        onClick={() => sendCommand('select-slide', { index })}
-                        style={{
-                          backgroundImage: bgUrl ? `url(${bgUrl})` : 'none',
-                          backgroundSize: 'cover',
-                          backgroundPosition: 'center'
-                        }}
-                        className={`p-3 rounded-xl border text-center flex flex-col justify-between items-center cursor-pointer transition select-none active:scale-[0.98] min-h-[90px] relative overflow-hidden touch-target ${
-                          isActive 
-                            ? 'border-emerald-400 ring-2 ring-emerald-400/35 text-white' 
-                            : 'border-slate-700/80 text-slate-300'
-                        }`}
-                      >
-                        <div className={`absolute inset-0 z-0 transition ${isActive ? 'bg-[#0f172a]/70' : bgUrl ? 'bg-black/60' : 'bg-slate-800/80'}`} />
-                        <div className="flex-1 flex items-center justify-center z-10 w-full">
-                          <p className="text-[9px] uppercase font-bold leading-relaxed line-clamp-3 whitespace-pre-wrap text-center w-full select-none text-slate-100">
-                            {slide.text}
-                          </p>
-                        </div>
-                        {slide.label && (
-                          <span className={`mt-1.5 px-2 py-0.5 rounded text-[8px] font-bold font-mono uppercase tracking-wider z-10 ${isActive ? 'bg-emerald-500 text-slate-950 font-extrabold' : 'bg-slate-700 text-slate-300'}`}>
-                            {slide.label}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="p-6 rounded-xl border border-slate-700/60 bg-slate-800/30 text-center text-slate-400 text-xs">
-                  No active slides found. Select an item above from Service Lineup.
-                </div>
-              )}
+              {(() => {
+                const displaySlides = (slides && slides.length > 0) 
+                  ? slides 
+                  : (slideData.bgAsset ? [{ text: slideData.text || '', label: slideData.label || 'MEDIA', bgAsset: slideData.bgAsset }] : []);
+
+                if (displaySlides.length > 0 && !slideData.blackout) {
+                  return (
+                    <div className="grid grid-cols-2 gap-2.5">
+                      {displaySlides.map((slide, index) => {
+                        const isActive = index === activeSlideIndex || (displaySlides.length === 1 && index === 0);
+                        const effectiveBg = slide.bgAsset || (slide.style && slide.style.background) || slideData.bgAsset;
+                        const bgUrl = formatRemoteBgUrl(effectiveBg);
+                        const isVideo = /\.(mp4|webm|mov|avi)($|\?)/i.test(effectiveBg);
+                        
+                        return (
+                          <div 
+                            key={index}
+                            onClick={() => {
+                              setActiveSlideIndex(index);
+                              setSlideData(prev => ({
+                                ...prev,
+                                text: slide.text || '',
+                                label: slide.label || '',
+                                bgAsset: effectiveBg || prev.bgAsset
+                              }));
+                              sendCommand('select-slide', { index });
+                            }}
+                            className={`p-3 rounded-xl border text-center flex flex-col justify-between items-center cursor-pointer transition select-none active:scale-[0.98] min-h-[95px] relative overflow-hidden touch-target ${
+                              isActive 
+                                ? 'border-emerald-400 ring-2 ring-emerald-400/50 text-white shadow-lg' 
+                                : 'border-slate-700/80 text-slate-200 bg-slate-900'
+                            }`}
+                          >
+                            {/* Slide Card Background Media Layer (NO OPACITY OVERLAYS) */}
+                            {!slideData.blackout && effectiveBg && !effectiveBg.startsWith('#') && (
+                              <div className="absolute inset-0 z-0 w-full h-full">
+                                {isVideo ? (
+                                  <video 
+                                    src={bgUrl} 
+                                    autoPlay 
+                                    muted 
+                                    loop 
+                                    playsInline 
+                                    className="w-full h-full object-cover" 
+                                  />
+                                ) : (
+                                  <img 
+                                    src={bgUrl} 
+                                    className="w-full h-full object-cover" 
+                                    alt="" 
+                                  />
+                                )}
+                              </div>
+                            )}
+
+                            <div className="flex-1 flex items-center justify-center z-10 w-full">
+                              {slide.text ? (
+                                <p className="text-[9px] uppercase font-bold leading-relaxed line-clamp-3 whitespace-pre-wrap text-center w-full select-none text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">
+                                  {slide.text}
+                                </p>
+                              ) : null}
+                            </div>
+                            {slide.text && slide.label && (
+                              <span className={`mt-1.5 px-2 py-0.5 rounded text-[8px] font-bold font-mono uppercase tracking-wider z-10 ${isActive ? 'bg-emerald-500 text-slate-950 font-extrabold' : 'bg-slate-800/90 text-slate-200 border border-slate-700'}`}>
+                                {slide.label}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="p-6 rounded-xl border border-slate-700/60 bg-slate-800/30 text-center text-slate-400 text-xs">
+                    No active slides found. Select an item above from Service Lineup.
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}

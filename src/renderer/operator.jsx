@@ -1575,7 +1575,9 @@ function OperatorDashboard() {
         true,
         true,
         100,
-        transitionToNext
+        transitionToNext,
+        slidesList,
+        songObject
       );
 
       // Trigger Section Voice Cue ONLY on the FIRST slide of each section block instance (e.g. 1st Chorus, 2nd Chorus, 3rd Chorus, etc.)
@@ -1697,6 +1699,11 @@ function OperatorDashboard() {
       const showTimerOnStage = timerActive && isTimerRunning && (timerShowOn === 'both' || timerShowOn === 'stage');
       if (window.api.sendStageUpdate) {
         try {
+          const activeLiveSlides = (liveSlides && liveSlides.length > 0) ? liveSlides : slides;
+          const activeSlideObj = activeLiveSlides && activeLiveSlides[activeSlideIndex];
+          const effectiveBg = getEffectiveSlideBg(activeSlideObj, activeLiveSlides, liveSong || selectedSong);
+          const resolvedBgAsset = formatBgPath(activeBgAsset || effectiveBg || '');
+
           const payload = {
             songId: (liveSong && liveSong.id) ? liveSong.id : (selectedSong ? selectedSong.id : null),
             songTitle: (liveSong && liveSong.title) ? liveSong.title : (selectedSong ? selectedSong.title : ''),
@@ -1704,11 +1711,15 @@ function OperatorDashboard() {
             chordsText: (liveSong && liveSong.chords_text) ? liveSong.chords_text : (selectedSong ? selectedSong.chords_text : ''),
             text: activeSlideText,
             label: activeSlideLabel || `Slide ${activeSlideIndex + 1}`,
-            bgAsset: activeBgAsset,
+            bgAsset: resolvedBgAsset,
             style: activeSlideStyle,
             blackout,
-            clearLyrics,
-            slides: slides || [],
+            slides: (() => {
+              const storeLiveSlides = useLiveOutputStore.getState().activeLiveSlides;
+              if (storeLiveSlides && storeLiveSlides.length > 0) return storeLiveSlides;
+              if (liveSlides && liveSlides.length > 0) return liveSlides;
+              return slides || [];
+            })(),
             activeSlideIndex: activeSlideIndex,
             stageLayout: {
               leftWidthPct: stageLeftWidthPct,
@@ -1798,9 +1809,10 @@ function OperatorDashboard() {
             };
           } else {
             // Send regular slide with active live presentation background asset & transition
-            const finalBgAsset = formatBgPath(activeBgAsset || liveSong?.bg_asset || liveSong?.bgAsset || '');
             const activeLiveSlides = (liveSlides && liveSlides.length > 0) ? liveSlides : slides;
             const activeSlideObj = activeLiveSlides && activeLiveSlides[activeSlideIndex];
+            const effectiveBg = getEffectiveSlideBg(activeSlideObj, activeLiveSlides, liveSong || selectedSong);
+            const finalBgAsset = formatBgPath(activeBgAsset || effectiveBg || '');
             const prevSlideObj = activeSlideIndex > 0 && activeLiveSlides && activeLiveSlides[activeSlideIndex - 1];
             const transitionToNext = ((prevSlideObj && prevSlideObj.transitionToNext === 'fade') || (activeSlideObj && activeSlideObj.transitionToNext === 'fade')) ? 'fade' : 'none';
 
@@ -1824,7 +1836,10 @@ function OperatorDashboard() {
         } catch (err) {
           console.error('Failed to clone slide update payload, trying selective serialize:', err);
           try {
-            const finalBgAsset = formatBgPath(activeBgAsset || liveSong?.bg_asset || liveSong?.bgAsset || '');
+            const activeLiveSlides = (liveSlides && liveSlides.length > 0) ? liveSlides : slides;
+            const activeSlideObj = activeLiveSlides && activeLiveSlides[activeSlideIndex];
+            const effectiveBg = getEffectiveSlideBg(activeSlideObj, activeLiveSlides, liveSong || selectedSong);
+            const finalBgAsset = formatBgPath(activeBgAsset || effectiveBg || '');
             window.api.sendSlideUpdate({
               text: activeSlideText,
               label: activeSlideLabel || `Slide ${activeSlideIndex + 1}`,
@@ -2036,27 +2051,87 @@ function OperatorDashboard() {
             break;
           }
           case 'select-playlist-item': {
+            const itemId = data.itemId;
             const songId = data.songId;
-            if (songId) {
-              selectSong(songId);
-              
-              if (window.api && window.api.getSongs) {
-                try {
-                  const songsList = await window.api.getSongs();
-                  const targetSong = songsList.find(s => s.id === songId);
-                  if (targetSong && targetSong.author === 'Media') {
-                    const mediaSlides = [{
-                      text: '',
-                      label: targetSong.title,
-                      bgAsset: targetSong.filepath,
-                      style: null
-                    }];
-                    setSelectedSlideIndexes([0]);
-                    handleSelectSlide(0, mediaSlides, targetSong);
-                  }
-                } catch (e) {
-                  console.error('Failed to auto-live media item from remote:', e);
+            const name = data.name;
+            
+            const targetItem = playlist.find(p => p.id === itemId || (songId && p.song_id === songId) || (name && p.name === name));
+            
+            if (targetItem) {
+              const songInDb = songs.find(s => s.id === targetItem.song_id || s.title === targetItem.name);
+              const isMedia = targetItem.type === 'media' || (songInDb && songInDb.author === 'Media') || /\.(mp4|webm|mov|avi|jpg|jpeg|png|gif)($|\?)/i.test(targetItem.name || '');
+
+              if (isMedia) {
+                let mediaFilePath = targetItem.filepath || (songInDb ? (songInDb.filepath || songInDb.bg_asset || songInDb.bgAsset) : null) || targetItem.bgAsset || targetItem.name;
+                
+                // If songInDb has content_json, extract background from slides
+                if (songInDb && songInDb.content_json) {
+                  try {
+                    const parsedContent = typeof songInDb.content_json === 'string' ? JSON.parse(songInDb.content_json) : songInDb.content_json;
+                    if (Array.isArray(parsedContent) && parsedContent[0]) {
+                      mediaFilePath = parsedContent[0].bgAsset || (parsedContent[0].style && parsedContent[0].style.background) || mediaFilePath;
+                    }
+                  } catch (e) {}
                 }
+
+                const mediaSlides = [{
+                  text: '',
+                  label: targetItem.name,
+                  bgAsset: mediaFilePath,
+                  style: { background: mediaFilePath }
+                }];
+                const mediaSongObj = { id: targetItem.song_id || songInDb?.id, title: targetItem.name, author: 'Media', bg_asset: mediaFilePath, filepath: mediaFilePath };
+                if (songInDb && songInDb.id) {
+                  await selectSong(songInDb.id);
+                }
+                setLiveSong(mediaSongObj);
+                setLiveSlides(mediaSlides);
+                setActiveSlideIndex(0);
+                setSelectedSlideIndexes([0]);
+                handleSelectSlide(0, mediaSlides, mediaSongObj);
+              } else if (targetItem.song_id) {
+                await selectSong(targetItem.song_id);
+                const updatedSelectedSong = useLibraryStore.getState().selectedSong;
+                if (updatedSelectedSong) {
+                  let songSlides = [];
+                  try {
+                    songSlides = typeof updatedSelectedSong.content_json === 'string'
+                      ? JSON.parse(updatedSelectedSong.content_json)
+                      : (updatedSelectedSong.content_json || []);
+                  } catch (e) {
+                    songSlides = [];
+                  }
+                  setLiveSong(updatedSelectedSong);
+                  setLiveSlides(songSlides);
+                  setActiveSlideIndex(0);
+                  setSelectedSlideIndexes([0]);
+                  handleSelectSlide(0, songSlides, updatedSelectedSong);
+                }
+              } else if (targetItem.slides && targetItem.slides.length > 0) {
+                const importedObj = { title: targetItem.name, author: 'PowerPoint Import' };
+                setLiveSong(importedObj);
+                setLiveSlides(targetItem.slides);
+                setActiveSlideIndex(0);
+                setSelectedSlideIndexes([0]);
+                handleSelectSlide(0, targetItem.slides, importedObj);
+              }
+            } else if (songId) {
+              await selectSong(songId);
+              const updatedSelectedSong = useLibraryStore.getState().selectedSong;
+              if (updatedSelectedSong) {
+                let songSlides = [];
+                try {
+                  songSlides = typeof updatedSelectedSong.content_json === 'string'
+                    ? JSON.parse(updatedSelectedSong.content_json)
+                    : (updatedSelectedSong.content_json || []);
+                } catch (e) {
+                  songSlides = [];
+                }
+                setLiveSong(updatedSelectedSong);
+                setLiveSlides(songSlides);
+                setActiveSlideIndex(0);
+                setSelectedSlideIndexes([0]);
+                handleSelectSlide(0, songSlides, updatedSelectedSong);
               }
             }
             break;
