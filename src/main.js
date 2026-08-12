@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, screen, dialog, protocol, net } = require('
 const path = require('path');
 const fs = require('fs');
 const db = require('./database');
+const updater = require('./utils/updater');
 
 const pkg = require(path.join(__dirname, '../package.json'));
 const appVersion = pkg.version;
@@ -1257,150 +1258,98 @@ ipcMain.handle('media:save-pdf-pages', async (event, { title, outputDir, pages }
 // Get current application version
 ipcMain.handle('app:get-version', () => app.getVersion());
 
+let activeDownloadTask = null;
+
 // Check for updates against GitHub Releases
 ipcMain.handle('system:check-update', async () => {
-  return new Promise((resolve) => {
-    const request = net.request({
-      method: 'GET',
-      url: 'https://api.github.com/repos/austriaj12/WorshipFlow-Application/releases/latest',
-      headers: {
-        'User-Agent': 'WorshipFlow-App'
-      }
-    });
-
-    request.on('response', (response) => {
-      let data = '';
-      response.on('data', (chunk) => {
-        data += chunk;
-      });
-      response.on('end', () => {
-        try {
-          if (response.statusCode !== 200) {
-            resolve({ success: false, error: `GitHub API returned status ${response.statusCode}` });
-            return;
-          }
-          const release = JSON.parse(data);
-          const latestVersion = release.tag_name.replace(/^v/, '');
-          const currentVersion = app.getVersion();
-
-          const hasUpdate = isNewerVersion(latestVersion, currentVersion);
-
-          // Find the windows installer (.exe)
-          const exeAsset = release.assets.find(asset => asset.name.endsWith('.exe'));
-          
-          resolve({
-            success: true,
-            currentVersion,
-            latestVersion,
-            hasUpdate,
-            notes: release.body,
-            downloadUrl: exeAsset ? exeAsset.browser_download_url : null,
-            fileName: exeAsset ? exeAsset.name : null
-          });
-        } catch (e) {
-          resolve({ success: false, error: e.message });
-        }
-      });
-    });
-
-    request.on('error', (err) => {
-      resolve({ success: false, error: err.message });
-    });
-
-    request.end();
-  });
-});
-
-// Download and install update installer
-ipcMain.handle('system:install-update', async (event, { downloadUrl, fileName }) => {
-  return new Promise((resolve) => {
-    const targetDir = app.getPath('downloads');
-    const localFilePath = path.join(targetDir, fileName || 'worshipflow-setup.exe');
-
-    const request = net.request({
-      method: 'GET',
-      url: downloadUrl,
-      headers: {
-        'User-Agent': 'WorshipFlow-App'
-      }
-    });
-
-    request.on('response', (response) => {
-      if (response.statusCode !== 200) {
-        resolve({ success: false, error: `Download failed with status ${response.statusCode}` });
-        return;
-      }
-
-      const totalBytes = parseInt(response.headers['content-length'], 10) || 0;
-      let downloadedBytes = 0;
-
-      const fileStream = fs.createWriteStream(localFilePath);
-
-      response.on('data', (chunk) => {
-        downloadedBytes += chunk.length;
-        fileStream.write(chunk);
-
-        if (totalBytes > 0) {
-          const progress = Math.round((downloadedBytes / totalBytes) * 100);
-          if (operatorWindow && !operatorWindow.isDestroyed()) {
-            operatorWindow.webContents.send('update-download-progress', progress);
-          }
-        }
-      });
-
-      response.on('end', () => {
-        fileStream.end();
-        
-        // Execute the installer asynchronously and quit the app
-        setTimeout(() => {
-          try {
-            const spawn = require('child_process').spawn;
-            const child = spawn(localFilePath, [], {
-              detached: true,
-              stdio: 'ignore'
-            });
-            child.unref();
-
-            // Destroy windows directly to bypass exit confirmation dialogs
-            if (operatorWindow && !operatorWindow.isDestroyed()) {
-              operatorWindow.destroy();
-            }
-            if (projectorWindow && !projectorWindow.isDestroyed()) {
-              projectorWindow.destroy();
-            }
-            if (stageWindow && !stageWindow.isDestroyed()) {
-              stageWindow.destroy();
-            }
-
-            app.quit();
-            resolve({ success: true });
-          } catch (e) {
-            resolve({ success: false, error: `Failed to start installer: ${e.message}` });
-          }
-        }, 500);
-      });
-    });
-
-    request.on('error', (err) => {
-      resolve({ success: false, error: err.message });
-    });
-
-    request.end();
-  });
-});
-
-// Helper function to compare semver versions
-function isNewerVersion(latest, current) {
-  const latestParts = latest.split('.').map(Number);
-  const currentParts = current.split('.').map(Number);
-  for (let i = 0; i < Math.max(latestParts.length, currentParts.length); i++) {
-    const latestPart = latestParts[i] || 0;
-    const currentPart = currentParts[i] || 0;
-    if (latestPart > currentPart) return true;
-    if (latestPart < currentPart) return false;
+  try {
+    const currentVersion = app.getVersion();
+    return await updater.checkGitHubUpdate(currentVersion);
+  } catch (err) {
+    return { success: false, error: err.message };
   }
-  return false;
-}
+});
+
+// Download update installer asset
+ipcMain.handle('system:download-update', async (event, { downloadUrl, fileName, assetSize }) => {
+  try {
+    const updatesDir = path.join(app.getPath('userData'), 'updates');
+    const localFilePath = path.join(updatesDir, fileName || 'WorshipFlow-Setup.exe');
+
+    activeDownloadTask = updater.downloadUpdateAsset(downloadUrl, localFilePath, (progress) => {
+      if (operatorWindow && !operatorWindow.isDestroyed()) {
+        operatorWindow.webContents.send('update-download-progress', progress);
+      }
+    });
+
+    const result = await activeDownloadTask.promise;
+    activeDownloadTask = null;
+
+    if (!result.success) {
+      return result;
+    }
+
+    // Verify downloaded package
+    const verification = updater.verifyUpdatePackage(localFilePath, assetSize);
+    if (!verification.valid) {
+      // Cleanup corrupted file
+      if (fs.existsSync(localFilePath)) {
+        try { fs.unlinkSync(localFilePath); } catch (e) {}
+      }
+      return { success: false, error: verification.error };
+    }
+
+    return { success: true, filePath: localFilePath, fileName };
+  } catch (err) {
+    activeDownloadTask = null;
+    return { success: false, error: err.message };
+  }
+});
+
+// Cancel update download
+ipcMain.handle('system:cancel-update-download', async () => {
+  if (activeDownloadTask) {
+    activeDownloadTask.cancel();
+    activeDownloadTask = null;
+    return { success: true };
+  }
+  return { success: false, error: 'No active download task to cancel' };
+});
+
+// Stage installer script and apply update (quitting current process)
+ipcMain.handle('system:apply-update', async (event, { filePath }) => {
+  try {
+    if (!filePath || !fs.existsSync(filePath)) {
+      return { success: false, error: 'Update package path is invalid or file missing' };
+    }
+
+    const verification = updater.verifyUpdatePackage(filePath);
+    if (!verification.valid) {
+      return { success: false, error: verification.error };
+    }
+
+    // Determine target executable path
+    const targetExePath = process.execPath;
+    const currentPid = process.pid;
+
+    const staged = updater.stageAndLaunchUpdater(filePath, targetExePath, currentPid);
+    if (!staged.success) {
+      return staged;
+    }
+
+    // Destroy all active windows to force clean exit without blocking prompts
+    setTimeout(() => {
+      if (operatorWindow && !operatorWindow.isDestroyed()) operatorWindow.destroy();
+      if (projectorWindow && !projectorWindow.isDestroyed()) projectorWindow.destroy();
+      if (stageWindow && !stageWindow.isDestroyed()) stageWindow.destroy();
+      app.quit();
+    }, 300);
+
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: `Failed to apply update: ${err.message}` };
+  }
+});
 
 // Register a custom protocol to serve local file assets (PowerPoint/PDF slide images)
 protocol.registerSchemesAsPrivileged([

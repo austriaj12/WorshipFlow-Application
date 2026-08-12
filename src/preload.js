@@ -106,7 +106,9 @@ contextBridge.exposeInMainWorld('api', {
   // Updates & Auto-updater API
   getAppVersion: () => ipcRenderer.invoke('app:get-version'),
   checkUpdate: () => ipcRenderer.invoke('system:check-update'),
-  installUpdate: (url, fileName) => ipcRenderer.invoke('system:install-update', { downloadUrl: url, fileName }),
+  downloadUpdate: (downloadUrl, fileName, assetSize) => ipcRenderer.invoke('system:download-update', { downloadUrl, fileName, assetSize }),
+  cancelUpdateDownload: () => ipcRenderer.invoke('system:cancel-update-download'),
+  applyUpdate: (filePath) => ipcRenderer.invoke('system:apply-update', { filePath }),
   onUpdateProgress: (callback) => {
     ipcRenderer.removeAllListeners('update-download-progress');
     ipcRenderer.on('update-download-progress', (event, progress) => callback(progress));

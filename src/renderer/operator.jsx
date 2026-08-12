@@ -495,11 +495,13 @@ function OperatorDashboard() {
   const [darkPreset, setDarkPreset] = useState('Default Dark');
 
   // Auto-update State variables
-  const [appVersion, setAppVersion] = useState('1.0.4');
+  const [appVersion, setAppVersion] = useState('2.0.0');
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [updateInfo, setUpdateInfo] = useState(null);
-  const [updating, setUpdating] = useState(false);
-  const [updateProgress, setUpdateProgress] = useState(0);
+  const [updateStatus, setUpdateStatus] = useState('idle'); // 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error'
+  const [updateProgress, setUpdateProgress] = useState({ percent: 0, bytesDownloaded: 0, totalBytes: 0 });
+  const [updateError, setUpdateError] = useState(null);
+  const [downloadedFilePath, setDownloadedFilePath] = useState(null);
 
   // Live Output preview animation states
   const [livePreviewFading, setLivePreviewFading] = useState(false);
@@ -520,42 +522,78 @@ function OperatorDashboard() {
   const handleCheckForUpdates = async () => {
     if (!window.api || !window.api.checkUpdate) return;
     setCheckingUpdates(true);
-    setUpdateInfo(null);
+    setUpdateStatus('checking');
+    setUpdateError(null);
     try {
       const res = await window.api.checkUpdate();
       if (res && res.success) {
         setUpdateInfo(res);
+        if (res.hasUpdate) {
+          setUpdateStatus('available');
+        } else {
+          setUpdateStatus('idle');
+        }
       } else {
-        alert(res?.error || 'Failed to check for updates.');
+        setUpdateError(res?.error || 'Failed to check for updates.');
+        setUpdateStatus('error');
       }
     } catch (e) {
-      alert('Error checking for updates: ' + e.message);
+      setUpdateError('Error checking for updates: ' + e.message);
+      setUpdateStatus('error');
     } finally {
       setCheckingUpdates(false);
     }
   };
 
-  const handleInstallUpdate = async () => {
-    if (!window.api || !window.api.installUpdate || !updateInfo || !updateInfo.downloadUrl) return;
-    setUpdating(true);
-    setUpdateProgress(0);
-    
-    // Set up progress listener
+  const handleDownloadUpdate = async () => {
+    if (!window.api || !window.api.downloadUpdate || !updateInfo || !updateInfo.downloadUrl) return;
+    setUpdateStatus('downloading');
+    setUpdateError(null);
+    setUpdateProgress({ percent: 0, bytesDownloaded: 0, totalBytes: updateInfo.assetSize || 0 });
+
     if (window.api.onUpdateProgress) {
-      window.api.onUpdateProgress((progress) => {
-        setUpdateProgress(progress);
+      window.api.onUpdateProgress((prog) => {
+        setUpdateProgress(prog);
       });
     }
 
     try {
-      const res = await window.api.installUpdate(updateInfo.downloadUrl, updateInfo.fileName);
-      if (res && !res.success) {
-        alert('Update installation failed: ' + res.error);
-        setUpdating(false);
+      const res = await window.api.downloadUpdate(updateInfo.downloadUrl, updateInfo.fileName, updateInfo.assetSize);
+      if (res && res.success) {
+        setDownloadedFilePath(res.filePath);
+        setUpdateStatus('ready');
+      } else {
+        if (res && res.cancelled) {
+          setUpdateStatus('available');
+        } else {
+          setUpdateError(res?.error || 'Download failed or installer verification failed.');
+          setUpdateStatus('error');
+        }
       }
     } catch (e) {
-      alert('Error installing update: ' + e.message);
-      setUpdating(false);
+      setUpdateError('Error downloading update: ' + e.message);
+      setUpdateStatus('error');
+    }
+  };
+
+  const handleCancelDownload = async () => {
+    if (window.api && window.api.cancelUpdateDownload) {
+      await window.api.cancelUpdateDownload();
+    }
+    setUpdateStatus('available');
+  };
+
+  const handleApplyUpdate = async () => {
+    if (!window.api || !window.api.applyUpdate || !downloadedFilePath) return;
+    try {
+      const res = await window.api.applyUpdate(downloadedFilePath);
+      if (res && !res.success) {
+        setUpdateError(res.error || 'Failed to restart and apply update.');
+        setUpdateStatus('error');
+      }
+    } catch (e) {
+      setUpdateError('Error applying update: ' + e.message);
+      setUpdateStatus('error');
     }
   };
 
@@ -7388,66 +7426,131 @@ function OperatorDashboard() {
                     <div className="bg-appBg border border-[var(--border-app)] rounded p-4 space-y-4">
                       <div className="flex items-center justify-between">
                         <div>
-                          <span className="font-bold text-textMain block">WorshipFlow App</span>
-                          <span className="text-[10px] text-textMuted font-mono">Current Version: v{appVersion}</span>
+                          <span className="font-bold text-textMain block text-sm">WorshipFlow App</span>
+                          <span className="text-xs text-textMuted font-mono">Current Version: v{appVersion}</span>
                         </div>
                         <button
                           type="button"
                           onClick={handleCheckForUpdates}
-                          disabled={checkingUpdates || updating}
-                          className="px-4 py-2 bg-[#1E4E79] hover:bg-[#1E4E79]/85 text-white font-bold rounded text-xs transition"
+                          disabled={updateStatus === 'checking' || updateStatus === 'downloading'}
+                          className="px-4 py-2 bg-[#1E4E79] hover:bg-[#1E4E79]/85 disabled:opacity-50 text-white font-bold rounded text-xs transition shadow-sm"
                         >
-                          {checkingUpdates ? 'Checking...' : 'Check for Updates'}
+                          {updateStatus === 'checking' ? 'Checking...' : 'Check for Updates'}
                         </button>
                       </div>
 
-                      {updateInfo && (
-                        <div className="border-t border-[var(--border-app)]/50 pt-3 space-y-3">
-                          {updateInfo.hasUpdate ? (
-                            <>
-                              <div className="bg-[#10B981]/10 border border-[#10B981]/30 p-3 rounded text-[#10B981] flex flex-col gap-1">
-                                <span className="font-bold text-xs">Update Available: v{updateInfo.latestVersion}</span>
-                                <span className="text-[10px]">A newer version of WorshipFlow has been found.</span>
-                              </div>
-                              
-                              {updateInfo.notes && (
-                                <div className="space-y-1">
-                                  <span className="font-bold text-textMuted text-[10px] uppercase font-mono block">Release Notes</span>
-                                  <div className="bg-appPanel border border-[var(--border-app)] p-3 rounded max-h-[150px] overflow-y-auto font-mono text-[10px] text-textMain whitespace-pre-wrap leading-normal">
-                                    {updateInfo.notes}
-                                  </div>
-                                </div>
-                              )}
+                      {/* State: Up to date (Checked and no update found) */}
+                      {updateInfo && !updateInfo.hasUpdate && updateStatus === 'idle' && (
+                        <div className="border-t border-[var(--border-app)]/50 pt-3">
+                          <div className="bg-[#1E293B] border border-[var(--border-app)] p-3 rounded text-textMuted text-center font-medium text-xs">
+                            WorshipFlow is up to date! (v{appVersion} is the latest version)
+                          </div>
+                        </div>
+                      )}
 
-                              {updating ? (
-                                <div className="space-y-2">
-                                  <div className="flex justify-between items-center text-[10px]">
-                                    <span className="text-textMuted">Downloading installer...</span>
-                                    <span className="font-mono text-brand font-bold">{updateProgress}%</span>
-                                  </div>
-                                  <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden border border-[var(--border-app)]">
-                                    <div 
-                                      className="bg-brand h-2 rounded-full transition-all duration-150" 
-                                      style={{ width: `${updateProgress}%` }}
-                                    />
-                                  </div>
-                                </div>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={handleInstallUpdate}
-                                  disabled={!updateInfo.downloadUrl}
-                                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded text-xs transition"
-                                >
-                                  Download & Install Update
-                                </button>
-                              )}
-                            </>
-                          ) : (
-                            <div className="bg-[#1E293B] border border-[var(--border-app)] p-3 rounded text-textMuted text-center font-medium">
-                              WorshipFlow is up to date! (v{appVersion} is the latest version)
+                      {/* State: New Update Available */}
+                      {updateInfo && updateInfo.hasUpdate && updateStatus === 'available' && (
+                        <div className="border-t border-[var(--border-app)]/50 pt-3 space-y-3">
+                          <div className="bg-[#10B981]/10 border border-[#10B981]/30 p-3 rounded text-[#10B981] flex flex-col gap-1">
+                            <span className="font-bold text-xs">A new version of WorshipFlow is available.</span>
+                            <span className="text-[11px] text-textMain">Current Version: <code className="font-mono font-bold text-emerald-400">v{appVersion}</code> &rarr; Latest Version: <code className="font-mono font-bold text-emerald-400">v{updateInfo.latestVersion}</code></span>
+                          </div>
+
+                          {updateInfo.notes && (
+                            <div className="space-y-1">
+                              <span className="font-bold text-textMuted text-[10px] uppercase font-mono block">Release Notes</span>
+                              <div className="bg-appPanel border border-[var(--border-app)] p-3 rounded max-h-[140px] overflow-y-auto font-mono text-[10px] text-textMain whitespace-pre-wrap leading-normal">
+                                {updateInfo.notes}
+                              </div>
                             </div>
                           )}
+
+                          <button
+                            type="button"
+                            onClick={handleDownloadUpdate}
+                            disabled={!updateInfo.downloadUrl}
+                            className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold rounded text-xs transition flex items-center justify-center gap-2 shadow-md"
+                          >
+                            Update Now
+                          </button>
+                        </div>
+                      )}
+
+                      {/* State: Downloading Update */}
+                      {updateStatus === 'downloading' && (
+                        <div className="border-t border-[var(--border-app)]/50 pt-3 space-y-3">
+                          <div className="flex justify-between items-center text-xs">
+                            <span className="font-bold text-textMain">Downloading Update... <code className="text-emerald-400 font-mono">v{updateInfo?.latestVersion}</code></span>
+                            <span className="font-mono text-emerald-400 font-bold">{updateProgress.percent || 0}%</span>
+                          </div>
+
+                          <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden border border-[var(--border-app)] relative">
+                            <div
+                              className="bg-emerald-500 h-2.5 rounded-full transition-all duration-150"
+                              style={{ width: `${updateProgress.percent || 0}%` }}
+                            />
+                          </div>
+
+                          <div className="flex items-center justify-between text-[10px] text-textMuted">
+                            <span>
+                              {updateProgress.bytesDownloaded > 0 
+                                ? `${(updateProgress.bytesDownloaded / 1024 / 1024).toFixed(1)} MB` 
+                                : 'Downloading...'}
+                              {updateProgress.totalBytes > 0 ? ` / ${(updateProgress.totalBytes / 1024 / 1024).toFixed(1)} MB` : ''}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={handleCancelDownload}
+                              className="text-xs text-rose-400 hover:underline"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* State: Update Ready */}
+                      {updateStatus === 'ready' && (
+                        <div className="border-t border-[var(--border-app)]/50 pt-3 space-y-3">
+                          <div className="bg-emerald-950/40 border border-emerald-500/40 p-3 rounded flex flex-col gap-1">
+                            <span className="font-bold text-xs text-emerald-400">Update Ready</span>
+                            <span className="text-[11px] text-textMain">WorshipFlow will restart to finish installing the update.</span>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={handleApplyUpdate}
+                            className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded text-xs transition shadow-lg"
+                          >
+                            Restart & Update
+                          </button>
+                        </div>
+                      )}
+
+                      {/* State: Error / Failure */}
+                      {updateStatus === 'error' && (
+                        <div className="border-t border-[var(--border-app)]/50 pt-3 space-y-3">
+                          <div className="bg-rose-950/40 border border-rose-500/40 p-3 rounded text-rose-300 text-xs space-y-1">
+                            <span className="font-bold block">Update Failed</span>
+                            <p className="text-[11px] text-rose-200">{updateError || 'An error occurred while handling the update.'}</p>
+                          </div>
+
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={updateInfo?.downloadUrl ? handleDownloadUpdate : handleCheckForUpdates}
+                              className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded text-xs transition"
+                            >
+                              Retry Update
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleCheckForUpdates}
+                              className="px-3 py-2 bg-appPanel border border-[var(--border-app)] hover:bg-slate-700 text-textMain font-bold rounded text-xs transition"
+                            >
+                              Check Again
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
