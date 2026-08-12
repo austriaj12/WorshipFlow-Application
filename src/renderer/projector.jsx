@@ -555,17 +555,19 @@ function ProjectorScreen() {
             </div>
           )}
           <div className="z-10 flex flex-col items-center">
-            <div style={{ fontSize: `${slide.countdownTitleSize || 56}px`, opacity: 0.85, textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '24px', fontWeight: 'bold' }}>
-              {slide.countdownTitle || 'Countdown'}
-            </div>
+            {slide.countdownTitle ? (
+              <div style={{ fontSize: `${slide.countdownTitleSize || 56}px`, opacity: 0.85, textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '24px', fontWeight: 'bold' }}>
+                {slide.countdownTitle}
+              </div>
+            ) : null}
             <div style={{ fontSize: `${slide.countdownTimeSize || 180}px`, fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1, margin: '20px 0', color: slide.countdownTextColor || '#ffffff' }}>
               {slide.countdownTime || '00:00'}
             </div>
-            {slide.countdownSubtext && (
+            {slide.countdownSubtext ? (
               <div style={{ fontSize: `${slide.countdownSubtextSize || 36}px`, opacity: 0.6, fontStyle: 'italic', marginTop: '24px' }}>
                 {slide.countdownSubtext}
               </div>
-            )}
+            ) : null}
           </div>
         </div>
       )}

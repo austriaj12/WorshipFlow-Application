@@ -1681,10 +1681,13 @@ function OperatorDashboard() {
       const countdownTimeStr = countdownMode === 'current'
         ? (() => {
             const now = new Date();
-            const hrs = String(now.getHours()).padStart(2, '0');
+            let hours = now.getHours();
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            hours = hours % 12;
+            hours = hours ? hours : 12;
             const mins = String(now.getMinutes()).padStart(2, '0');
             const secs = String(now.getSeconds()).padStart(2, '0');
-            return `${hrs}:${mins}:${secs}`;
+            return `${hours}:${mins}:${secs} ${ampm}`;
           })()
         : `${String(countdownMinutes).padStart(2, '0')}:${String(countdownSeconds).padStart(2, '0')}`;
       const timerTimeStr = `${String(timerMinutes).padStart(2, '0')}:${String(timerSeconds).padStart(2, '0')}`;
@@ -1769,8 +1772,8 @@ function OperatorDashboard() {
             slidePayload = {
               countdownActive: true,
               countdownTime: countdownTimeStr,
-              countdownTitle,
-              countdownSubtext,
+              countdownTitle: countdownMode === 'current' ? '' : countdownTitle,
+              countdownSubtext: countdownMode === 'current' ? '' : countdownSubtext,
               countdownBgColor,
               countdownBgMedia: countdownBgMedia ? formatBgPath(countdownBgMedia) : null,
               countdownTextColor,
@@ -1952,7 +1955,7 @@ function OperatorDashboard() {
 
   // Metronome Click Track & Voice Cue Auto-Start/Stop Sync Effect
   useEffect(() => {
-    if (blackout || clearLyrics || !selectedSong) {
+    if (!selectedSong) {
       metronomeEngine.stop();
       setMetronomeActive(false);
       return;
@@ -1976,7 +1979,7 @@ function OperatorDashboard() {
       metronomeEngine.stop();
       setMetronomeActive(false);
     }
-  }, [selectedSong, blackout, clearLyrics, selectedAudioDeviceId]);
+  }, [selectedSong, selectedAudioDeviceId]);
 
   // Metronome Visual Beat Pulse Listener
   useEffect(() => {
@@ -5027,22 +5030,27 @@ function OperatorDashboard() {
                         </div>
                       )}
                       <div className="space-y-1">
-                        <p style={{ fontSize: `${countdownTitleSize * 0.22}px`, color: 'rgba(255,255,255,0.75)' }} className="font-sans font-medium uppercase tracking-widest leading-tight">
-                          {countdownTitle || 'Countdown'}
-                        </p>
+                        {countdownMode !== 'current' && (countdownTitle || 'Countdown') && (
+                          <p style={{ fontSize: `${countdownTitleSize * 0.22}px`, color: 'rgba(255,255,255,0.75)' }} className="font-sans font-medium uppercase tracking-widest leading-tight">
+                            {countdownTitle || 'Countdown'}
+                          </p>
+                        )}
                         <p style={{ fontSize: `${countdownTimeSize * 0.22}px`, color: '#ffffff' }} className="font-mono font-bold leading-none py-1">
                           {countdownMode === 'current'
                              ? (() => {
                                  const now = new Date();
-                                 const hrs = String(now.getHours()).padStart(2, '0');
+                                 let hours = now.getHours();
+                                 const ampm = hours >= 12 ? 'PM' : 'AM';
+                                 hours = hours % 12;
+                                 hours = hours ? hours : 12;
                                  const mins = String(now.getMinutes()).padStart(2, '0');
                                  const secs = String(now.getSeconds()).padStart(2, '0');
-                                 return `${hrs}:${mins}:${secs}`;
+                                 return `${hours}:${mins}:${secs} ${ampm}`;
                                })()
                              : `${String(countdownMinutes).padStart(2, '0')}:${String(countdownSeconds).padStart(2, '0')}`
                            }
                         </p>
-                        {countdownSubtext && (
+                        {countdownMode !== 'current' && countdownSubtext && (
                           <p style={{ fontSize: `${countdownSubtextSize * 0.22}px`, color: 'rgba(255,255,255,0.5)' }} className="font-sans italic leading-tight">
                             {countdownSubtext}
                           </p>
@@ -5586,7 +5594,7 @@ function OperatorDashboard() {
                 {/* Countdown overlay content */}
                 {showOnProjector && !blackout ? (
                   <div className="z-10 flex flex-col items-center justify-center text-center w-full px-2">
-                    {countdownTitle && (
+                    {countdownMode !== 'current' && countdownTitle && (
                       <div style={{ fontSize: `${Math.max(6, (countdownTitleSize || 56) * 0.065)}px`, fontWeight: 'bold', textTransform: 'uppercase', opacity: 0.85, color: '#fff', marginBottom: '4px', lineHeight: 1.2 }}>
                         {countdownTitle}
                       </div>
@@ -5595,15 +5603,18 @@ function OperatorDashboard() {
                       {countdownMode === 'current'
                         ? (() => {
                             const now = new Date();
-                            const hrs = String(now.getHours()).padStart(2, '0');
+                            let hours = now.getHours();
+                            const ampm = hours >= 12 ? 'PM' : 'AM';
+                            hours = hours % 12;
+                            hours = hours ? hours : 12;
                             const mins = String(now.getMinutes()).padStart(2, '0');
                             const secs = String(now.getSeconds()).padStart(2, '0');
-                            return `${hrs}:${mins}:${secs}`;
+                            return `${hours}:${mins}:${secs} ${ampm}`;
                           })()
                         : formatSecondsToMinSec(countdownSeconds)
                       }
                     </div>
-                    {countdownSubtext && (
+                    {countdownMode !== 'current' && countdownSubtext && (
                       <div style={{ fontSize: `${Math.max(5, (countdownSubtextSize || 36) * 0.065)}px`, opacity: 0.6, color: '#fff', fontStyle: 'italic', marginTop: '4px' }}>
                         {countdownSubtext}
                       </div>
@@ -5692,7 +5703,7 @@ function OperatorDashboard() {
                   )}
                 </div>
               )}
-              {countdownTitle && (
+              {countdownMode !== 'current' && countdownTitle && (
                 <div style={{ fontSize: `${Math.max(7, (countdownTitleSize || 56) * 0.065)}px`, fontWeight: 'bold', textTransform: 'uppercase', opacity: 0.85, color: '#fff', marginBottom: '4px', lineHeight: 1.2 }}>
                   {countdownTitle}
                 </div>
@@ -5701,15 +5712,18 @@ function OperatorDashboard() {
                 {countdownMode === 'current'
                   ? (() => {
                       const now = new Date();
-                      const hrs = String(now.getHours()).padStart(2, '0');
+                      let hours = now.getHours();
+                      const ampm = hours >= 12 ? 'PM' : 'AM';
+                      hours = hours % 12;
+                      hours = hours ? hours : 12;
                       const mins = String(now.getMinutes()).padStart(2, '0');
                       const secs = String(now.getSeconds()).padStart(2, '0');
-                      return `${hrs}:${mins}:${secs}`;
+                      return `${hours}:${mins}:${secs} ${ampm}`;
                     })()
                   : `${String(countdownMinutes).padStart(2, '0')}:${String(countdownSeconds).padStart(2, '0')}`
                 }
               </div>
-              {countdownSubtext && (
+              {countdownMode !== 'current' && countdownSubtext && (
                 <div style={{ fontSize: `${Math.max(6, (countdownSubtextSize || 36) * 0.065)}px`, opacity: 0.6, color: '#fff', fontStyle: 'italic', marginTop: '4px' }}>
                   {countdownSubtext}
                 </div>

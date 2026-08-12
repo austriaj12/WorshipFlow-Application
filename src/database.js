@@ -376,11 +376,54 @@ function importPlaylist(data) {
               if (err) return rejSong(err);
               if (row) {
                 idMapping[song.id] = row.id;
-                resSong();
+                db.run(
+                  `UPDATE songs SET 
+                    author = COALESCE(NULLIF(?, ''), author),
+                    [key] = COALESCE(NULLIF(?, ''), [key]),
+                    tempo = COALESCE(NULLIF(?, ''), tempo),
+                    content_json = COALESCE(NULLIF(?, ''), content_json),
+                    chords_text = COALESCE(NULLIF(?, ''), chords_text),
+                    bpm = COALESCE(?, bpm),
+                    time_signature = COALESCE(NULLIF(?, ''), time_signature),
+                    enable_click = COALESCE(?, enable_click),
+                    enable_voice_cues = COALESCE(?, enable_voice_cues),
+                    voice_gender = COALESCE(NULLIF(?, ''), voice_gender),
+                    bg_asset = COALESCE(NULLIF(?, ''), bg_asset)
+                   WHERE id = ?`,
+                  [
+                    song.author || '',
+                    song.key || '',
+                    song.tempo || '',
+                    song.content_json || '[]',
+                    song.chords_text || song.chordsText || '',
+                    song.bpm || parseInt(song.tempo) || 120,
+                    song.time_signature || song.timeSignature || '4/4',
+                    song.enable_click ? 1 : (song.enableClick ? 1 : 0),
+                    song.enable_voice_cues ? 1 : (song.enableVoiceCues ? 1 : 0),
+                    song.voice_gender || song.voiceGender || 'female',
+                    song.bg_asset || song.bgAsset || '',
+                    row.id
+                  ],
+                  () => resSong()
+                );
               } else {
                 db.run(
-                  'INSERT INTO songs (title, author, [key], tempo, content_json) VALUES (?, ?, ?, ?, ?)',
-                  [song.title, song.author || '', song.key || '', song.tempo || '', song.content_json || '[]'],
+                  `INSERT INTO songs (title, author, [key], tempo, content_json, chords_text, bpm, time_signature, enable_click, enable_voice_cues, voice_gender, bg_asset) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                  [
+                    song.title,
+                    song.author || '',
+                    song.key || '',
+                    song.tempo || '',
+                    song.content_json || '[]',
+                    song.chords_text || song.chordsText || '',
+                    song.bpm || parseInt(song.tempo) || 120,
+                    song.time_signature || song.timeSignature || '4/4',
+                    song.enable_click ? 1 : (song.enableClick ? 1 : 0),
+                    song.enable_voice_cues ? 1 : (song.enableVoiceCues ? 1 : 0),
+                    song.voice_gender || song.voiceGender || 'female',
+                    song.bg_asset || song.bgAsset || ''
+                  ],
                   function (err) {
                     if (err) return rejSong(err);
                     idMapping[song.id] = this.lastID;
