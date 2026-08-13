@@ -12,6 +12,10 @@ class MetronomeEngine {
     this.enableClick = true;
     this.enableVoiceCues = true;
     this.voiceGender = 'female'; // 'female' | 'male'
+    this.clickVolume = typeof localStorage !== 'undefined' && localStorage.getItem('metronome_click_volume') !== null
+      ? parseFloat(localStorage.getItem('metronome_click_volume')) : 0.8;
+    this.cueVolume = typeof localStorage !== 'undefined' && localStorage.getItem('metronome_cue_volume') !== null
+      ? parseFloat(localStorage.getItem('metronome_cue_volume')) : 0.8;
     this.isPlaying = false;
     
     // Scheduler parameters
@@ -144,6 +148,16 @@ class MetronomeEngine {
     }
   }
 
+  setClickVolume(val) {
+    this.clickVolume = Math.max(0, Math.min(1.0, parseFloat(val) || 0));
+    try { localStorage.setItem('metronome_click_volume', this.clickVolume); } catch (e) {}
+  }
+
+  setCueVolume(val) {
+    this.cueVolume = Math.max(0, Math.min(1.0, parseFloat(val) || 0));
+    try { localStorage.setItem('metronome_cue_volume', this.cueVolume); } catch (e) {}
+  }
+
   setEnableClick(enabled) {
     this.enableClick = !!enabled;
   }
@@ -213,7 +227,9 @@ class MetronomeEngine {
       osc.type = 'sine';
       osc.frequency.setValueAtTime(isFirstBeat ? 1200 : 800, time);
 
-      const peakGain = isFirstBeat ? 0.8 : 0.5;
+      const baseGain = isFirstBeat ? 0.8 : 0.5;
+      const volMultiplier = this.clickVolume !== undefined ? this.clickVolume : 0.8;
+      const peakGain = Math.max(0.001, baseGain * volMultiplier);
       const decayDuration = isFirstBeat ? 0.04 : 0.03;
 
       gain.gain.setValueAtTime(peakGain, time);
@@ -261,7 +277,7 @@ class MetronomeEngine {
         // Use natural 1.0 pitch and rate for organic, human-like voice quality
         utterance.rate = 1.0;
         utterance.pitch = 1.0;
-        utterance.volume = 1.0;
+        utterance.volume = this.cueVolume !== undefined ? this.cueVolume : 0.8;
 
         const voice = this.getBestVoice(targetGender);
         if (voice) {

@@ -495,13 +495,22 @@ function OperatorDashboard() {
   const [darkPreset, setDarkPreset] = useState('Default Dark');
 
   // Auto-update State variables
-  const [appVersion, setAppVersion] = useState('2.0.0');
+  const [appVersion, setAppVersion] = useState('2.0.1');
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [updateInfo, setUpdateInfo] = useState(null);
   const [updateStatus, setUpdateStatus] = useState('idle'); // 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error'
   const [updateProgress, setUpdateProgress] = useState({ percent: 0, bytesDownloaded: 0, totalBytes: 0 });
-  const [updateError, setUpdateError] = useState(null);
   const [downloadedFilePath, setDownloadedFilePath] = useState(null);
+
+  // Metronome & Audio Cues Volume states
+  const [clickVolume, setClickVolume] = useState(() => {
+    const val = localStorage.getItem('metronome_click_volume');
+    return val !== null ? parseFloat(val) : 0.8;
+  });
+  const [cueVolume, setCueVolume] = useState(() => {
+    const val = localStorage.getItem('metronome_cue_volume');
+    return val !== null ? parseFloat(val) : 0.8;
+  });
 
   // Live Output preview animation states
   const [livePreviewFading, setLivePreviewFading] = useState(false);
@@ -3249,6 +3258,201 @@ function OperatorDashboard() {
                   </div>
                 )}
               </div>
+
+              {/* Separator Divider Line ("Bridge") */}
+              <div className="border-t border-[var(--border-app)]" />
+
+              {/* Bottom Panel: Metronome & Audio Cues */}
+              <div className="p-3 space-y-3 font-sans">
+                {/* Panel Header */}
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-textMain">
+                    Metronome & Cues
+                  </span>
+
+                  {/* Visual Beat Pulse Dot & BPM */}
+                  <div className="flex items-center gap-1.5">
+                    <div 
+                      className={`w-2.5 h-2.5 rounded-full transition-all duration-75 ${
+                        currentBeatIndex === 0 
+                          ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.9)] scale-110' 
+                          : currentBeatIndex > 0 
+                            ? 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.8)]' 
+                            : 'bg-slate-700/50'
+                      }`}
+                      title={metronomeActive ? `Beat ${currentBeatIndex + 1}` : 'Metronome Inactive'}
+                    />
+                    <span className="text-[10px] font-mono text-textMuted font-bold">
+                      {selectedSong ? `${selectedSong.bpm || parseInt(selectedSong.tempo) || 120} BPM` : '120 BPM'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Section 1: Metronome Click Track */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-textMuted uppercase font-mono">Metronome Click</span>
+                    <button
+                      type="button"
+                      disabled={!selectedSong}
+                      onClick={async () => {
+                        if (!selectedSong) return;
+                        const nextClickState = !(selectedSong.enable_click || selectedSong.enableClick);
+                        const optimisticSong = { ...selectedSong, enable_click: nextClickState ? 1 : 0, enableClick: nextClickState };
+                        useLibraryStore.setState({ selectedSong: optimisticSong });
+                        await saveSong({
+                          ...selectedSong,
+                          bpm: selectedSong.bpm || parseInt(selectedSong.tempo) || 120,
+                          timeSignature: selectedSong.time_signature || '4/4',
+                          enableClick: nextClickState,
+                          enableVoiceCues: !!(selectedSong.enable_voice_cues || selectedSong.enableVoiceCues),
+                          voiceGender: selectedSong.voice_gender || 'female',
+                          contentJson: selectedSong.content_json,
+                          chordsText: selectedSong.chords_text
+                        });
+                      }}
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono transition ${
+                        selectedSong && (selectedSong.enable_click || selectedSong.enableClick)
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-sm' 
+                          : 'bg-appBg text-textMuted hover:text-textMain border border-[var(--border-app)] opacity-75'
+                      }`}
+                    >
+                      {selectedSong && (selectedSong.enable_click || selectedSong.enableClick) ? 'Click ON' : 'Click OFF'}
+                    </button>
+                  </div>
+
+                  {/* Click Volume Slider */}
+                  <div className="flex items-center gap-2 pt-0.5">
+                    {clickVolume === 0 ? (
+                      <VolumeX className="h-3.5 w-3.5 text-textMuted shrink-0" />
+                    ) : (
+                      <Volume2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                    )}
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={clickVolume}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        setClickVolume(val);
+                        metronomeEngine.setClickVolume(val);
+                      }}
+                      className="w-full accent-emerald-500 h-1.5 bg-slate-800 rounded cursor-pointer"
+                      title="Metronome Click Volume"
+                    />
+                    <span className="text-[10px] font-mono text-textMuted w-7 text-right">
+                      {Math.round(clickVolume * 100)}%
+                    </span>
+                  </div>
+                </div>
+
+                {/* Section 2: Audio Cues */}
+                {(() => {
+                  const currentGender = selectedSong ? (selectedSong.voice_gender || selectedSong.voiceGender || 'female') : 'female';
+                  const isMaleCue = currentGender === 'male';
+                  const cueActive = selectedSong && (selectedSong.enable_voice_cues || selectedSong.enableVoiceCues);
+
+                  return (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-[10px] font-bold text-textMuted uppercase font-mono">Audio Cues</span>
+                        
+                        <div className="flex items-center gap-1.5">
+                          <select
+                            disabled={!selectedSong}
+                            value={currentGender}
+                            onChange={async (e) => {
+                              if (!selectedSong) return;
+                              const newGender = e.target.value;
+                              metronomeEngine.setVoiceGender(newGender);
+                              const optimisticSong = { ...selectedSong, voice_gender: newGender, voiceGender: newGender };
+                              useLibraryStore.setState({ selectedSong: optimisticSong });
+                              await saveSong({
+                                ...selectedSong,
+                                bpm: selectedSong.bpm || parseInt(selectedSong.tempo) || 120,
+                                timeSignature: selectedSong.time_signature || '4/4',
+                                enableClick: !!(selectedSong.enable_click || selectedSong.enableClick),
+                                enableVoiceCues: !!(selectedSong.enable_voice_cues || selectedSong.enableVoiceCues),
+                                voiceGender: newGender,
+                                contentJson: selectedSong.content_json,
+                                chordsText: selectedSong.chords_text
+                              });
+                            }}
+                            className={`py-0.5 px-1 bg-appBg border rounded text-[9px] font-mono focus:outline-none cursor-pointer font-bold transition ${
+                              isMaleCue 
+                                ? 'text-sky-400 border-sky-500/40' 
+                                : 'text-purple-400 border-purple-500/40'
+                            }`}
+                          >
+                            <option value="female">Female</option>
+                            <option value="male">Male</option>
+                          </select>
+
+                          <button
+                            type="button"
+                            disabled={!selectedSong}
+                            onClick={async () => {
+                              if (!selectedSong) return;
+                              const nextCueState = !(selectedSong.enable_voice_cues || selectedSong.enableVoiceCues);
+                              const optimisticSong = { ...selectedSong, enable_voice_cues: nextCueState ? 1 : 0, enableVoiceCues: nextCueState };
+                              useLibraryStore.setState({ selectedSong: optimisticSong });
+                              await saveSong({
+                                ...selectedSong,
+                                bpm: selectedSong.bpm || parseInt(selectedSong.tempo) || 120,
+                                timeSignature: selectedSong.time_signature || '4/4',
+                                enableClick: !!(selectedSong.enable_click || selectedSong.enableClick),
+                                enableVoiceCues: nextCueState,
+                                voiceGender: selectedSong.voice_gender || 'female',
+                                contentJson: selectedSong.content_json,
+                                chordsText: selectedSong.chords_text
+                              });
+                            }}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono transition ${
+                              cueActive
+                                ? isMaleCue
+                                  ? 'bg-sky-500/20 text-sky-400 border border-sky-500/40 shadow-sm'
+                                  : 'bg-purple-500/20 text-purple-400 border border-purple-500/40 shadow-sm'
+                                : 'bg-appBg text-textMuted hover:text-textMain border border-[var(--border-app)] opacity-75'
+                            }`}
+                          >
+                            {cueActive ? 'Cue ON' : 'Cue OFF'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Cue Volume Slider */}
+                      <div className="flex items-center gap-2 pt-0.5">
+                        {cueVolume === 0 ? (
+                          <VolumeX className="h-3.5 w-3.5 text-textMuted shrink-0" />
+                        ) : (
+                          <Volume2 className={`h-3.5 w-3.5 shrink-0 ${isMaleCue ? 'text-sky-400' : 'text-purple-400'}`} />
+                        )}
+                        <input
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          value={cueVolume}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value);
+                            setCueVolume(val);
+                            metronomeEngine.setCueVolume(val);
+                          }}
+                          className={`w-full h-1.5 bg-slate-800 rounded cursor-pointer ${
+                            isMaleCue ? 'accent-sky-500' : 'accent-purple-500'
+                          }`}
+                          title="Audio Cues Volume"
+                        />
+                        <span className="text-[10px] font-mono text-textMuted w-7 text-right">
+                          {Math.round(cueVolume * 100)}%
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
             </aside>
 
             {/* Right-click Context Menu for Playlist Items */}
@@ -3484,109 +3688,6 @@ function OperatorDashboard() {
                       </h2>
                     </div>
                     <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap shrink-0">
-                      {/* Minimal Live Metronome & Click Track Control Bar (BORDERLESS) */}
-                      <div className="flex items-center gap-2 px-1 py-0.5 rounded-lg text-xs font-mono select-none border-0">
-                        {/* Beat Pulse Indicator */}
-                        <div 
-                          className={`w-2.5 h-2.5 rounded-full transition-all duration-75 shrink-0 ${
-                            currentBeatIndex === 0 
-                              ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.9)] scale-110' 
-                              : currentBeatIndex > 0 
-                                ? 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.8)]' 
-                                : 'bg-slate-700/50'
-                          }`}
-                          title={metronomeActive ? `Beat ${currentBeatIndex + 1}` : 'Click Track Inactive'}
-                        />
-                        <span className="text-textMain font-bold text-[11px] whitespace-nowrap">
-                          {selectedSong.bpm || parseInt(selectedSong.tempo) || 120} BPM
-                        </span>
-                        <span className="text-textMuted text-[10px] whitespace-nowrap">
-                          ({selectedSong.time_signature || selectedSong.timeSignature || '4/4'})
-                        </span>
-                        
-                        {/* Click Track Toggle */}
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            const nextClickState = !(selectedSong.enable_click || selectedSong.enableClick);
-                            const optimisticSong = { ...selectedSong, enable_click: nextClickState ? 1 : 0, enableClick: nextClickState };
-                            useLibraryStore.setState({ selectedSong: optimisticSong });
-                            await saveSong({
-                              ...selectedSong,
-                              bpm: selectedSong.bpm || parseInt(selectedSong.tempo) || 120,
-                              timeSignature: selectedSong.time_signature || '4/4',
-                              enableClick: nextClickState,
-                              enableVoiceCues: !!(selectedSong.enable_voice_cues || selectedSong.enableVoiceCues),
-                              voiceGender: selectedSong.voice_gender || 'female',
-                              contentJson: selectedSong.content_json,
-                              chordsText: selectedSong.chords_text
-                            });
-                          }}
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono transition whitespace-nowrap ${
-                            (selectedSong.enable_click || selectedSong.enableClick)
-                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-sm' 
-                              : 'bg-appBg text-textMuted hover:text-textMain border border-[var(--border-app)]'
-                          }`}
-                          title="Toggle Click Track for this song"
-                        >
-                          {(selectedSong.enable_click || selectedSong.enableClick) ? 'Click ON' : 'Click OFF'}
-                        </button>
-
-                        {/* Voice Section Cue Toggle */}
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            const nextCueState = !(selectedSong.enable_voice_cues || selectedSong.enableVoiceCues);
-                            const optimisticSong = { ...selectedSong, enable_voice_cues: nextCueState ? 1 : 0, enableVoiceCues: nextCueState };
-                            useLibraryStore.setState({ selectedSong: optimisticSong });
-                            await saveSong({
-                              ...selectedSong,
-                              bpm: selectedSong.bpm || parseInt(selectedSong.tempo) || 120,
-                              timeSignature: selectedSong.time_signature || '4/4',
-                              enableClick: !!(selectedSong.enable_click || selectedSong.enableClick),
-                              enableVoiceCues: nextCueState,
-                              voiceGender: selectedSong.voice_gender || 'female',
-                              contentJson: selectedSong.content_json,
-                              chordsText: selectedSong.chords_text
-                            });
-                          }}
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono transition whitespace-nowrap ${
-                            (selectedSong.enable_voice_cues || selectedSong.enableVoiceCues)
-                              ? 'bg-purple-500/20 text-purple-400 border border-purple-500/40 shadow-sm' 
-                              : 'bg-appBg text-textMuted hover:text-textMain border border-[var(--border-app)]'
-                          }`}
-                          title="Toggle Advance Voice Cues for Stage Monitoring"
-                        >
-                          {(selectedSong.enable_voice_cues || selectedSong.enableVoiceCues) ? 'Cue ON' : 'Cue OFF'}
-                        </button>
-
-                        {/* Offline Voice Gender Selector */}
-                        <select
-                          value={selectedSong.voice_gender || selectedSong.voiceGender || 'female'}
-                          onChange={async (e) => {
-                            const newGender = e.target.value;
-                            metronomeEngine.setVoiceGender(newGender);
-                            const optimisticSong = { ...selectedSong, voice_gender: newGender, voiceGender: newGender };
-                            useLibraryStore.setState({ selectedSong: optimisticSong });
-                            await saveSong({
-                              ...selectedSong,
-                              bpm: selectedSong.bpm || parseInt(selectedSong.tempo) || 120,
-                              timeSignature: selectedSong.time_signature || '4/4',
-                              enableClick: !!(selectedSong.enable_click || selectedSong.enableClick),
-                              enableVoiceCues: !!(selectedSong.enable_voice_cues || selectedSong.enableVoiceCues),
-                              voiceGender: newGender,
-                              contentJson: selectedSong.content_json,
-                              chordsText: selectedSong.chords_text
-                            });
-                          }}
-                          className="p-0.5 px-1.5 bg-appBg border border-[var(--border-app)] rounded text-textMain text-[10px] font-mono focus:outline-none whitespace-nowrap"
-                          title="Select Voice Gender for Section Cues"
-                        >
-                          <option value="female">Voice: Female</option>
-                          <option value="male">Voice: Male</option>
-                        </select>
-                      </div>
-
                       {/* Slide Preview Size Control */}
                       <div className="flex items-center gap-1.5 shrink-0">
                         <span className="text-[10px] text-textMuted uppercase tracking-wider font-semibold whitespace-nowrap">PREVIEW SIZE:</span>
