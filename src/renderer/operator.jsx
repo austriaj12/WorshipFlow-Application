@@ -495,11 +495,12 @@ function OperatorDashboard() {
   const [darkPreset, setDarkPreset] = useState('Default Dark');
 
   // Auto-update State variables
-  const [appVersion, setAppVersion] = useState('2.0.1');
+  const [appVersion, setAppVersion] = useState('2.0.2');
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [updateInfo, setUpdateInfo] = useState(null);
   const [updateStatus, setUpdateStatus] = useState('idle'); // 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error'
   const [updateProgress, setUpdateProgress] = useState({ percent: 0, bytesDownloaded: 0, totalBytes: 0 });
+  const [updateError, setUpdateError] = useState(null);
   const [downloadedFilePath, setDownloadedFilePath] = useState(null);
 
   // Metronome & Audio Cues Volume states
