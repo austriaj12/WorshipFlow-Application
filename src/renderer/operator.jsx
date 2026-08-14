@@ -495,7 +495,7 @@ function OperatorDashboard() {
   const [darkPreset, setDarkPreset] = useState('Default Dark');
 
   // Auto-update State variables
-  const [appVersion, setAppVersion] = useState('2.0.2');
+  const [appVersion, setAppVersion] = useState('2.0.3');
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [updateInfo, setUpdateInfo] = useState(null);
   const [updateStatus, setUpdateStatus] = useState('idle'); // 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error'
@@ -1567,17 +1567,26 @@ function OperatorDashboard() {
   }, [activeEditPreviewIdx, isEditSongOpen]);
 
 
-  const getEffectiveSlideBg = (activeSlide, slidesList, songObject = selectedSong) => {
-    if (activeSlide?.bgAsset) return activeSlide.bgAsset;
-    if (activeSlide?.style && activeSlide?.style?.background) return activeSlide.style.background;
-    if (songObject?.bgAsset) return songObject.bgAsset;
-    if (songObject?.style?.background) return songObject.style.background;
-    if (slidesList && slidesList.length > 0) {
-      const firstSlide = slidesList[0];
-      if (firstSlide?.bgAsset) return firstSlide.bgAsset;
-      if (firstSlide?.style && firstSlide?.style?.background) return firstSlide.style.background;
+  const getSlideBackground = (activeSlide, songObject = selectedSong) => {
+    if (activeSlide) {
+      if (activeSlide.bgAsset !== undefined && activeSlide.bgAsset !== null) {
+        const bg = String(activeSlide.bgAsset).trim();
+        if (bg.toLowerCase() === 'none' || bg === '') return '';
+        return bg;
+      }
+      if (activeSlide.style && activeSlide.style.background !== undefined && activeSlide.style.background !== null) {
+        const bgStyle = String(activeSlide.style.background).trim();
+        if (bgStyle.toLowerCase() === 'none' || bgStyle.toLowerCase() === 'transparent' || bgStyle === '') return '';
+        return bgStyle;
+      }
     }
-    return activeBgAsset || '';
+    if (songObject) {
+      const songBg = songObject.bg_asset || songObject.bgAsset || (songObject.style && songObject.style.background);
+      if (songBg && String(songBg).trim() !== '' && String(songBg).trim().toLowerCase() !== 'none') {
+        return String(songBg).trim();
+      }
+    }
+    return '';
   };
 
   // Sync state selection to trigger live preview text updates
@@ -1595,7 +1604,7 @@ function OperatorDashboard() {
       setLiveSlides(slidesList);
       setLiveActiveIndex(index);
 
-      const rawBg = getEffectiveSlideBg(activeSlide, slidesList, songObject);
+      const rawBg = getSlideBackground(activeSlide, songObject);
       const bgPath = formatBgPath(rawBg);
       
       // Determine if it is a Bible slide
@@ -1749,8 +1758,11 @@ function OperatorDashboard() {
         try {
           const activeLiveSlides = (liveSlides && liveSlides.length > 0) ? liveSlides : slides;
           const activeSlideObj = activeLiveSlides && activeLiveSlides[activeSlideIndex];
-          const effectiveBg = getEffectiveSlideBg(activeSlideObj, activeLiveSlides, liveSong || selectedSong);
-          const resolvedBgAsset = formatBgPath(activeBgAsset || effectiveBg || '');
+          const effectiveBg = getSlideBackground(activeSlideObj, liveSong || selectedSong);
+          const resolvedBgAsset = formatBgPath(effectiveBg);
+
+          const nextSlideObj = slides && slides[activeSlideIndex + 1];
+          const nextSlideBgResolved = nextSlideObj ? formatBgPath(getSlideBackground(nextSlideObj, liveSong || selectedSong)) : '';
 
           const payload = {
             songId: (liveSong && liveSong.id) ? liveSong.id : (selectedSong ? selectedSong.id : null),
@@ -1784,7 +1796,7 @@ function OperatorDashboard() {
             stageUpNextFontSize: stageUpNextFontSize,
             message: stageMessage,
             nextSlideText: slides && slides[activeSlideIndex + 1] ? slides[activeSlideIndex + 1].text : '',
-            nextSlideBg: slides && slides[activeSlideIndex + 1] ? formatBgPath(slides[activeSlideIndex + 1].bgAsset) : '',
+            nextSlideBg: nextSlideBgResolved,
             nextSlideLabel: slides && slides[activeSlideIndex + 1] ? (slides[activeSlideIndex + 1].label || `Slide ${activeSlideIndex + 2}`) : '',
             countdownTime: showOnStage ? countdownTimeStr : '',
             countdownActive: countdownActive,
@@ -1859,8 +1871,8 @@ function OperatorDashboard() {
             // Send regular slide with active live presentation background asset & transition
             const activeLiveSlides = (liveSlides && liveSlides.length > 0) ? liveSlides : slides;
             const activeSlideObj = activeLiveSlides && activeLiveSlides[activeSlideIndex];
-            const effectiveBg = getEffectiveSlideBg(activeSlideObj, activeLiveSlides, liveSong || selectedSong);
-            const finalBgAsset = formatBgPath(activeBgAsset || effectiveBg || '');
+            const effectiveBg = getSlideBackground(activeSlideObj, liveSong || selectedSong);
+            const finalBgAsset = formatBgPath(effectiveBg);
             const prevSlideObj = activeSlideIndex > 0 && activeLiveSlides && activeLiveSlides[activeSlideIndex - 1];
             const transitionToNext = ((prevSlideObj && prevSlideObj.transitionToNext === 'fade') || (activeSlideObj && activeSlideObj.transitionToNext === 'fade')) ? 'fade' : 'none';
 
@@ -1886,8 +1898,8 @@ function OperatorDashboard() {
           try {
             const activeLiveSlides = (liveSlides && liveSlides.length > 0) ? liveSlides : slides;
             const activeSlideObj = activeLiveSlides && activeLiveSlides[activeSlideIndex];
-            const effectiveBg = getEffectiveSlideBg(activeSlideObj, activeLiveSlides, liveSong || selectedSong);
-            const finalBgAsset = formatBgPath(activeBgAsset || effectiveBg || '');
+            const effectiveBg = getSlideBackground(activeSlideObj, liveSong || selectedSong);
+            const finalBgAsset = formatBgPath(effectiveBg);
             window.api.sendSlideUpdate({
               text: activeSlideText,
               label: activeSlideLabel || `Slide ${activeSlideIndex + 1}`,
@@ -1969,7 +1981,7 @@ function OperatorDashboard() {
 
   // Sync Live Output Preview Monitor background crossfade (Flick-Free Dual-Layer A/B Engine)
   useEffect(() => {
-    const rawBg = blackout ? '' : (activeBgAsset || (liveSong ? (liveSong.bg_asset || liveSong.bgAsset || '') : ''));
+    const rawBg = blackout ? '' : (activeBgAsset || '');
     
     if (!rawBg) {
       setPreviewLayerA({ src: '', type: 'none', opacity: 0, zIndex: 10 });
@@ -3970,7 +3982,7 @@ function OperatorDashboard() {
                                       handleSelectSlide(index, slides);
                                     }
                                   }}
-                                  className={`aspect-video rounded-lg relative overflow-hidden flex flex-col justify-between p-3 cursor-pointer group transition-all duration-200 border-2 ${(slide.bgAsset || (slide.style && slide.style.background)) ? 'bg-black' : 'bg-checkerboard'} ${getSlideCardBorderClass(slide.label, isActive, isSelected)}`}
+                                  className={`aspect-video rounded-lg relative overflow-hidden flex flex-col justify-between p-3 cursor-pointer group transition-all duration-200 border-2 ${getSlideBackground(slide, selectedSong) ? 'bg-black' : 'bg-checkerboard'} ${getSlideCardBorderClass(slide.label, isActive, isSelected)}`}
                                   style={{
                                     containerType: 'inline-size',
                                     width: `${slidePreviewSize * 2.6}px`,
@@ -3981,7 +3993,7 @@ function OperatorDashboard() {
                                 >
                                    {/* Effective Slide Background (Media Video / Image / Solid Color) */}
                                    {(() => {
-                                     const cardBg = slide.bgAsset || (slide.style && slide.style.background) || '';
+                                     const cardBg = getSlideBackground(slide, selectedSong);
                                      if (!cardBg) return null;
 
                                      if (isBgColor(cardBg)) {
@@ -5732,7 +5744,7 @@ function OperatorDashboard() {
             )}
           </h3>
           {(() => {
-            const curSlideBgMedia = formatBgPath(activeBgAsset || liveSong?.bg_asset || liveSong?.bgAsset || liveSong?.style?.background || '');
+            const curSlideBgMedia = formatBgPath(activeBgAsset || '');
 
             return (
               <div 
@@ -5953,7 +5965,7 @@ function OperatorDashboard() {
               const nextSlideIndex = activeSlideIndex + 1;
               const currentSlide = activeLiveSlides && activeLiveSlides[nextSlideIndex];
               const previewBg = currentSlide 
-                ? formatBgPath(currentSlide.bgAsset || currentSlide.style?.background || liveSong?.bg_asset || liveSong?.bgAsset || '')
+                ? formatBgPath(getSlideBackground(currentSlide, liveSong || selectedSong))
                 : '';
               
               return (

@@ -1337,13 +1337,13 @@ ipcMain.handle('system:apply-update', async (event, { filePath }) => {
       return staged;
     }
 
-    // Destroy all active windows to force clean exit without blocking prompts
+    // Force clean process exit immediately so update installer can overwrite files
     setTimeout(() => {
       if (operatorWindow && !operatorWindow.isDestroyed()) operatorWindow.destroy();
       if (projectorWindow && !projectorWindow.isDestroyed()) projectorWindow.destroy();
       if (stageWindow && !stageWindow.isDestroyed()) stageWindow.destroy();
-      app.quit();
-    }, 300);
+      app.exit(0);
+    }, 150);
 
     return { success: true };
   } catch (err) {

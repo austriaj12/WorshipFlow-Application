@@ -108,17 +108,23 @@ async function checkGitHubUpdate(currentVersion, repo = 'austriaj12/WorshipFlow-
           const latestVersion = rawTag.replace(/^v/i, '');
           const hasUpdate = isNewerVersion(latestVersion, currentVersion);
 
-          // Find Windows installer asset (.exe)
+          // Find Windows installer asset (.exe) - ignore elevate.exe helpers
           const assets = latestRelease.assets || [];
-          let exeAsset = assets.find(a => 
+          const exeAssets = assets.filter(a => 
             a.name.toLowerCase().endsWith('.exe') && 
             !a.name.toLowerCase().endsWith('.blockmap') &&
-            !a.name.toLowerCase().endsWith('.sig')
+            !a.name.toLowerCase().endsWith('.sig') &&
+            !a.name.toLowerCase().includes('elevate')
           );
 
-          // Prefer asset with 'setup' or 'worshipflow' in name if multiple exist
-          if (!exeAsset && assets.length > 0) {
-            exeAsset = assets.find(a => a.name.toLowerCase().endsWith('.exe'));
+          // Prefer asset containing 'setup' or 'worshipflow', or largest size
+          let exeAsset = exeAssets.find(a => 
+            a.name.toLowerCase().includes('setup') || a.name.toLowerCase().includes('worshipflow')
+          );
+
+          if (!exeAsset && exeAssets.length > 0) {
+            exeAssets.sort((a, b) => (b.size || 0) - (a.size || 0));
+            exeAsset = exeAssets[0];
           }
 
           resolve({
@@ -305,49 +311,44 @@ function verifyUpdatePackage(filePath, expectedSize = 0) {
 function stageAndLaunchUpdater(installerPath, targetExePath, pid) {
   try {
     const updateDir = path.dirname(installerPath);
-    const psScriptPath = path.join(updateDir, 'install_update.ps1');
+    const cmdScriptPath = path.join(updateDir, 'install_update.cmd');
 
-    // Create PowerShell script to wait for main process to close, run installer silently, and relaunch app
-    const psScriptContent = `
-param (
-    [int]$AppPid = ${pid || 0},
-    [string]$Installer = "${installerPath.replace(/"/g, '`"')}",
-    [string]$Target = "${targetExePath.replace(/"/g, '`"')}"
+    const exeName = path.basename(targetExePath) || 'WorshipFlow.exe';
+
+    // Create CMD script to wait for WorshipFlow process to close, run installer silently, and relaunch app
+    const cmdScriptContent = `@echo off
+title WorshipFlow Auto-Updater
+echo Updating WorshipFlow, please wait...
+
+:wait_loop
+tasklist /FI "IMAGENAME eq ${exeName}" 2>NUL | find /I /N "${exeName}">NUL
+if "%ERRORLEVEL%"=="0" (
+    timeout /t 1 /nobreak >nul
+    goto wait_loop
 )
 
-# Wait for main process to close
-if ($AppPid -gt 0) {
-    try {
-        Wait-Process -Id $AppPid -Timeout 15 -ErrorAction SilentlyContinue
-    } catch {}
-}
+timeout /t 2 /nobreak >nul
 
-Start-Sleep -Seconds 1
+if exist "${installerPath}" (
+    start /wait "" "${installerPath}" /S
+)
 
-# Execute installer silently (/S is standard for NSIS installers)
-if (Test-Path "$Installer") {
-    $proc = Start-Process -FilePath "$Installer" -ArgumentList "/S" -PassThru -Wait
-}
+timeout /t 2 /nobreak >nul
 
-Start-Sleep -Seconds 2
-
-# Relaunch updated application
-if (Test-Path "$Target") {
-    Start-Process -FilePath "$Target"
-}
+if exist "${targetExePath}" (
+    start "" "${targetExePath}"
+) else if exist "%LOCALAPPDATA%\\Programs\\worshipflow\\${exeName}" (
+    start "" "%LOCALAPPDATA%\\Programs\\worshipflow\\${exeName}"
+)
 `;
 
-    fs.writeFileSync(psScriptPath, psScriptContent.trim(), 'utf8');
+    fs.writeFileSync(cmdScriptPath, cmdScriptContent, 'utf8');
 
-    // Spawn PowerShell detached background process
-    const child = spawn('powershell.exe', [
-      '-ExecutionPolicy', 'Bypass',
-      '-NoProfile',
-      '-NonInteractive',
-      '-File', psScriptPath
-    ], {
+    // Spawn cmd.exe detached background process
+    const child = spawn('cmd.exe', ['/c', cmdScriptPath], {
       detached: true,
-      stdio: 'ignore'
+      stdio: 'ignore',
+      windowsHide: true
     });
 
     child.unref();
