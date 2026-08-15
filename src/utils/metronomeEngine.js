@@ -258,8 +258,8 @@ class MetronomeEngine {
     const cleanLabel = sectionLabel.toString().trim();
     if (!cleanLabel) return;
 
-    // Avoid duplicate cues within 1.5 seconds
-    if (this.lastTriggeredCue === cleanLabel && (now - this.lastCueTime) < 1500) {
+    // Fast 300ms throttle to prevent double-click stutter while allowing quick re-trigger
+    if (this.lastTriggeredCue === cleanLabel && (now - this.lastCueTime) < 300) {
       return;
     }
 
@@ -268,15 +268,16 @@ class MetronomeEngine {
 
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       try {
-        window.speechSynthesis.cancel(); // Clear any queued speech
+        window.speechSynthesis.cancel(); // Cancel any current speech for zero-latency instant response
+
         const speechText = cleanLabel.toUpperCase().startsWith('SLIDE') 
           ? cleanLabel 
           : cleanLabel.replace(/x\d+/gi, '').trim() || cleanLabel;
           
         const utterance = new SpeechSynthesisUtterance(speechText);
-        // Use natural 1.0 pitch and rate for organic, human-like voice quality
-        utterance.rate = 1.0;
-        utterance.pitch = 1.0;
+        // Snappy 1.25x rate for fast, punchy stage voice cues
+        utterance.rate = 1.25;
+        utterance.pitch = 1.05;
         utterance.volume = this.cueVolume !== undefined ? this.cueVolume : 0.8;
 
         const voice = this.getBestVoice(targetGender);
