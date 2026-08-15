@@ -80,7 +80,11 @@ contextBridge.exposeInMainWorld('api', {
 
   // File Presentation Open / Save Operations
   savePresentation: (playlistData, filePath, defaultFileName) => ipcRenderer.invoke('media:save-presentation', { playlistData, filePath, defaultFileName }),
-  openPresentation: () => ipcRenderer.invoke('media:open-presentation'),
+  openPresentation: (targetFilePath) => ipcRenderer.invoke('media:open-presentation', { filePath: targetFilePath }),
+  onOpenPresentationPath: (callback) => {
+    ipcRenderer.removeAllListeners('open-presentation-path');
+    ipcRenderer.on('open-presentation-path', (event, filePath) => callback(filePath));
+  },
   
   // PPTX and PDF imports
   importPowerPoint: () => ipcRenderer.invoke('media:import-powerpoint'),

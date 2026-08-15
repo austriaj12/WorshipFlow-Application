@@ -7,6 +7,16 @@ const updater = require('./utils/updater');
 const pkg = require(path.join(__dirname, '../package.json'));
 const appVersion = pkg.version;
 
+function getWflowFilePath(argv) {
+  if (!argv || !Array.isArray(argv)) return null;
+  for (const arg of argv) {
+    if (typeof arg === 'string' && (arg.toLowerCase().endsWith('.wflow') || arg.toLowerCase().endsWith('.json'))) {
+      if (fs.existsSync(arg)) return arg;
+    }
+  }
+  return null;
+}
+
 // Implement Single-Instance Application Constraint
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -19,6 +29,11 @@ if (!gotTheLock) {
       if (operatorWindow.isMinimized()) operatorWindow.restore();
       operatorWindow.focus();
       operatorWindow.show();
+
+      const targetFile = getWflowFilePath(commandLine);
+      if (targetFile) {
+        operatorWindow.webContents.send('open-presentation-path', targetFile);
+      }
     }
   });
 }
@@ -116,6 +131,11 @@ function createOperatorWindow() {
         if (operatorWindow && !operatorWindow.isDestroyed()) {
           operatorWindow.show();
           operatorWindow.maximize();
+
+          const initialFile = getWflowFilePath(process.argv);
+          if (initialFile) {
+            operatorWindow.webContents.send('open-presentation-path', initialFile);
+          }
         }
       }, 350);
     }, 5000);
@@ -602,6 +622,37 @@ ipcMain.handle('media:select-directory', async () => {
   return result.filePaths[0]; // Returns path like D:\Alab Worship\assets\backgrounds
 });
 
+// Helper to convert local image paths to embedded base64 Data URIs for portable .wflow files
+function embedLocalAsset(assetPath) {
+  if (!assetPath || typeof assetPath !== 'string') return assetPath;
+  if (assetPath.startsWith('data:')) return assetPath;
+  if (assetPath.startsWith('#')) return assetPath;
+
+  let cleanPath = assetPath.replace(/^worshipflow-asset:\/\/|^file:\/\/\//i, '');
+  cleanPath = cleanPath.replace(/^\/+/, '');
+  cleanPath = decodeURIComponent(cleanPath);
+
+  if (fs.existsSync(cleanPath)) {
+    try {
+      const ext = path.extname(cleanPath).toLowerCase();
+      let mime = 'image/png';
+      if (ext === '.jpg' || ext === '.jpeg') mime = 'image/jpeg';
+      else if (ext === '.gif') mime = 'image/gif';
+      else if (ext === '.webp') mime = 'image/webp';
+      else if (ext === '.svg') mime = 'image/svg+xml';
+      
+      const fileData = fs.readFileSync(cleanPath);
+      // Embed image files up to 15MB inline in .wflow file
+      if (fileData.length <= 15 * 1024 * 1024) {
+        return `data:${mime};base64,${fileData.toString('base64')}`;
+      }
+    } catch (e) {
+      console.warn('Failed to embed asset file:', cleanPath, e.message);
+    }
+  }
+  return assetPath;
+}
+
 ipcMain.handle('media:save-presentation', async (event, { playlistData, filePath, defaultFileName }) => {
   try {
     let targetPath = filePath;
@@ -621,17 +672,59 @@ ipcMain.handle('media:save-presentation', async (event, { playlistData, filePath
     }
 
     const songIds = [...new Set(
-      playlistData
-        .filter(item => item.type === 'song' && item.song_id !== null && item.song_id !== undefined)
+      (playlistData || [])
+        .filter(item => item.song_id !== null && item.song_id !== undefined)
         .map(item => item.song_id)
     )];
 
-    const songs = await db.getSongsByIds(songIds);
+    let songs = await db.getSongsByIds(songIds);
+    const fetchedIds = new Set(songs.map(s => s.id));
+
+    // Fallback: match by title for items where song_id might not be linked directly
+    for (const item of (playlistData || [])) {
+      if (item.name && item.type === 'song') {
+        const existing = songs.find(s => s.title?.toLowerCase().trim() === item.name.toLowerCase().trim());
+        if (!existing) {
+          try {
+            const match = await db.getSongByTitle(item.name);
+            if (match && !fetchedIds.has(match.id)) {
+              songs.push(match);
+              fetchedIds.add(match.id);
+            }
+          } catch (e) {}
+        }
+      }
+    }
+
+    // Bundle slide assets into portable Data URIs
+    const bundledSongs = songs.map(s => {
+      let content = s.content_json;
+      try {
+        const slides = typeof content === 'string' ? JSON.parse(content) : (content || []);
+        const updatedSlides = slides.map(slide => {
+          if (slide.bgAsset) {
+            slide.bgAsset = embedLocalAsset(slide.bgAsset);
+          }
+          if (slide.style && slide.style.background) {
+            slide.style.background = embedLocalAsset(slide.style.background);
+          }
+          return slide;
+        });
+        content = JSON.stringify(updatedSlides);
+      } catch (e) {}
+
+      return {
+        ...s,
+        content_json: content,
+        bg_asset: embedLocalAsset(s.bg_asset)
+      };
+    });
 
     const payload = {
       version: 2,
+      savedAt: new Date().toISOString(),
       playlist: playlistData,
-      songs: songs
+      songs: bundledSongs
     };
     
     await fs.promises.writeFile(targetPath, JSON.stringify(payload, null, 2), 'utf8');
@@ -653,23 +746,26 @@ ipcMain.handle('app:create-song', async (event, { title, author, key, tempo, con
   }
 });
 
-ipcMain.handle('media:open-presentation', async () => {
+ipcMain.handle('media:open-presentation', async (event, { filePath } = {}) => {
   try {
-    const result = await dialog.showOpenDialog({
-      title: 'Open WorshipFlow Presentation',
-      properties: ['openFile'],
-      filters: [
-        { name: 'WorshipFlow Presentation', extensions: ['wflow', 'json'] }
-      ]
-    });
-    if (result.canceled || result.filePaths.length === 0) {
-      return { canceled: true };
+    let targetPath = filePath;
+    if (!targetPath) {
+      const result = await dialog.showOpenDialog({
+        title: 'Open WorshipFlow Presentation',
+        properties: ['openFile'],
+        filters: [
+          { name: 'WorshipFlow Presentation', extensions: ['wflow', 'json'] }
+        ]
+      });
+      if (result.canceled || result.filePaths.length === 0) {
+        return { canceled: true };
+      }
+      targetPath = result.filePaths[0];
     }
     
-    const filePath = result.filePaths[0];
-    const content = await fs.promises.readFile(filePath, 'utf8');
+    const content = await fs.promises.readFile(targetPath, 'utf8');
     const playlistData = JSON.parse(content);
-    return { playlistData, filePath, success: true };
+    return { playlistData, filePath: targetPath, success: true };
   } catch (err) {
     console.error('Failed to open presentation file:', err);
     return { success: false, error: err.message };

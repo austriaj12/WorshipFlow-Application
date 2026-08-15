@@ -495,7 +495,7 @@ function OperatorDashboard() {
   const [darkPreset, setDarkPreset] = useState('Default Dark');
 
   // Auto-update State variables
-  const [appVersion, setAppVersion] = useState('2.0.3');
+  const [appVersion, setAppVersion] = useState('2.0.4');
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [updateInfo, setUpdateInfo] = useState(null);
   const [updateStatus, setUpdateStatus] = useState('idle'); // 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error'
@@ -1077,17 +1077,32 @@ function OperatorDashboard() {
     setActiveHeaderTab('presentation');
   };
 
-  const handleOpenPresentation = async () => {
+  const handleOpenPresentation = async (targetFilePath = null) => {
     if (!window.api || !window.api.openPresentation) return;
     try {
-      const res = await window.api.openPresentation();
+      const res = await window.api.openPresentation(targetFilePath);
       if (res && res.success && res.playlistData) {
         await importPlaylist(res.playlistData);
+        await fetchSongs();
+        await fetchPlaylist();
+
         setPresentationFilePath(res.filePath);
         setSearchQuery('');
         setActiveHeaderTab('presentation');
-        if (res.playlistData.length > 0 && res.playlistData[0].song_id) {
-          selectSong(res.playlistData[0].song_id);
+
+        const rawPayload = res.playlistData;
+        const playlistItems = Array.isArray(rawPayload) ? rawPayload : (rawPayload.playlist || []);
+
+        const firstSongItem = playlistItems.find(item => item.type === 'song');
+        if (firstSongItem) {
+          const currentSongs = useLibraryStore.getState().songs || [];
+          const matchedSong = currentSongs.find(s => 
+            s.id === firstSongItem.song_id || 
+            (s.title && firstSongItem.name && s.title.toLowerCase().trim() === firstSongItem.name.toLowerCase().trim())
+          );
+          if (matchedSong) {
+            selectSong(matchedSong.id);
+          }
         }
       } else if (res && res.error) {
         alert("Failed to load presentation: " + res.error);
@@ -1096,6 +1111,16 @@ function OperatorDashboard() {
       alert("Error loading presentation: " + err.message);
     }
   };
+
+  useEffect(() => {
+    if (window.api && window.api.onOpenPresentationPath) {
+      window.api.onOpenPresentationPath((filePath) => {
+        if (filePath) {
+          handleOpenPresentation(filePath);
+        }
+      });
+    }
+  }, []);
 
   const handleImportPowerPoint = async () => {
     if (!window.api || !window.api.importPowerPoint) return;

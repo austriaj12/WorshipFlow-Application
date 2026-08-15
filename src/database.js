@@ -366,45 +366,66 @@ function importPlaylist(data) {
     db.serialize(() => {
       db.run('BEGIN TRANSACTION');
 
-      // Helper to process songs and insert them if missing
+      // Helper to process songs and insert/update them
       const processSongs = async () => {
         const idMapping = {};
+        const mapId = (oldId, newId) => {
+          if (oldId !== undefined && oldId !== null) {
+            idMapping[oldId] = newId;
+            idMapping[String(oldId)] = newId;
+            const num = Number(oldId);
+            if (!isNaN(num)) idMapping[num] = newId;
+          }
+        };
+
         for (const song of songs) {
           if (!song || !song.title) continue;
+          const contentJson = typeof song.content_json === 'string' ? song.content_json : JSON.stringify(song.content_json || song.contentJson || []);
+          const chordsText = song.chords_text || song.chordsText || '';
+          const bpmVal = song.bpm || parseInt(song.tempo, 10) || 120;
+          const tsVal = song.time_signature || song.timeSignature || '4/4';
+          const clickVal = (song.enable_click || song.enableClick) ? 1 : 0;
+          const cuesVal = (song.enable_voice_cues || song.enableVoiceCues) ? 1 : 0;
+          const genderVal = song.voice_gender || song.voiceGender || 'female';
+          const bgAssetVal = song.bg_asset || song.bgAsset || '';
+
           await new Promise((resSong, rejSong) => {
             db.get('SELECT id FROM songs WHERE title = ?', [song.title], (err, row) => {
               if (err) return rejSong(err);
               if (row) {
-                idMapping[song.id] = row.id;
+                mapId(song.id, row.id);
                 db.run(
                   `UPDATE songs SET 
-                    author = COALESCE(NULLIF(?, ''), author),
-                    [key] = COALESCE(NULLIF(?, ''), [key]),
-                    tempo = COALESCE(NULLIF(?, ''), tempo),
-                    content_json = COALESCE(NULLIF(?, ''), content_json),
-                    chords_text = COALESCE(NULLIF(?, ''), chords_text),
-                    bpm = COALESCE(?, bpm),
-                    time_signature = COALESCE(NULLIF(?, ''), time_signature),
-                    enable_click = COALESCE(?, enable_click),
-                    enable_voice_cues = COALESCE(?, enable_voice_cues),
-                    voice_gender = COALESCE(NULLIF(?, ''), voice_gender),
-                    bg_asset = COALESCE(NULLIF(?, ''), bg_asset)
+                    author = ?,
+                    [key] = ?,
+                    tempo = ?,
+                    content_json = ?,
+                    chords_text = ?,
+                    bpm = ?,
+                    time_signature = ?,
+                    enable_click = ?,
+                    enable_voice_cues = ?,
+                    voice_gender = ?,
+                    bg_asset = ?
                    WHERE id = ?`,
                   [
-                    song.author || '',
+                    song.author || 'WorshipFlow',
                     song.key || '',
-                    song.tempo || '',
-                    song.content_json || '[]',
-                    song.chords_text || song.chordsText || '',
-                    song.bpm || parseInt(song.tempo) || 120,
-                    song.time_signature || song.timeSignature || '4/4',
-                    song.enable_click ? 1 : (song.enableClick ? 1 : 0),
-                    song.enable_voice_cues ? 1 : (song.enableVoiceCues ? 1 : 0),
-                    song.voice_gender || song.voiceGender || 'female',
-                    song.bg_asset || song.bgAsset || '',
+                    song.tempo || String(bpmVal),
+                    contentJson,
+                    chordsText,
+                    bpmVal,
+                    tsVal,
+                    clickVal,
+                    cuesVal,
+                    genderVal,
+                    bgAssetVal,
                     row.id
                   ],
-                  () => resSong()
+                  (updateErr) => {
+                    if (updateErr) return rejSong(updateErr);
+                    resSong();
+                  }
                 );
               } else {
                 db.run(
@@ -412,21 +433,21 @@ function importPlaylist(data) {
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                   [
                     song.title,
-                    song.author || '',
+                    song.author || 'WorshipFlow',
                     song.key || '',
-                    song.tempo || '',
-                    song.content_json || '[]',
-                    song.chords_text || song.chordsText || '',
-                    song.bpm || parseInt(song.tempo) || 120,
-                    song.time_signature || song.timeSignature || '4/4',
-                    song.enable_click ? 1 : (song.enableClick ? 1 : 0),
-                    song.enable_voice_cues ? 1 : (song.enableVoiceCues ? 1 : 0),
-                    song.voice_gender || song.voiceGender || 'female',
-                    song.bg_asset || song.bgAsset || ''
+                    song.tempo || String(bpmVal),
+                    contentJson,
+                    chordsText,
+                    bpmVal,
+                    tsVal,
+                    clickVal,
+                    cuesVal,
+                    genderVal,
+                    bgAssetVal
                   ],
-                  function (err) {
-                    if (err) return rejSong(err);
-                    idMapping[song.id] = this.lastID;
+                  function (insertErr) {
+                    if (insertErr) return rejSong(insertErr);
+                    mapId(song.id, this.lastID);
                     resSong();
                   }
                 );
@@ -439,12 +460,16 @@ function importPlaylist(data) {
 
       processSongs()
         .then((idMapping) => {
-          db.all('SELECT id FROM songs', (err, rows) => {
+          db.all('SELECT id, title FROM songs', (err, rows) => {
             if (err) {
               db.run('ROLLBACK');
               return reject(err);
             }
             const validSongIds = new Set(rows.map(row => row.id));
+            const titleToIdMap = {};
+            rows.forEach(r => {
+              titleToIdMap[r.title.toLowerCase().trim()] = r.id;
+            });
 
             db.run('DELETE FROM playlist', (err) => {
               if (err) {
@@ -454,13 +479,18 @@ function importPlaylist(data) {
               
               const stmt = db.prepare('INSERT INTO playlist (name, type, song_id, playlist_order) VALUES (?, ?, ?, ?)');
               items.forEach((item, index) => {
-                let songId = item.song_id || (item.song_id === 0 ? 0 : null);
+                let songId = item.song_id !== undefined && item.song_id !== null ? item.song_id : null;
+                
                 if (songId !== null && idMapping[songId] !== undefined) {
                   songId = idMapping[songId];
+                } else if (item.name && titleToIdMap[item.name.toLowerCase().trim()] !== undefined) {
+                  songId = titleToIdMap[item.name.toLowerCase().trim()];
                 }
-                if (songId !== null && !validSongIds.has(songId)) {
+
+                if (songId !== null && !validSongIds.has(Number(songId))) {
                   songId = null;
                 }
+
                 stmt.run([item.name, item.type, songId, index + 1]);
               });
               
