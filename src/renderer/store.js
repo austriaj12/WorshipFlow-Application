@@ -214,8 +214,8 @@ export const useLiveOutputStore = create((set, get) => ({
       ...(liveSong ? { activeLiveSong: liveSong } : {})
     });
 
-    if (window.api && window.api.renderSlide) {
-      window.api.renderSlide(payload);
+    if (window.api && window.api.sendSlideUpdate) {
+      window.api.sendSlideUpdate(payload);
     }
     if (typeof BroadcastChannel !== 'undefined') {
       try {

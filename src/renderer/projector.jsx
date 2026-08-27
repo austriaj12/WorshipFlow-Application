@@ -160,30 +160,54 @@ function ProjectorScreen() {
 
   const parseSpeedToMs = (speedStr) => {
     if (!speedStr) return 600;
-    const match = speedStr.match(/(\d+(\.\d+)?)/);
-    return match ? parseFloat(match[1]) * 1000 : 600;
+    if (typeof speedStr === 'number') return Math.max(100, Math.min(5000, speedStr * 1000));
+    const match = String(speedStr).match(/(\d+(\.\d+)?)/);
+    if (!match) return 600;
+    const num = parseFloat(match[1]);
+    const ms = num < 10 ? num * 1000 : num;
+    return Math.max(100, Math.min(5000, ms));
   };
 
   const textAnimTimeoutRef = React.useRef(null);
+  const textAnimTimer2Ref = React.useRef(null);
+  const [isEntering, setIsEntering] = useState(false);
+  const targetSlideRef = React.useRef(null);
 
   const handleIncomingSlide = (slideData) => {
     if (!slideData) return;
 
-    const current = slideRef.current;
-    const isNewSlide = current.text !== slideData.text || 
-                       current.label !== slideData.label || 
-                       current.bgAsset !== slideData.bgAsset;
+    const target = targetSlideRef.current;
 
-    if (!isNewSlide) {
-      setSlide(slideData);
+    // Deduplicate: check if this incoming payload is identical to the target slide currently being shown or animated to
+    const isDuplicate = target &&
+      target.text === slideData.text &&
+      target.label === slideData.label &&
+      target.bgAsset === slideData.bgAsset &&
+      target.style?.animation === slideData.style?.animation &&
+      target.style?.speed === slideData.style?.speed &&
+      target.blackout === slideData.blackout &&
+      target.clearLyrics === slideData.clearLyrics &&
+      target.isBible === slideData.isBible;
+
+    if (isDuplicate) {
+      // Ignore duplicate events delivered simultaneously via IPC and BroadcastChannel
       return;
     }
 
+    const prevTarget = targetSlideRef.current;
+    targetSlideRef.current = { ...slideData };
+
+    // Check if text or label content actually changed compared to previous slide target
+    const textChanged = !prevTarget || prevTarget.text !== slideData.text || prevTarget.label !== slideData.label;
     const anim = slideData.style?.animation || 'Fade Out';
-    if (anim === 'Instant' || anim === 'None') {
+
+    // If text did not change (e.g. only bgAsset, style, or blackout changed), or animation is Instant/None:
+    if (!textChanged || anim === 'Instant' || anim === 'None') {
       if (textAnimTimeoutRef.current) clearTimeout(textAnimTimeoutRef.current);
+      if (textAnimTimer2Ref.current) clearTimeout(textAnimTimer2Ref.current);
       setSlide(slideData);
       setIsFading(false);
+      setIsEntering(false);
       return;
     }
 
@@ -191,18 +215,27 @@ function ProjectorScreen() {
     const halfMs = Math.max(40, totalMs / 2);
 
     if (textAnimTimeoutRef.current) clearTimeout(textAnimTimeoutRef.current);
+    if (textAnimTimer2Ref.current) clearTimeout(textAnimTimer2Ref.current);
 
-    // Phase 1: Current text slide plays exit transition
+    // Phase 1: Exit current slide text (isFading = true)
     setIsFading(true);
+    setIsEntering(false);
 
-    // Phase 2: After exit transition finishes (opacity is 0), switch to new slide text and play entrance transition
+    // Phase 2: After exit duration (halfMs), swap text to new slide text at opacity 0 / initial position (isEntering = true)
     textAnimTimeoutRef.current = setTimeout(() => {
       setSlide(slideData);
-      setIsFading(false);
+      setIsEntering(true);
+
+      // Phase 3: Trigger entrance animation to opacity 1 / final position (isFading = false, isEntering = false)
+      textAnimTimer2Ref.current = setTimeout(() => {
+        setIsFading(false);
+        setIsEntering(false);
+      }, 40);
     }, halfMs);
   };
 
   useEffect(() => {
+
     // 1. Electron IPC Listener
     if (window.api && window.api.onSlideRender) {
       window.api.onSlideRender(handleIncomingSlide);
@@ -350,27 +383,27 @@ function ProjectorScreen() {
   };
 
   const getAnimationStyles = () => {
-    const anim = slide.style?.animation || 'Zoom In/Out';
+    const anim = slide.style?.animation || 'Fade Out';
     const slideDuration = (anim === 'Instant' || anim === 'None') ? '0ms' : getTransitionDuration();
     const opacityDuration = isClearLyricsToggling ? '150ms' : slideDuration;
     
+    const isHiddenState = isFading || isEntering;
+
     let transformVal = 'translate3d(0,0,0)';
     if (anim === 'Zoom In/Out') {
-      transformVal = isFading ? 'scale3d(0.96, 0.96, 1)' : 'scale3d(1, 1, 1)';
+      transformVal = isHiddenState ? 'scale3d(0.92, 0.92, 1)' : 'scale3d(1, 1, 1)';
     } else if (anim === 'Slide Left') {
-      transformVal = isFading ? 'translate3d(-40px, 0, 0)' : 'translate3d(0, 0, 0)';
+      transformVal = isHiddenState ? 'translate3d(-50px, 0, 0)' : 'translate3d(0, 0, 0)';
     } else if (anim === 'Slide Right') {
-      transformVal = isFading ? 'translate3d(40px, 0, 0)' : 'translate3d(0, 0, 0)';
+      transformVal = isHiddenState ? 'translate3d(50px, 0, 0)' : 'translate3d(0, 0, 0)';
     } else if (anim === 'Slide Up') {
-      transformVal = isFading ? 'translate3d(0, 40px, 0)' : 'translate3d(0, 0, 0)';
+      transformVal = isHiddenState ? 'translate3d(0, 40px, 0)' : 'translate3d(0, 0, 0)';
     }
 
     let targetOpacity = 1;
     if (slide.clearLyrics) {
       targetOpacity = 0;
-    } else if (anim === 'Fade Out') {
-      targetOpacity = isFading ? 0 : 1;
-    } else if (isFading) {
+    } else if (isHiddenState) {
       targetOpacity = 0;
     }
 
@@ -379,8 +412,8 @@ function ProjectorScreen() {
       opacity: targetOpacity,
       transform: transformVal,
       willChange: 'transform, opacity',
-      width: '96%',
-      maxWidth: '1850px',
+      width: '100%',
+      maxWidth: '1920px',
       display: 'flex',
       flexDirection: 'column',
       alignItems: slide.style?.align === 'left' ? 'flex-start' : slide.style?.align === 'right' ? 'flex-end' : 'center'
@@ -480,7 +513,7 @@ function ProjectorScreen() {
             zIndex: 30,
             display: 'flex',
             flexDirection: 'column',
-            padding: '4rem',
+            padding: '2rem 3rem',
             boxSizing: 'border-box',
             justifyContent: slide.style?.vertical === 'top' ? 'flex-start' : slide.style?.vertical === 'bottom' ? 'flex-end' : 'center',
             alignItems: slide.style?.align === 'left' ? 'flex-start' : slide.style?.align === 'right' ? 'flex-end' : 'center'
@@ -510,7 +543,7 @@ function ProjectorScreen() {
               {slide.text ? (
                 <p 
                   style={getLyricsContainerStyle()}
-                  className="projector-text-shadow"
+                  className="whitespace-pre-line uppercase projector-text-shadow"
                 >
                   {slide.text}
                 </p>

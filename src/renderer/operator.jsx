@@ -515,8 +515,11 @@ function OperatorDashboard() {
 
   // Live Output preview animation states
   const [livePreviewFading, setLivePreviewFading] = useState(false);
+  const [livePreviewEntering, setLivePreviewEntering] = useState(false);
   const [previewDisplayedText, setPreviewDisplayedText] = useState('');
   const prevLiveTextRef = React.useRef('');
+  const previewTextAnimTimeoutRef = React.useRef(null);
+  const previewTextAnimTimer2Ref = React.useRef(null);
 
   const [previewLayerA, setPreviewLayerA] = useState({ src: '', type: 'none', opacity: 1, zIndex: 20 });
   const [previewLayerB, setPreviewLayerB] = useState({ src: '', type: 'none', opacity: 0, zIndex: 10 });
@@ -607,37 +610,6 @@ function OperatorDashboard() {
     }
   };
 
-  // Animate the live output preview in the operator panel whenever the slide text changes (2-Phase Exit & Entrance Sequence)
-  useEffect(() => {
-    if (activeSlideText === prevLiveTextRef.current) return;
-
-    const anim = activeSlideStyle?.animation || 'Fade Out';
-    const isInstant = anim === 'None' || anim === 'Instant';
-
-    if (isInstant || !activeSlideText) {
-      prevLiveTextRef.current = activeSlideText;
-      setPreviewDisplayedText(activeSlideText || '');
-      setLivePreviewFading(false);
-      return;
-    }
-
-    const totalMs = activeSlideStyle?.speed
-      ? parseFloat(activeSlideStyle.speed.toString().match(/\d+(\.\d+)?/)?.[0] || 0.6) * 1000
-      : 600;
-    const halfMs = Math.max(40, totalMs / 2);
-
-    // Phase 1: Current text slide plays exit transition
-    setLivePreviewFading(true);
-
-    // Phase 2: After exit transition finishes (opacity 0), switch to new slide text and play entrance transition
-    const t = setTimeout(() => {
-      prevLiveTextRef.current = activeSlideText;
-      setPreviewDisplayedText(activeSlideText || '');
-      setLivePreviewFading(false);
-    }, halfMs);
-
-    return () => clearTimeout(t);
-  }, [activeSlideText, clearLyrics, blackout]);
 
   // One-time check to migrate old storage keys to new premium theme defaults
   useEffect(() => {
@@ -993,8 +965,8 @@ function OperatorDashboard() {
         const bgPath = formatBgPath(rawBg);
         const effectiveStyle = {
           ...(activeSlide.style || {}),
-          animation: songAnimation || activeSlide.style?.animation || 'Fade Out',
-          speed: songSpeed || activeSlide.style?.speed || '0.6'
+          animation: activeSlide.style?.animation || songAnimation || 'Fade Out',
+          speed: activeSlide.style?.speed || songSpeed || '0.6'
         };
         const isImportMedia = selectedSong.author === 'PowerPoint Import' || selectedSong.author === 'PDF Import' || selectedSong.author === 'Media';
         setLiveSlide(
@@ -1640,8 +1612,8 @@ function OperatorDashboard() {
 
       const effectiveStyle = {
         ...(activeSlide.style || {}),
-        animation: songAnimation || activeSlide.style?.animation || 'Fade Out',
-        speed: songSpeed || activeSlide.style?.speed || '0.6'
+        animation: activeSlide.style?.animation || songAnimation || 'Fade Out',
+        speed: activeSlide.style?.speed || songSpeed || '0.6'
       };
 
       const isImportOrMedia = (songObject && (songObject.author === 'PowerPoint Import' || songObject.author === 'PDF Import' || songObject.author === 'Media')) || isBible;
@@ -1987,6 +1959,19 @@ function OperatorDashboard() {
   // Reset selected slide index to 0 or restore saved index when song changes (no auto go-live)
   useEffect(() => {
     const slidesArr = getSlidesArray();
+    if (selectedSong) {
+      let songStyle = null;
+      try {
+        if (typeof selectedSong.style === 'string') songStyle = JSON.parse(selectedSong.style);
+        else if (typeof selectedSong.style === 'object') songStyle = selectedSong.style;
+      } catch (e) {}
+      const firstSlide = slidesArr && slidesArr[0];
+      const anim = firstSlide?.style?.animation || songStyle?.animation;
+      const spd = firstSlide?.style?.speed || songStyle?.speed;
+      if (anim) setSongAnimation(anim);
+      if (spd) setSongSpeed(String(spd));
+    }
+
     if (restoreSlideIndex !== null) {
       const idx = Math.min(restoreSlideIndex, slidesArr.length - 1);
       setActiveSlideIndex(idx);
@@ -2052,6 +2037,58 @@ function OperatorDashboard() {
       }
     }
   }, [activeBgAsset, blackout, activeSlideIndex]);
+
+  // Sync Live Output Preview Monitor text animation transitions (3-Phase Motion Engine)
+  useEffect(() => {
+    if (!activeSlideText && !activeSlideLabel) {
+      setPreviewDisplayedText('');
+      setLivePreviewFading(false);
+      setLivePreviewEntering(false);
+      return;
+    }
+
+    const anim = activeSlideStyle?.animation || 'Fade Out';
+    if (anim === 'Instant' || anim === 'None') {
+      if (previewTextAnimTimeoutRef.current) clearTimeout(previewTextAnimTimeoutRef.current);
+      if (previewTextAnimTimer2Ref.current) clearTimeout(previewTextAnimTimer2Ref.current);
+      setPreviewDisplayedText(activeSlideText);
+      setLivePreviewFading(false);
+      setLivePreviewEntering(false);
+      return;
+    }
+
+    const speedStr = activeSlideStyle?.speed;
+    let totalMs = 600;
+    if (typeof speedStr === 'number') {
+      totalMs = Math.max(100, Math.min(5000, speedStr * 1000));
+    } else if (speedStr) {
+      const match = String(speedStr).match(/(\d+(\.\d+)?)/);
+      if (match) {
+        const num = parseFloat(match[1]);
+        totalMs = Math.max(100, Math.min(5000, num < 10 ? num * 1000 : num));
+      }
+    }
+    const halfMs = Math.max(40, totalMs / 2);
+
+    if (previewTextAnimTimeoutRef.current) clearTimeout(previewTextAnimTimeoutRef.current);
+    if (previewTextAnimTimer2Ref.current) clearTimeout(previewTextAnimTimer2Ref.current);
+
+    // Phase 1: Exit current text (fading = true)
+    setLivePreviewFading(true);
+    setLivePreviewEntering(false);
+
+    // Phase 2: Swap text at opacity 0 (entering = true)
+    previewTextAnimTimeoutRef.current = setTimeout(() => {
+      setPreviewDisplayedText(activeSlideText);
+      setLivePreviewEntering(true);
+
+      // Phase 3: Trigger entrance transition (fading = false, entering = false)
+      previewTextAnimTimer2Ref.current = setTimeout(() => {
+        setLivePreviewFading(false);
+        setLivePreviewEntering(false);
+      }, 35);
+    }, halfMs);
+  }, [activeSlideText, activeSlideLabel, activeSlideStyle]);
 
   // Metronome Click Track & Voice Cue Auto-Start/Stop Sync Effect
   useEffect(() => {
@@ -2333,54 +2370,81 @@ function OperatorDashboard() {
   // React ref to hold latest states for the keydown event listener to prevent stale closures
   const keydownStatesRef = React.useRef({
     activeSlideIndex,
+    liveActiveIndex,
     slides,
+    liveSlides,
     bibleLiveSlides,
     liveSong,
-    selectedSong
+    selectedSong,
+    songAnimation,
+    songSpeed
   });
 
   useEffect(() => {
     keydownStatesRef.current = {
       activeSlideIndex,
+      liveActiveIndex,
       slides,
+      liveSlides,
       bibleLiveSlides,
       liveSong,
-      selectedSong
+      selectedSong,
+      songAnimation,
+      songSpeed
     };
-  }, [activeSlideIndex, slides, bibleLiveSlides, liveSong, selectedSong]);
+  }, [activeSlideIndex, liveActiveIndex, slides, liveSlides, bibleLiveSlides, liveSong, selectedSong, songAnimation, songSpeed]);
 
-  // Keyboard arrow keys slide navigation controller
+  // Keyboard arrow keys, Enter, Spacebar, and PageUp/PageDown slide navigation controller
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Ignore key events if the user is typing in form inputs or editing textareas
+      const activeEl = document.activeElement;
+      
+      // If user is actively typing in a form input or textarea:
       if (
-        document.activeElement &&
-        (document.activeElement.tagName === 'INPUT' ||
-         document.activeElement.tagName === 'TEXTAREA' ||
-         document.activeElement.isContentEditable)
+        activeEl &&
+        (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)
       ) {
-        return;
+        if (e.key === 'Enter' || e.key === 'Escape') {
+          activeEl.blur();
+          if (e.key === 'Escape') return;
+        } else {
+          return;
+        }
+      }
+
+      // If active element is a select dropdown or button, blur it so arrow keys and spacebar navigate slides
+      if (activeEl && (activeEl.tagName === 'SELECT' || activeEl.tagName === 'BUTTON')) {
+        if (['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Enter', ' ', 'PageDown', 'PageUp'].includes(e.key)) {
+          activeEl.blur();
+        }
       }
 
       const {
         activeSlideIndex: curIdx,
+        liveActiveIndex: curLiveIdx,
         slides: curSlides,
+        liveSlides: curLiveSlides,
         bibleLiveSlides: curBibleSlides,
         liveSong: curLiveSong,
         selectedSong: curSelectedSong
       } = keydownStatesRef.current;
 
-      const targetSlides = curBibleSlides || curSlides;
+      const targetSlides = curBibleSlides || (curLiveSlides && curLiveSlides.length > 0 ? curLiveSlides : curSlides);
       if (!targetSlides || targetSlides.length === 0) return;
 
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'Enter') {
+      const currentIndex = (curBibleSlides ? curIdx : (curLiveIdx !== undefined && curLiveIdx !== null ? curLiveIdx : curIdx)) || 0;
+
+      const isNext = e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ' || e.key === 'PageDown';
+      const isPrev = e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp';
+
+      if (isNext) {
         e.preventDefault();
         
         // If we are viewing a different song in the dashboard than the live song,
         // and there is no active live Bible override,
         // pressing Next should trigger live output for the selected song's first slide!
         if (!curBibleSlides && curSelectedSong && (!curLiveSong || curLiveSong.id !== curSelectedSong.id)) {
-          const newSlides = curSelectedSong.content_json ? JSON.parse(curSelectedSong.content_json) : [];
+          const newSlides = (curSlides && curSlides.length > 0) ? curSlides : (curSelectedSong.content_json ? JSON.parse(curSelectedSong.content_json) : []);
           if (newSlides.length > 0) {
             handleSelectSlide(0, newSlides, curSelectedSong);
             setSelectedSlideIndexes([0]);
@@ -2388,15 +2452,15 @@ function OperatorDashboard() {
           return;
         }
 
-        const nextIdx = Math.min(targetSlides.length - 1, curIdx + 1);
-        if (nextIdx !== curIdx) {
+        const nextIdx = Math.min(targetSlides.length - 1, currentIndex + 1);
+        if (nextIdx !== currentIndex) {
           setSelectedSlideIndexes([nextIdx]);
           handleSelectSlide(nextIdx, targetSlides, curBibleSlides ? null : curLiveSong || curSelectedSong);
         }
-      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      } else if (isPrev) {
         e.preventDefault();
-        const prevIdx = Math.max(0, curIdx - 1);
-        if (prevIdx !== curIdx) {
+        const prevIdx = Math.max(0, currentIndex - 1);
+        if (prevIdx !== currentIndex) {
           setSelectedSlideIndexes([prevIdx]);
           handleSelectSlide(prevIdx, targetSlides, curBibleSlides ? null : curLiveSong || curSelectedSong);
         }
@@ -2430,7 +2494,7 @@ function OperatorDashboard() {
       fontSize: `${cqwFontSize}cqw`,
       fontWeight: weightVal,
       lineHeight: activeSlideStyle.lineHeight || 1.4,
-      letterSpacing: `${cqwLetterSpacing}cqw`,
+      letterSpacing: `${activeSlideStyle.letterSpacing || 0}px`,
       color: colorVal,
       textAlign: activeSlideStyle.align || 'center',
       whiteSpace: 'pre-wrap',
@@ -2491,26 +2555,37 @@ function OperatorDashboard() {
     const overlayStyle = getLivePreviewOverlayStyle();
 
     const anim = activeSlideStyle?.animation || 'Fade Out';
-    const speedMs = activeSlideStyle?.speed
-      ? parseFloat(activeSlideStyle.speed.match(/\d+(\.\d+)?/)?.[0] || 0.3) * 500
-      : 300;
-    const dur = speedMs + 'ms';
+    const speedStr = activeSlideStyle?.speed;
+    let totalMs = 600;
+    if (typeof speedStr === 'number') {
+      totalMs = Math.max(100, Math.min(5000, speedStr * 1000));
+    } else if (speedStr) {
+      const match = String(speedStr).match(/(\d+(\.\d+)?)/);
+      if (match) {
+        const num = parseFloat(match[1]);
+        totalMs = Math.max(100, Math.min(5000, num < 10 ? num * 1000 : num));
+      }
+    }
+    const halfMs = Math.max(40, totalMs / 2);
+    const dur = (anim === 'Instant' || anim === 'None') ? '0ms' : `${halfMs}ms`;
+
+    const isHiddenState = livePreviewFading || livePreviewEntering;
 
     let transform = 'none';
     if (anim === 'Zoom In/Out') {
-      transform = livePreviewFading ? 'scale(0.90)' : 'scale(1)';
+      transform = isHiddenState ? 'scale(0.92)' : 'scale(1)';
     } else if (anim === 'Slide Left') {
-      transform = livePreviewFading ? 'translateX(-18px)' : 'translateX(0)';
+      transform = isHiddenState ? 'translateX(-18px)' : 'translateX(0)';
     } else if (anim === 'Slide Right') {
-      transform = livePreviewFading ? 'translateX(18px)' : 'translateX(0)';
+      transform = isHiddenState ? 'translateX(18px)' : 'translateX(0)';
     } else if (anim === 'Slide Up') {
-      transform = livePreviewFading ? 'translateY(18px)' : 'translateY(0)';
+      transform = isHiddenState ? 'translateY(18px)' : 'translateY(0)';
     }
 
     return {
       ...overlayStyle,
-      transition: anim === 'None' ? 'none' : `opacity ${dur} ease-in-out, transform ${dur} ease-in-out`,
-      opacity: (livePreviewFading || clearLyrics || blackout) ? 0 : 1,
+      transition: (anim === 'Instant' || anim === 'None') ? 'none' : `opacity ${dur} ease-in-out, transform ${dur} ease-in-out`,
+      opacity: (isHiddenState || clearLyrics || blackout) ? 0 : 1,
       transform,
     };
   })();
@@ -5773,9 +5848,9 @@ function OperatorDashboard() {
 
             return (
               <div 
-                className={`w-full bg-black rounded-lg border ${(showOnProjector || showTimerOnProjector) ? 'border-red-500/60' : 'border-[var(--border-app)]'} relative overflow-hidden flex flex-col p-3 transition-all duration-300 ${
-                  aspectRatio === 'video' ? 'aspect-video' : 'aspect-[4/3]'
-                } ${!(showOnProjector || showTimerOnProjector) ? getLivePreviewFlexAlignment() : 'items-center justify-center'}`}
+                className={`w-full aspect-video bg-black rounded-lg border ${(showOnProjector || showTimerOnProjector) ? 'border-red-500/60' : 'border-[var(--border-app)]'} relative overflow-hidden flex flex-col p-3 transition-all duration-300 ${
+                  !(showOnProjector || showTimerOnProjector) ? getLivePreviewFlexAlignment() : 'items-center justify-center'
+                }`}
                 style={{
                   containerType: 'inline-size',
                   ...(showOnProjector 
@@ -5888,12 +5963,12 @@ function OperatorDashboard() {
                 ) : (
                   <>
                     <div 
-                      className="z-10 flex flex-col justify-center items-center" 
+                      className="z-10 flex-1 flex flex-col justify-center items-center text-center w-full" 
                       style={liveOutputAnimStyle}
                     >
                       {(!clearLyrics && !blackout) && (previewDisplayedText || activeSlideText) && (
                         <p 
-                          className="projector-text-shadow"
+                          className="whitespace-pre-line uppercase projector-text-shadow"
                           style={getLivePreviewTextStyle()}
                         >
                           {previewDisplayedText || activeSlideText}
