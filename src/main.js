@@ -38,16 +38,9 @@ if (!gotTheLock) {
   });
 }
 
-// Enable Chromium Hardware Acceleration & GPU Optimizations
-app.commandLine.appendSwitch('enable-gpu-rasterization');
-app.commandLine.appendSwitch('enable-zero-copy');
-app.commandLine.appendSwitch('ignore-gpu-blocklist');
+// Safe Chromium Runtime Flags
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
-app.commandLine.appendSwitch('enable-accelerated-video-decode');
-app.commandLine.appendSwitch('enable-native-gpu-memory-buffers');
-app.commandLine.appendSwitch('enable-gpu-memory-buffer-video-frames');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
-app.commandLine.appendSwitch('force_high_performance_gpu');
 
 let splashWindow = null;
 let operatorWindow = null;
@@ -622,43 +615,14 @@ ipcMain.handle('media:select-directory', async () => {
   return result.filePaths[0]; // Returns path like D:\Alab Worship\assets\backgrounds
 });
 
-// Helper to convert local image paths to embedded base64 Data URIs for portable .wflow files
-function embedLocalAsset(assetPath) {
-  if (!assetPath || typeof assetPath !== 'string') return assetPath;
-  if (assetPath.startsWith('data:')) return assetPath;
-  if (assetPath.startsWith('#')) return assetPath;
-
-  let cleanPath = assetPath.replace(/^worshipflow-asset:\/\/|^file:\/\/\//i, '');
-  cleanPath = cleanPath.replace(/^\/+/, '');
-  cleanPath = decodeURIComponent(cleanPath);
-
-  if (fs.existsSync(cleanPath)) {
-    try {
-      const ext = path.extname(cleanPath).toLowerCase();
-      let mime = 'image/png';
-      if (ext === '.jpg' || ext === '.jpeg') mime = 'image/jpeg';
-      else if (ext === '.gif') mime = 'image/gif';
-      else if (ext === '.webp') mime = 'image/webp';
-      else if (ext === '.svg') mime = 'image/svg+xml';
-      
-      const fileData = fs.readFileSync(cleanPath);
-      // Embed image files up to 15MB inline in .wflow file
-      if (fileData.length <= 15 * 1024 * 1024) {
-        return `data:${mime};base64,${fileData.toString('base64')}`;
-      }
-    } catch (e) {
-      console.warn('Failed to embed asset file:', cleanPath, e.message);
-    }
-  }
-  return assetPath;
-}
 
 ipcMain.handle('media:save-presentation', async (event, { playlistData, filePath, defaultFileName }) => {
   try {
     let targetPath = filePath;
     if (!targetPath) {
+      const win = BrowserWindow.fromWebContents(event.sender);
       const initialName = (defaultFileName || 'presentation').replace(/\.wflow$/i, '').replace(/\.json$/i, '');
-      const result = await dialog.showSaveDialog({
+      const result = await dialog.showSaveDialog(win, {
         title: 'Save WorshipFlow Presentation',
         defaultPath: `${initialName}.wflow`,
         filters: [
@@ -696,41 +660,18 @@ ipcMain.handle('media:save-presentation', async (event, { playlistData, filePath
       }
     }
 
-    // Bundle slide assets into portable Data URIs
-    const bundledSongs = songs.map(s => {
-      let content = s.content_json;
-      try {
-        const slides = typeof content === 'string' ? JSON.parse(content) : (content || []);
-        const updatedSlides = slides.map(slide => {
-          if (slide.bgAsset) {
-            slide.bgAsset = embedLocalAsset(slide.bgAsset);
-          }
-          if (slide.style && slide.style.background) {
-            slide.style.background = embedLocalAsset(slide.style.background);
-          }
-          return slide;
-        });
-        content = JSON.stringify(updatedSlides);
-      } catch (e) {}
-
-      return {
-        ...s,
-        content_json: content,
-        bg_asset: embedLocalAsset(s.bg_asset)
-      };
-    });
-
     const payload = {
       version: 2,
       savedAt: new Date().toISOString(),
-      playlist: playlistData,
-      songs: bundledSongs
+      playlist: playlistData || [],
+      songs: songs || []
     };
     
     await fs.promises.writeFile(targetPath, JSON.stringify(payload, null, 2), 'utf8');
+    console.log('[Main] Saved presentation to:', targetPath, `(${songs.length} songs, ${(playlistData || []).length} items)`);
     return { success: true, filePath: targetPath };
   } catch (err) {
-    console.error('Failed to save presentation file:', err);
+    console.error('[Main] Failed to save presentation file:', err);
     return { success: false, error: err.message };
   }
 });

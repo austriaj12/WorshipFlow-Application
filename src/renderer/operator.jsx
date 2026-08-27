@@ -1131,6 +1131,7 @@ function OperatorDashboard() {
 
         const firstSongItem = playlistItems.find(item => item.type === 'song');
         if (firstSongItem) {
+          await fetchSongs();
           const currentSongs = useLibraryStore.getState().songs || [];
           const matchedSong = currentSongs.find(s => 
             s.id === firstSongItem.song_id || 
