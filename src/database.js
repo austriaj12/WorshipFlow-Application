@@ -47,7 +47,8 @@ function createTables() {
           enable_voice_cues INTEGER DEFAULT 0,
           voice_gender TEXT DEFAULT 'female',
           content_json TEXT NOT NULL,
-          chords_text TEXT
+          chords_text TEXT,
+          bg_asset TEXT
         )
       `);
 
@@ -58,6 +59,7 @@ function createTables() {
       db.run("ALTER TABLE songs ADD COLUMN enable_click INTEGER DEFAULT 0", () => {});
       db.run("ALTER TABLE songs ADD COLUMN enable_voice_cues INTEGER DEFAULT 0", () => {});
       db.run("ALTER TABLE songs ADD COLUMN voice_gender TEXT DEFAULT 'female'", () => {});
+      db.run("ALTER TABLE songs ADD COLUMN bg_asset TEXT", () => {});
 
       // 2. Bibles Table (Indexed for sub-millisecond lookup)
       db.run(`

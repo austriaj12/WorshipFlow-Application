@@ -367,7 +367,26 @@ function OperatorDashboard() {
   const [bgColorInput, setBgColorInput] = useState('#000000');
   const [bgHeight, setBgHeight] = useState(100);
   const [applyToTarget, setApplyToTarget] = useState('active'); // 'active' | 'selected' | 'all'
-  const [presentationFilePath, setPresentationFilePath] = useState(null);
+  const [presentationFilePath, setPresentationFilePathState] = useState(() => {
+    try {
+      return localStorage.getItem('presentationFilePath') || null;
+    } catch (e) {
+      return null;
+    }
+  });
+  const [isPresentationDirty, setIsPresentationDirty] = useState(false);
+  const lastSavedPlaylistSnapshotRef = React.useRef(null);
+
+  const setPresentationFilePath = (path) => {
+    setPresentationFilePathState(path);
+    try {
+      if (path) {
+        localStorage.setItem('presentationFilePath', path);
+      } else {
+        localStorage.removeItem('presentationFilePath');
+      }
+    } catch (e) {}
+  };
   const [isFileDropdownOpen, setIsFileDropdownOpen] = useState(false);
   const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
 
@@ -1021,8 +1040,11 @@ function OperatorDashboard() {
   };
 
   const handleNewPresentation = async () => {
-    // If playlist has items and there's no saved file path, offer to save first
-    if (playlist && playlist.length > 0) {
+    const isDirty = lastSavedPlaylistSnapshotRef.current !== null 
+      ? (lastSavedPlaylistSnapshotRef.current !== JSON.stringify(playlist))
+      : (playlist && playlist.length > 0 && !presentationFilePath);
+
+    if (isDirty && playlist && playlist.length > 0) {
       const choice = await window.api?.showMessageBox?.({
         type: 'question',
         buttons: ['Save', "Don't Save", 'Cancel'],
@@ -1032,7 +1054,7 @@ function OperatorDashboard() {
         message: 'Do you want to save the current presentation before starting a new one?',
         detail: presentationFilePath
           ? `Current file: ${presentationFilePath}`
-          : 'The current presentation has not been saved.'
+          : 'The current presentation has unsaved changes.'
       });
       // Cancel
       if (choice === undefined || choice === 2) return;
@@ -1045,6 +1067,8 @@ function OperatorDashboard() {
     await clearPlaylist();
     selectSong(null);
     setPresentationFilePath(null);
+    lastSavedPlaylistSnapshotRef.current = JSON.stringify([]);
+    setIsPresentationDirty(false);
     setSearchQuery('');
     setActiveHeaderTab('presentation');
   };
@@ -1052,6 +1076,26 @@ function OperatorDashboard() {
   const handleOpenPresentation = async (targetFilePath = null) => {
     if (!window.api || !window.api.openPresentation) return;
     try {
+      const isDirty = lastSavedPlaylistSnapshotRef.current !== null 
+        ? (lastSavedPlaylistSnapshotRef.current !== JSON.stringify(playlist))
+        : (playlist && playlist.length > 0 && !presentationFilePath);
+
+      if (isDirty && playlist && playlist.length > 0) {
+        const choice = await window.api?.showMessageBox?.({
+          type: 'question',
+          buttons: ['Save', "Don't Save", 'Cancel'],
+          defaultId: 0,
+          cancelId: 2,
+          title: 'Unsaved Presentation',
+          message: 'Do you want to save the current presentation before opening another one?',
+          detail: presentationFilePath ? `Current file: ${presentationFilePath}` : 'Unsaved presentation.'
+        });
+        if (choice === undefined || choice === 2) return;
+        if (choice === 0) {
+          await handleSavePresentation();
+        }
+      }
+
       const res = await window.api.openPresentation(targetFilePath);
       if (res && res.success && res.playlistData) {
         await importPlaylist(res.playlistData);
@@ -1059,6 +1103,8 @@ function OperatorDashboard() {
         await fetchPlaylist();
 
         setPresentationFilePath(res.filePath);
+        lastSavedPlaylistSnapshotRef.current = JSON.stringify(usePresentationStore.getState().playlist || []);
+        setIsPresentationDirty(false);
         setSearchQuery('');
         setActiveHeaderTab('presentation');
 
@@ -1256,7 +1302,7 @@ function OperatorDashboard() {
         return firstSong.name;
       }
     }
-    return 'Presentation';
+    return 'LINE UP';
   };
 
   const handleSavePresentation = async () => {
@@ -1265,6 +1311,8 @@ function OperatorDashboard() {
     const res = await window.api.savePresentation(playlist, presentationFilePath, defaultName);
     if (res && res.success && res.filePath) {
       setPresentationFilePath(res.filePath);
+      lastSavedPlaylistSnapshotRef.current = JSON.stringify(playlist);
+      setIsPresentationDirty(false);
     }
   };
 
@@ -1274,6 +1322,8 @@ function OperatorDashboard() {
     const res = await window.api.savePresentation(playlist, null, defaultName);
     if (res && res.success && res.filePath) {
       setPresentationFilePath(res.filePath);
+      lastSavedPlaylistSnapshotRef.current = JSON.stringify(playlist);
+      setIsPresentationDirty(false);
     }
   };
 
