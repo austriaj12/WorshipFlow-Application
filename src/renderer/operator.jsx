@@ -1074,7 +1074,12 @@ function OperatorDashboard() {
   };
 
   const handleOpenPresentation = async (targetFilePath = null) => {
-    if (!window.api || !window.api.openPresentation) return;
+    console.log('[Presentation] handleOpenPresentation triggered with path:', targetFilePath);
+    if (!window.api || !window.api.openPresentation) {
+      console.error('[Presentation] window.api.openPresentation is missing!');
+      alert('Open Presentation API is not available.');
+      return;
+    }
     try {
       const isDirty = lastSavedPlaylistSnapshotRef.current !== null 
         ? (lastSavedPlaylistSnapshotRef.current !== JSON.stringify(playlist))
@@ -1090,14 +1095,26 @@ function OperatorDashboard() {
           message: 'Do you want to save the current presentation before opening another one?',
           detail: presentationFilePath ? `Current file: ${presentationFilePath}` : 'Unsaved presentation.'
         });
-        if (choice === undefined || choice === 2) return;
+        if (choice === undefined || choice === 2) {
+          console.log('[Presentation] Open presentation canceled by user at save prompt.');
+          return;
+        }
         if (choice === 0) {
           await handleSavePresentation();
         }
       }
 
+      console.log('[Presentation] Calling main process openPresentation...');
       const res = await window.api.openPresentation(targetFilePath);
+      console.log('[Presentation] openPresentation result from main:', res);
+
+      if (res && res.canceled) {
+        console.log('[Presentation] Open dialog was canceled by user.');
+        return;
+      }
+
       if (res && res.success && res.playlistData) {
+        console.log('[Presentation] Importing presentation payload into database...', res.playlistData);
         await importPlaylist(res.playlistData);
         await fetchSongs();
         await fetchPlaylist();
@@ -1110,6 +1127,7 @@ function OperatorDashboard() {
 
         const rawPayload = res.playlistData;
         const playlistItems = Array.isArray(rawPayload) ? rawPayload : (rawPayload.playlist || []);
+        console.log(`[Presentation] Successfully imported ${playlistItems.length} items to playlist`);
 
         const firstSongItem = playlistItems.find(item => item.type === 'song');
         if (firstSongItem) {
@@ -1119,13 +1137,17 @@ function OperatorDashboard() {
             (s.title && firstSongItem.name && s.title.toLowerCase().trim() === firstSongItem.name.toLowerCase().trim())
           );
           if (matchedSong) {
+            console.log('[Presentation] Selecting first song from imported presentation:', matchedSong.title);
             selectSong(matchedSong.id);
           }
         }
+        console.log('[Presentation] Presentation opened and displayed successfully!');
       } else if (res && res.error) {
+        console.error('[Presentation] Error from main process:', res.error);
         alert("Failed to load presentation: " + res.error);
       }
     } catch (err) {
+      console.error('[Presentation] Error loading presentation:', err);
       alert("Error loading presentation: " + err.message);
     }
   };

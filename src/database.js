@@ -354,34 +354,35 @@ function clearPlaylist() {
 }
 
 function importPlaylist(data) {
-  return new Promise((resolve, reject) => {
-    let items = [];
-    let songs = [];
-    
-    if (data && typeof data === 'object' && !Array.isArray(data)) {
-      items = data.playlist || [];
-      songs = data.songs || [];
-    } else if (Array.isArray(data)) {
-      items = data;
-    }
+  return new Promise(async (resolve, reject) => {
+    try {
+      console.log('[DB] importPlaylist called with data:', typeof data === 'object' ? Object.keys(data) : typeof data);
+      let items = [];
+      let songs = [];
+      
+      if (data && typeof data === 'object' && !Array.isArray(data)) {
+        items = data.playlist || [];
+        songs = data.songs || [];
+      } else if (Array.isArray(data)) {
+        items = data;
+      }
 
-    db.serialize(() => {
-      db.run('BEGIN TRANSACTION');
+      console.log(`[DB] importPlaylist processing ${songs.length} songs and ${items.length} playlist items`);
 
-      // Helper to process songs and insert/update them
-      const processSongs = async () => {
-        const idMapping = {};
-        const mapId = (oldId, newId) => {
-          if (oldId !== undefined && oldId !== null) {
-            idMapping[oldId] = newId;
-            idMapping[String(oldId)] = newId;
-            const num = Number(oldId);
-            if (!isNaN(num)) idMapping[num] = newId;
-          }
-        };
+      // 1. Process and save/update songs safely
+      const idMapping = {};
+      const mapId = (oldId, newId) => {
+        if (oldId !== undefined && oldId !== null) {
+          idMapping[oldId] = newId;
+          idMapping[String(oldId)] = newId;
+          const num = Number(oldId);
+          if (!isNaN(num)) idMapping[num] = newId;
+        }
+      };
 
-        for (const song of songs) {
-          if (!song || !song.title) continue;
+      for (const song of songs) {
+        if (!song || !song.title) continue;
+        try {
           const contentJson = typeof song.content_json === 'string' ? song.content_json : JSON.stringify(song.content_json || song.contentJson || []);
           const chordsText = song.chords_text || song.chordsText || '';
           const bpmVal = song.bpm || parseInt(song.tempo, 10) || 120;
@@ -390,130 +391,133 @@ function importPlaylist(data) {
           const cuesVal = (song.enable_voice_cues || song.enableVoiceCues) ? 1 : 0;
           const genderVal = song.voice_gender || song.voiceGender || 'female';
           const bgAssetVal = song.bg_asset || song.bgAsset || '';
+          const authorVal = song.author || 'WorshipFlow';
+          const keyVal = song.key || '';
+          const tempoVal = song.tempo || String(bpmVal);
 
-          await new Promise((resSong, rejSong) => {
+          const existingSong = await new Promise((res, rej) => {
             db.get('SELECT id FROM songs WHERE title = ?', [song.title], (err, row) => {
-              if (err) return rejSong(err);
-              if (row) {
-                mapId(song.id, row.id);
-                db.run(
-                  `UPDATE songs SET 
-                    author = ?,
-                    [key] = ?,
-                    tempo = ?,
-                    content_json = ?,
-                    chords_text = ?,
-                    bpm = ?,
-                    time_signature = ?,
-                    enable_click = ?,
-                    enable_voice_cues = ?,
-                    voice_gender = ?,
-                    bg_asset = ?
-                   WHERE id = ?`,
-                  [
-                    song.author || 'WorshipFlow',
-                    song.key || '',
-                    song.tempo || String(bpmVal),
-                    contentJson,
-                    chordsText,
-                    bpmVal,
-                    tsVal,
-                    clickVal,
-                    cuesVal,
-                    genderVal,
-                    bgAssetVal,
-                    row.id
-                  ],
-                  (updateErr) => {
-                    if (updateErr) return rejSong(updateErr);
-                    resSong();
-                  }
-                );
-              } else {
-                db.run(
-                  `INSERT INTO songs (title, author, [key], tempo, content_json, chords_text, bpm, time_signature, enable_click, enable_voice_cues, voice_gender, bg_asset) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                  [
-                    song.title,
-                    song.author || 'WorshipFlow',
-                    song.key || '',
-                    song.tempo || String(bpmVal),
-                    contentJson,
-                    chordsText,
-                    bpmVal,
-                    tsVal,
-                    clickVal,
-                    cuesVal,
-                    genderVal,
-                    bgAssetVal
-                  ],
-                  function (insertErr) {
-                    if (insertErr) return rejSong(insertErr);
-                    mapId(song.id, this.lastID);
-                    resSong();
-                  }
-                );
-              }
+              if (err) rej(err);
+              else res(row);
             });
           });
+
+          if (existingSong && existingSong.id) {
+            mapId(song.id, existingSong.id);
+            await new Promise((res) => {
+              db.run(
+                `UPDATE songs SET 
+                  author = ?,
+                  [key] = ?,
+                  tempo = ?,
+                  content_json = ?,
+                  chords_text = ?,
+                  bpm = ?,
+                  time_signature = ?,
+                  enable_click = ?,
+                  enable_voice_cues = ?,
+                  voice_gender = ?,
+                  bg_asset = ?
+                 WHERE id = ?`,
+                [authorVal, keyVal, tempoVal, contentJson, chordsText, bpmVal, tsVal, clickVal, cuesVal, genderVal, bgAssetVal, existingSong.id],
+                (err) => {
+                  if (err) {
+                    console.warn('[DB] Song full update warning:', song.title, err.message);
+                    db.run('UPDATE songs SET content_json = ? WHERE id = ?', [contentJson, existingSong.id], () => res());
+                  } else {
+                    res();
+                  }
+                }
+              );
+            });
+          } else {
+            const newId = await new Promise((res, rej) => {
+              db.run(
+                `INSERT INTO songs (title, author, [key], tempo, content_json, chords_text, bpm, time_signature, enable_click, enable_voice_cues, voice_gender, bg_asset) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [song.title, authorVal, keyVal, tempoVal, contentJson, chordsText, bpmVal, tsVal, clickVal, cuesVal, genderVal, bgAssetVal],
+                function (err) {
+                  if (err) {
+                    console.warn('[DB] Song full insert failed, trying fallback insert:', song.title, err.message);
+                    db.run('INSERT INTO songs (title, author, content_json) VALUES (?, ?, ?)', [song.title, authorVal, contentJson], function (err2) {
+                      if (err2) rej(err2);
+                      else res(this.lastID);
+                    });
+                  } else {
+                    res(this.lastID);
+                  }
+                }
+              );
+            });
+            mapId(song.id, newId);
+          }
+        } catch (songErr) {
+          console.warn('[DB] Error processing song in import:', song.title, songErr.message);
         }
-        return idMapping;
-      };
+      }
 
-      processSongs()
-        .then((idMapping) => {
-          db.all('SELECT id, title FROM songs', (err, rows) => {
-            if (err) {
-              db.run('ROLLBACK');
-              return reject(err);
-            }
-            const validSongIds = new Set(rows.map(row => row.id));
-            const titleToIdMap = {};
-            rows.forEach(r => {
-              titleToIdMap[r.title.toLowerCase().trim()] = r.id;
-            });
-
-            db.run('DELETE FROM playlist', (err) => {
-              if (err) {
-                db.run('ROLLBACK');
-                return reject(err);
-              }
-              
-              const stmt = db.prepare('INSERT INTO playlist (name, type, song_id, playlist_order) VALUES (?, ?, ?, ?)');
-              items.forEach((item, index) => {
-                let songId = item.song_id !== undefined && item.song_id !== null ? item.song_id : null;
-                
-                if (songId !== null && idMapping[songId] !== undefined) {
-                  songId = idMapping[songId];
-                } else if (item.name && titleToIdMap[item.name.toLowerCase().trim()] !== undefined) {
-                  songId = titleToIdMap[item.name.toLowerCase().trim()];
-                }
-
-                if (songId !== null && !validSongIds.has(Number(songId))) {
-                  songId = null;
-                }
-
-                stmt.run([item.name, item.type, songId, index + 1]);
-              });
-              
-              stmt.finalize((err) => {
-                if (err) {
-                  db.run('ROLLBACK');
-                  return reject(err);
-                }
-                db.run('COMMIT', (err) => {
-                  if (err) reject(err);
-                  else resolve(true);
-                });
-              });
-            });
-          });
-        })
-        .catch((err) => {
-          db.run('ROLLBACK');
-          reject(err);
+      // 2. Fetch current all songs to map IDs and validate
+      const allSongs = await new Promise((res, rej) => {
+        db.all('SELECT id, title FROM songs', (err, rows) => {
+          if (err) rej(err);
+          else res(rows || []);
         });
-    });
+      });
+
+      const validSongIds = new Set(allSongs.map(row => row.id));
+      const titleToIdMap = {};
+      allSongs.forEach(r => {
+        if (r.title) titleToIdMap[r.title.toLowerCase().trim()] = r.id;
+      });
+
+      // 3. Clear existing playlist table
+      await new Promise((res, rej) => {
+        db.run('DELETE FROM playlist', (err) => {
+          if (err) rej(err);
+          else res();
+        });
+      });
+
+      // 4. Insert imported playlist items
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (!item) continue;
+        const itemName = item.name || item.title || `Item ${i + 1}`;
+        const itemType = item.type || 'song';
+        let songId = item.song_id !== undefined && item.song_id !== null ? item.song_id : null;
+
+        if (songId !== null && idMapping[songId] !== undefined) {
+          songId = idMapping[songId];
+        } else if (itemName && titleToIdMap[itemName.toLowerCase().trim()] !== undefined) {
+          songId = titleToIdMap[itemName.toLowerCase().trim()];
+        }
+
+        if (songId !== null && !validSongIds.has(Number(songId))) {
+          songId = null;
+        }
+
+        await new Promise((res) => {
+          db.run(
+            'INSERT INTO playlist (name, type, song_id, playlist_order) VALUES (?, ?, ?, ?)',
+            [itemName, itemType, songId, i + 1],
+            (err) => {
+              if (err) {
+                console.warn('[DB] Error inserting playlist item:', itemName, err.message);
+                res();
+              } else {
+                res();
+              }
+            }
+          );
+        });
+      }
+
+      console.log(`[DB] importPlaylist successfully finished importing ${items.length} items.`);
+      resolve(true);
+    } catch (fatalErr) {
+      console.error('[DB] Fatal error in importPlaylist:', fatalErr);
+      reject(fatalErr);
+    }
   });
 }
 

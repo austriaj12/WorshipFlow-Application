@@ -162,11 +162,15 @@ export const usePresentationStore = create((set, get) => ({
   importPlaylist: async (items) => {
     try {
       if (window.api) {
-        await window.api.importPlaylist(items);
+        console.log('[Store] importPlaylist sending payload to main process:', items);
+        const result = await window.api.importPlaylist(items);
+        console.log('[Store] importPlaylist response from main:', result);
         await get().fetchPlaylist();
+        return result;
       }
     } catch (err) {
-      console.error('importPlaylist error:', err);
+      console.error('[Store] importPlaylist error:', err);
+      throw err;
     }
   }
 }));

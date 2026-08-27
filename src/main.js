@@ -750,7 +750,8 @@ ipcMain.handle('media:open-presentation', async (event, { filePath } = {}) => {
   try {
     let targetPath = filePath;
     if (!targetPath) {
-      const result = await dialog.showOpenDialog({
+      const win = BrowserWindow.fromWebContents(event.sender);
+      const result = await dialog.showOpenDialog(win, {
         title: 'Open WorshipFlow Presentation',
         properties: ['openFile'],
         filters: [
@@ -758,16 +759,19 @@ ipcMain.handle('media:open-presentation', async (event, { filePath } = {}) => {
         ]
       });
       if (result.canceled || result.filePaths.length === 0) {
+        console.log('[Main] Open presentation dialog was canceled.');
         return { canceled: true };
       }
       targetPath = result.filePaths[0];
     }
     
+    console.log('[Main] Reading presentation file at:', targetPath);
     const content = await fs.promises.readFile(targetPath, 'utf8');
     const playlistData = JSON.parse(content);
+    console.log('[Main] Presentation file successfully read, payload keys:', Object.keys(playlistData));
     return { playlistData, filePath: targetPath, success: true };
   } catch (err) {
-    console.error('Failed to open presentation file:', err);
+    console.error('[Main] Failed to open presentation file:', err);
     return { success: false, error: err.message };
   }
 });
