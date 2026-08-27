@@ -810,8 +810,47 @@ let wss = null;
 let wssClients = new Set();
 
 const mime = {
-  '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml', '.json': 'application/json'
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.mjs': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.json': 'application/json; charset=utf-8',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm'
 };
+
+function resolveStaticFilePath(baseDir, rawPath) {
+  let clean = decodeURIComponent((rawPath || '').split('?')[0].replace(/^\//, ''));
+  if (!clean || clean === '/') clean = 'stage.html';
+  
+  let target = path.join(baseDir, clean);
+  if (fs.existsSync(target) && fs.statSync(target).isFile()) {
+    return target;
+  }
+  if (fs.existsSync(target + '.html') && fs.statSync(target + '.html').isFile()) {
+    return target + '.html';
+  }
+  return null;
+}
+
+function serveStaticFile(res, filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  const contentType = mime[ext] || 'application/octet-stream';
+  const data = fs.readFileSync(filePath);
+  res.writeHead(200, { 
+    'Content-Type': contentType,
+    'Access-Control-Allow-Origin': '*'
+  });
+  res.end(data);
+}
 
 function getLocalIpAddress() {
   const interfaces = os.networkInterfaces();
@@ -919,18 +958,14 @@ function startStageServer(port = 5174) {
         proxyReq.on('error', (err) => {
           // Fall back to pre-built dist folder if Vite dev server is not running
           const distDir = path.join(__dirname, '..', 'dist');
-          const filePath = path.join(distDir, decodeURIComponent(urlPath.replace(/^\//, '')));
-          if (fs.existsSync(filePath)) {
-            const ext = path.extname(filePath).toLowerCase();
-            const contentType = mime[ext] || 'application/octet-stream';
+          const fileToServe = resolveStaticFilePath(distDir, urlPath);
+          if (fileToServe) {
             try {
-              const data = fs.readFileSync(filePath);
-              res.writeHead(200, { 'Content-Type': contentType });
-              res.end(data);
+              serveStaticFile(res, fileToServe);
               return;
             } catch (e) {}
           }
-          res.writeHead(500);
+          res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
           res.end('Dev server proxy error: ' + err.message);
         });
 
@@ -938,19 +973,15 @@ function startStageServer(port = 5174) {
         return;
       }
 
-      const filePath = path.join(rootDir, decodeURIComponent(urlPath.replace(/^\//, '')));
-      if (!fs.existsSync(filePath)) {
-        res.writeHead(404);
+      const fileToServe = resolveStaticFilePath(rootDir, urlPath);
+      if (!fileToServe) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
         res.end('Not found');
         return;
       }
-      const ext = path.extname(filePath).toLowerCase();
-      const contentType = mime[ext] || 'application/octet-stream';
-      const data = fs.readFileSync(filePath);
-      res.writeHead(200, { 'Content-Type': contentType });
-      res.end(data);
+      serveStaticFile(res, fileToServe);
     } catch (err) {
-      res.writeHead(500);
+      res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('Server error');
     }
   });
