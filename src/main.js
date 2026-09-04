@@ -831,6 +831,11 @@ function resolveStaticFilePath(baseDir, rawPath) {
   let clean = decodeURIComponent((rawPath || '').split('?')[0].replace(/^\//, ''));
   if (!clean || clean === '/') clean = 'stage.html';
   
+  // Strip route prefix if request points to assets (e.g. /lyrics/assets/... -> assets/...)
+  if (clean.includes('assets/')) {
+    clean = clean.substring(clean.indexOf('assets/'));
+  }
+
   let target = path.join(baseDir, clean);
   if (fs.existsSync(target) && fs.statSync(target).isFile()) {
     return target;
@@ -847,35 +852,59 @@ function serveStaticFile(res, filePath) {
   const data = fs.readFileSync(filePath);
   res.writeHead(200, { 
     'Content-Type': contentType,
-    'Access-Control-Allow-Origin': '*'
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': '*'
   });
   res.end(data);
 }
 
 function getLocalIpAddress() {
   const interfaces = os.networkInterfaces();
+  const nonVirtualRegex = /wsl|vethernet|virtual|vbox|vmware|loopback|pseudo|tailscale|zerotier|docker|radmin|hamachi|tap|tun|bluetooth|p2p|teredo/i;
+  
+  let wifiIps = [];
+  let ethernetIps = [];
+  let otherValidIps = [];
   let fallbackIp = '127.0.0.1';
-  let candidates = [];
 
   for (const name of Object.keys(interfaces)) {
-    const isVirtual = /wsl|vethernet|virtual|vbox|vmware|loopback|pseudo/i.test(name);
+    const isVirtual = nonVirtualRegex.test(name);
     for (const iface of interfaces[name]) {
-      if (iface.family === 'IPv4' && !iface.internal) {
+      // Must be IPv4, non-internal, and not link-local APIPA (169.254.x.x) or loopback (127.x.x.x)
+      if (iface.family === 'IPv4' && !iface.internal && !iface.address.startsWith('169.254.') && !iface.address.startsWith('127.')) {
         if (!isVirtual) {
-          if (/wi-fi|wlan|wireless/i.test(name)) {
-            return iface.address;
+          if (/wi-fi|wlan|wireless|airport/i.test(name)) {
+            wifiIps.push(iface.address);
+          } else if (/ethernet|eth|en\d|local area connection/i.test(name)) {
+            ethernetIps.push(iface.address);
+          } else {
+            otherValidIps.push(iface.address);
           }
-          candidates.push(iface.address);
         } else {
-          fallbackIp = iface.address;
+          if (fallbackIp === '127.0.0.1') {
+            fallbackIp = iface.address;
+          }
         }
       }
     }
   }
 
-  if (candidates.length > 0) {
-    return candidates[0];
-  }
+  // Priority: Common home/church local LAN subnets (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+  const isLanIp = (ip) => ip.startsWith('192.168.') || ip.startsWith('10.') || /^172\.(1[6-9]|2\d|3[01])\./.test(ip);
+  
+  const lanWifi = wifiIps.find(isLanIp);
+  if (lanWifi) return lanWifi;
+  if (wifiIps.length > 0) return wifiIps[0];
+
+  const lanEth = ethernetIps.find(isLanIp);
+  if (lanEth) return lanEth;
+  if (ethernetIps.length > 0) return ethernetIps[0];
+
+  const lanOther = otherValidIps.find(isLanIp);
+  if (lanOther) return lanOther;
+  if (otherValidIps.length > 0) return otherValidIps[0];
+
   return fallbackIp;
 }
 
@@ -890,10 +919,22 @@ function broadcastToWss(msg) {
 
 function startStageServer(port = 5174) {
   if (stageServer) return stageServerPort;
-  const rootDir = isDev ? path.join(__dirname, '..', 'src') : path.join(__dirname, '..', 'dist');
+  const distDir = path.join(__dirname, '..', 'dist');
+  const rootDir = isDev ? path.join(__dirname, '..', 'src') : distDir;
   
   stageServer = http.createServer((req, res) => {
     try {
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204, {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': '*',
+          'Access-Control-Max-Age': '86400'
+        });
+        res.end();
+        return;
+      }
+
       let urlPath = req.url.split('?')[0];
       if (urlPath === '/' || urlPath === '') urlPath = '/stage.html';
 
@@ -942,8 +983,17 @@ function startStageServer(port = 5174) {
         return;
       }
 
+      // Check pre-built dist folder first for instant and reliable mobile serving
+      if (fs.existsSync(distDir)) {
+        const fileInDist = resolveStaticFilePath(distDir, urlPath);
+        if (fileInDist) {
+          serveStaticFile(res, fileInDist);
+          return;
+        }
+      }
+
       if (isDev) {
-        // Proxy requests to Vite dev server in development
+        // Proxy requests to Vite dev server in development if file not in dist
         const proxyReq = http.request({
           host: '127.0.0.1',
           port: 5173,
@@ -956,17 +1006,8 @@ function startStageServer(port = 5174) {
         });
 
         proxyReq.on('error', (err) => {
-          // Fall back to pre-built dist folder if Vite dev server is not running
-          const distDir = path.join(__dirname, '..', 'dist');
-          const fileToServe = resolveStaticFilePath(distDir, urlPath);
-          if (fileToServe) {
-            try {
-              serveStaticFile(res, fileToServe);
-              return;
-            } catch (e) {}
-          }
           res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
-          res.end('Dev server proxy error: ' + err.message);
+          res.end('Dev server proxy error: ' + err.message + '\nRun `npm run build` or start Vite (`npm run dev`).');
         });
 
         req.pipe(proxyReq, { end: true });
