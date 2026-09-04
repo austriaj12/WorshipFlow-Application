@@ -107,7 +107,9 @@ function createOperatorWindow() {
   });
 
   if (isDev) {
-    operatorWindow.loadURL('http://localhost:5173');
+    operatorWindow.loadURL('http://localhost:5173').catch(() => {
+      operatorWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    });
     operatorWindow.webContents.openDevTools();
   } else {
     operatorWindow.loadFile(path.join(__dirname, '../dist/index.html'));
@@ -221,7 +223,9 @@ function createProjectorWindow(displayIndex) {
   }
 
   if (isDev) {
-    projectorWindow.loadURL('http://localhost:5173/projector.html');
+    projectorWindow.loadURL('http://localhost:5173/projector.html').catch(() => {
+      projectorWindow.loadFile(path.join(__dirname, '../dist/projector.html'));
+    });
   } else {
     projectorWindow.loadFile(path.join(__dirname, '../dist/projector.html'));
   }
@@ -288,7 +292,9 @@ function createStageWindow(displayIndex) {
   stageWindow.setFullScreen(true);
 
   if (isDev) {
-    stageWindow.loadURL('http://localhost:5173/stage.html');
+    stageWindow.loadURL('http://localhost:5173/stage.html').catch(() => {
+      stageWindow.loadFile(path.join(__dirname, '../dist/stage.html'));
+    });
   } else {
     stageWindow.loadFile(path.join(__dirname, '../dist/stage.html'));
   }
