@@ -47,6 +47,9 @@ function ProjectorScreen() {
 
   // State to drive smooth opacity transitions (crossfades) on text updates
   const [isFading, setIsFading] = useState(false);
+  const [displayedText, setDisplayedText] = useState('');
+  const [displayedLabel, setDisplayedLabel] = useState('');
+  const animatingTargetRef = React.useRef({ text: null, label: null });
 
   // Track clearLyrics state to apply fast transitions on hide/show toggles
   const [prevClearLyrics, setPrevClearLyrics] = useState(false);
@@ -176,36 +179,36 @@ function ProjectorScreen() {
   const handleIncomingSlide = (slideData) => {
     if (!slideData) return;
 
-    const target = targetSlideRef.current;
+    const incomingText = slideData.text || '';
+    const incomingLabel = slideData.label || '';
+    const currentTarget = animatingTargetRef.current;
 
-    // Deduplicate: check if this incoming payload is identical to the target slide currently being shown or animated to
-    const isDuplicate = target &&
-      target.text === slideData.text &&
-      target.label === slideData.label &&
-      target.bgAsset === slideData.bgAsset &&
-      target.style?.animation === slideData.style?.animation &&
-      target.style?.speed === slideData.style?.speed &&
-      target.blackout === slideData.blackout &&
-      target.clearLyrics === slideData.clearLyrics &&
-      target.isBible === slideData.isBible;
+    const isSameTarget = currentTarget.text === incomingText && currentTarget.label === incomingLabel;
 
-    if (isDuplicate) {
-      // Ignore duplicate events delivered simultaneously via IPC and BroadcastChannel
+    // Always keep slide metadata (background, blackout, clearLyrics, styles, timers, media) updated
+    setSlide(prev => ({
+      ...prev,
+      ...slideData
+    }));
+
+    if (isSameTarget) {
+      // Duplicate or rapid secondary update for the same slide (e.g. from operator useEffect sync).
+      // Keep running the current text animation without interrupting or cancelling!
       return;
     }
 
-    const prevTarget = targetSlideRef.current;
-    targetSlideRef.current = { ...slideData };
+    // New slide has arrived!
+    animatingTargetRef.current = { text: incomingText, label: incomingLabel };
 
-    // Check if text or label content actually changed compared to previous slide target
-    const textChanged = !prevTarget || prevTarget.text !== slideData.text || prevTarget.label !== slideData.label;
     const anim = slideData.style?.animation || 'Fade Out';
+    const isInstant = anim === 'Instant' || anim === 'None';
 
-    // If text did not change (e.g. only bgAsset, style, or blackout changed), or animation is Instant/None:
-    if (!textChanged || anim === 'Instant' || anim === 'None') {
+    // If instant or if there is no text currently displayed on screen (e.g. initial launch), show immediately:
+    if (isInstant || (!displayedText && !displayedLabel)) {
       if (textAnimTimeoutRef.current) clearTimeout(textAnimTimeoutRef.current);
       if (textAnimTimer2Ref.current) clearTimeout(textAnimTimer2Ref.current);
-      setSlide(slideData);
+      setDisplayedText(incomingText);
+      setDisplayedLabel(incomingLabel);
       setIsFading(false);
       setIsEntering(false);
       return;
@@ -223,14 +226,15 @@ function ProjectorScreen() {
 
     // Phase 2: After exit duration (halfMs), swap text to new slide text at opacity 0 / initial position (isEntering = true)
     textAnimTimeoutRef.current = setTimeout(() => {
-      setSlide(slideData);
+      setDisplayedText(incomingText);
+      setDisplayedLabel(incomingLabel);
       setIsEntering(true);
 
       // Phase 3: Trigger entrance animation to opacity 1 / final position (isFading = false, isEntering = false)
       textAnimTimer2Ref.current = setTimeout(() => {
         setIsFading(false);
         setIsEntering(false);
-      }, 40);
+      }, 35);
     }, halfMs);
   };
 
@@ -379,7 +383,7 @@ function ProjectorScreen() {
   const getTransitionDuration = () => {
     if (!slide.style || !slide.style.speed) return '300ms';
     const totalMs = parseSpeedToMs(slide.style.speed);
-    return `${totalMs / 2}ms`;
+    return `${Math.max(40, totalMs / 2)}ms`;
   };
 
   const getAnimationStyles = () => {
@@ -401,7 +405,7 @@ function ProjectorScreen() {
     }
 
     let targetOpacity = 1;
-    if (slide.clearLyrics) {
+    if (slide.clearLyrics || slide.blackout) {
       targetOpacity = 0;
     } else if (isHiddenState) {
       targetOpacity = 0;
@@ -520,7 +524,7 @@ function ProjectorScreen() {
           }}
         >
           <div style={getAnimationStyles()}>
-            {slide.isBible && slide.label && !slide.blackout && !slide.clearLyrics && (
+            {slide.isBible && (displayedLabel !== '' ? displayedLabel : slide.label) && !slide.blackout && !slide.clearLyrics && (
               <div 
                 style={{
                   backgroundColor: slide.style?.refColor || '#ef4444',
@@ -536,16 +540,16 @@ function ProjectorScreen() {
                   boxShadow: '0 10px 25px rgba(0,0,0,0.5)'
                 }}
               >
-                {slide.label}
+                {displayedLabel !== '' ? displayedLabel : slide.label}
               </div>
             )}
             <div style={getOverlayPillStyle()}>
-              {slide.text ? (
+              {(displayedText !== '' ? displayedText : slide.text) ? (
                 <p 
                   style={getLyricsContainerStyle()}
-                  className="whitespace-pre-line uppercase projector-text-shadow"
+                  className="whitespace-pre-wrap uppercase projector-text-shadow"
                 >
-                  {slide.text}
+                  {displayedText !== '' ? displayedText : slide.text}
                 </p>
               ) : (
                 /* Graceful standby/empty layout (no hardcoded slides) */

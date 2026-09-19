@@ -705,6 +705,7 @@ function OperatorDashboard() {
   const [stageMiddleLineColor, setStageMiddleLineColor] = useState(() => localStorage.getItem('stageMiddleLineColor') || '#0284c7');
   const [stageMainLineColor, setStageMainLineColor] = useState(() => localStorage.getItem('stageMainLineColor') || '#7dd3fc');
   const [stageUpNextLineColor, setStageUpNextLineColor] = useState(() => localStorage.getItem('stageUpNextLineColor') || '#f97316');
+  const [stageNextLyricsColor, setStageNextLyricsColor] = useState(() => localStorage.getItem('stageNextLyricsColor') || '#ffffff');
 
   useEffect(() => {
     localStorage.setItem('stageTopLineColor', stageTopLineColor);
@@ -718,6 +719,9 @@ function OperatorDashboard() {
   useEffect(() => {
     localStorage.setItem('stageUpNextLineColor', stageUpNextLineColor);
   }, [stageUpNextLineColor]);
+  useEffect(() => {
+    localStorage.setItem('stageNextLyricsColor', stageNextLyricsColor);
+  }, [stageNextLyricsColor]);
 
   const [displays, setDisplays] = useState([]);
   const [selectedProjectorDisplay, setSelectedProjectorDisplay] = useState(() => {
@@ -1689,7 +1693,7 @@ function OperatorDashboard() {
         speed: activeSlide.style?.speed || songSpeed || '0.6'
       };
 
-      const isImportOrMedia = (songObject && (songObject.author === 'PowerPoint Import' || songObject.author === 'PDF Import' || songObject.author === 'Media')) || isBible;
+      const isImportOrMedia = Boolean(songObject && (songObject.author === 'PowerPoint Import' || songObject.author === 'PDF Import' || songObject.author === 'Media'));
       const prevSlideObj = index > 0 ? slidesList[index - 1] : null;
       const transitionToNext = ((prevSlideObj && prevSlideObj.transitionToNext === 'fade') || (activeSlide && activeSlide.transitionToNext === 'fade')) ? 'fade' : 'none';
 
@@ -1878,6 +1882,7 @@ function OperatorDashboard() {
             middleLineColor: stageMiddleLineColor,
             mainLineColor: stageMainLineColor,
             upNextLineColor: stageUpNextLineColor,
+            stageNextLyricsColor: stageNextLyricsColor,
             bibleFontSize: bibleFontSize,
             bibleRefColor: bibleRefColor,
             stageMainFontSize: stageMainFontSize,
@@ -1990,7 +1995,7 @@ function OperatorDashboard() {
     stageLeftWidthPct, stagePanelVisibility, stagePanelHeights, stageShowClock, stageShowSlideIndex, stageShowNextPreview, stageTextStyle, stageUpNextFontSize,
     countdownActive, countdownMinutes, countdownSeconds, countdownTitle, countdownSubtext, countdownBgColor, countdownTextColor, countdownTitleSize, countdownTimeSize, countdownSubtextSize, countdownShowOn,
     timerActive, timerMinutes, timerSeconds, timerTitle, timerBgColor, timerTextColor, timerTitleSize, timerTimeSize, timerShowOn,
-    stageTopLineColor, stageMiddleLineColor, stageMainLineColor, stageUpNextLineColor,
+    stageTopLineColor, stageMiddleLineColor, stageMainLineColor, stageUpNextLineColor, stageNextLyricsColor,
     mediaPlaying, mediaLoop, mediaVolume, isLiveActive,
     stageMainFontSize, stageLabelFontSize, bibleFontSize, bibleRefColor, countdownBgMedia, timerBgMedia
   ]);
@@ -2477,12 +2482,18 @@ function OperatorDashboard() {
         activeEl &&
         (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)
       ) {
-        if (e.key === 'Enter' || e.key === 'Escape') {
-          activeEl.blur();
-          if (e.key === 'Escape') return;
-        } else {
+        if (activeEl.tagName === 'TEXTAREA') {
+          if (e.key === 'Escape') {
+            activeEl.blur();
+          }
+          // Allow Enter to naturally create newlines in textarea without blurring or advancing slide!
           return;
         }
+        if (e.key === 'Enter' || e.key === 'Escape') {
+          activeEl.blur();
+          return;
+        }
+        return;
       }
 
       // If active element is a select dropdown or button, blur it so arrow keys and spacebar navigate slides
@@ -2722,8 +2733,8 @@ function OperatorDashboard() {
   };
 
   const parseSlidesFromRaw = (rawText, customStyle, styleOverrides = {}, existingSlides = []) => {
-    if (!rawText.trim()) return [];
-    const blocks = rawText.split(/\n\n+/);
+    if (!rawText || !rawText.trim()) return [];
+    const blocks = rawText.split(/\n\s*\n+/);
     let lastLabel = 'VERSE';
     return blocks.map((block, idx) => {
       const lines = block.split('\n');
@@ -2732,7 +2743,10 @@ function OperatorDashboard() {
       
       const label = isHeader ? firstLine.toUpperCase() : lastLabel;
       lastLabel = label;
-      const text = (isHeader ? lines.slice(1) : lines).join('\n').trim();
+      
+      // Preserve intentional leading spaces and newlines so user can position text lower on screen
+      const rawSlideLines = isHeader ? lines.slice(1) : lines;
+      const text = rawSlideLines.join('\n').replace(/[\r\n\s]+$/, '');
       
       const existing = existingSlides[idx];
       const override = styleOverrides[idx] || {};
@@ -2759,7 +2773,8 @@ function OperatorDashboard() {
       const currentLabel = s.label || 'VERSE';
       const writeLabel = (idx === 0 || currentLabel !== lastLabel);
       lastLabel = currentLabel;
-      return writeLabel ? `${currentLabel}\n${s.text}` : s.text;
+      const slideText = s.text !== undefined && s.text !== null ? s.text : '';
+      return writeLabel ? `${currentLabel}\n${slideText}` : slideText;
     }).join('\n\n');
   };
 
@@ -5839,6 +5854,14 @@ function OperatorDashboard() {
                       <div className="flex items-center gap-2">
                         <span className="font-mono text-[10px] text-textMuted">{stageUpNextLineColor}</span>
                         <input type="color" value={stageUpNextLineColor} onChange={(e) => setStageUpNextLineColor(e.target.value)} className="h-6 w-8 bg-transparent cursor-pointer rounded border border-[var(--border-app)]" />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-textMuted">Up Next Text Color</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[10px] text-textMuted">{stageNextLyricsColor}</span>
+                        <input type="color" value={stageNextLyricsColor} onChange={(e) => setStageNextLyricsColor(e.target.value)} className="h-6 w-8 bg-transparent cursor-pointer rounded border border-[var(--border-app)]" />
                       </div>
                     </div>
                   </div>

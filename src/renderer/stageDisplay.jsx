@@ -22,6 +22,7 @@ function StageDisplay() {
     stageMainFontSize: 90,
     stageUpNextFontSize: 60,
     stageLabelFontSize: 18,
+    stageNextLyricsColor: '#ffffff',
     bibleFontSize: 48,
     bibleRefColor: '#ef4444'
   });
@@ -118,6 +119,7 @@ function StageDisplay() {
           middleLineColor: data.middleLineColor || prev.middleLineColor,
           mainLineColor: data.mainLineColor || prev.mainLineColor,
           upNextLineColor: data.upNextLineColor || prev.upNextLineColor,
+          stageNextLyricsColor: data.stageNextLyricsColor || prev.stageNextLyricsColor || '#ffffff',
           isBible: data.isBible || false,
           stageMainFontSize: data.stageMainFontSize || prev.stageMainFontSize,
           stageUpNextFontSize: data.stageUpNextFontSize || prev.stageUpNextFontSize,
@@ -161,6 +163,7 @@ function StageDisplay() {
               middleLineColor: data.middleLineColor || prev.middleLineColor,
               mainLineColor: data.mainLineColor || prev.mainLineColor,
               upNextLineColor: data.upNextLineColor || prev.upNextLineColor,
+              stageNextLyricsColor: data.stageNextLyricsColor || prev.stageNextLyricsColor || '#ffffff',
               isBible: data.isBible || false,
               stageMainFontSize: data.stageMainFontSize || prev.stageMainFontSize,
               stageUpNextFontSize: data.stageUpNextFontSize || prev.stageUpNextFontSize,
@@ -458,7 +461,7 @@ function StageDisplay() {
           </div>
           <div style={{ width: '100%', textAlign: 'center', maxWidth: '92%', zIndex: 10 }}>
             {stageData.nextSlideText ? (
-              <div ref={nextTextRef} style={{ color: '#fff', fontWeight: '700', opacity: 0.85, whiteSpace: 'pre-wrap', lineHeight: 1.2 }}>
+              <div ref={nextTextRef} style={{ color: stageData.stageNextLyricsColor || '#ffffff', fontWeight: '700', opacity: 0.85, whiteSpace: 'pre-wrap', lineHeight: 1.2 }}>
                 {transformText(stageData.nextSlideText)}
               </div>
             ) : (

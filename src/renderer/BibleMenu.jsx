@@ -421,7 +421,8 @@ export default function BibleMenu({
       return selectedVerseData.map(v => ({
         label: `${selectedBook} ${selectedChapter}:${v.verse}`,
         text: showVerseNumbers ? `${v.verse} ${v.text}` : v.text,
-        style
+        style,
+        isBible: true
       }));
     } else {
       const chunks = chunkVerses(selectedVerseData, 3);
@@ -433,7 +434,8 @@ export default function BibleMenu({
         return {
           label,
           text,
-          style
+          style,
+          isBible: true
         };
       });
     }
@@ -481,6 +483,26 @@ export default function BibleMenu({
     }
   };
   
+  const handleGoLiveSearchResult = (result) => {
+    const title = `${result.book_name} ${result.chapter}:${result.verse} (${result.translation})`;
+    const style = {
+      font: bibleFont, size: bibleFontSize, weight: songWeight,
+      color: bibleColor, bgColor: bibleBg, bgOpacity: songBgOpacity, refColor: bibleRefColor,
+      align: bibleAlign, vertical: songVertical, animation: songAnimation, speed: songSpeed
+    };
+    
+    const slides = [{
+      label: title,
+      text: showVerseNumbers ? `${result.verse} ${result.text}` : result.text,
+      style,
+      isBible: true
+    }];
+    
+    if (onGoLiveBible) {
+      onGoLiveBible(slides);
+    }
+  };
+
   const handleInsertSearchResult = async (result) => {
     if (!window.api?.createSong) return;
     
@@ -494,7 +516,8 @@ export default function BibleMenu({
     const slides = [{
       label: title,
       text: showVerseNumbers ? `${result.verse} ${result.text}` : result.text,
-      style
+      style,
+      isBible: true
     }];
     
     try {
@@ -1057,6 +1080,14 @@ export default function BibleMenu({
                         />
                       </div>
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+                        <button
+                          onClick={() => handleGoLiveSearchResult(result)}
+                          className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-bold flex items-center gap-1 transition shadow-sm"
+                          title="Show Live Immediately"
+                        >
+                          <Send className="h-3 w-3" />
+                          Live
+                        </button>
                         <button
                           onClick={() => navigateToPassage(result.book_name, result.chapter, result.verse, result.verse)}
                           className="p-1.5 rounded hover:bg-appBg text-textMuted hover:text-textMain transition"

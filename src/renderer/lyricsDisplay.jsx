@@ -68,6 +68,37 @@ function LyricsDisplay() {
   const [isEditNotesOpen, setIsEditNotesOpen] = useState(false);
   const [editingNotesText, setEditingNotesText] = useState('');
 
+  // Font Size Offset state (for phone/tablet font zoom: range -3 to +8)
+  const [fontSizeOffset, setFontSizeOffset] = useState(() => {
+    try {
+      const saved = localStorage.getItem('prompter_font_size_offset');
+      return saved !== null ? parseInt(saved, 10) : 0;
+    } catch (e) {
+      return 0;
+    }
+  });
+
+  const handleIncreaseFontSize = () => {
+    setFontSizeOffset(prev => {
+      const next = Math.min(prev + 1, 8);
+      try { localStorage.setItem('prompter_font_size_offset', String(next)); } catch (e) {}
+      return next;
+    });
+  };
+
+  const handleDecreaseFontSize = () => {
+    setFontSizeOffset(prev => {
+      const next = Math.max(prev - 1, -3);
+      try { localStorage.setItem('prompter_font_size_offset', String(next)); } catch (e) {}
+      return next;
+    });
+  };
+
+  const handleResetFontSize = () => {
+    setFontSizeOffset(0);
+    try { localStorage.setItem('prompter_font_size_offset', '0'); } catch (e) {}
+  };
+
   const activeSongId = isCustomView ? (customViewSong?.id || customViewSong?.title) : (stageData.songId || stageData.id || stageData.songTitle || stageData.label);
 
   // Load Leader Notes from localStorage whenever active song changes
@@ -594,6 +625,35 @@ function LyricsDisplay() {
             </>
           )}
 
+          {/* FONT SIZE CONTROLS (A- / A+ / RESET) FOR MOBILE AND TABLET */}
+          <div className="flex items-center bg-slate-100 border border-slate-200 rounded-lg p-0.5 gap-0.5 flex-shrink-0">
+            <button
+              onClick={handleDecreaseFontSize}
+              disabled={fontSizeOffset <= -3}
+              className="px-1.5 py-0.5 rounded text-[11px] sm:text-xs font-mono font-black text-slate-700 hover:bg-white hover:text-slate-900 disabled:opacity-30 disabled:hover:bg-transparent active:scale-95 transition"
+              title="Decrease Font Size (Bawas Font)"
+            >
+              A-
+            </button>
+            <button
+              onClick={handleResetFontSize}
+              className={`px-1 py-0.5 rounded text-[9px] sm:text-[10px] font-mono font-bold tracking-tighter transition ${
+                fontSizeOffset !== 0 ? 'bg-amber-100 text-amber-800 font-extrabold' : 'text-slate-500 hover:text-slate-800'
+              }`}
+              title="Reset Font Size to Default"
+            >
+              {fontSizeOffset > 0 ? `+${fontSizeOffset}` : fontSizeOffset < 0 ? `${fontSizeOffset}` : '100%'}
+            </button>
+            <button
+              onClick={handleIncreaseFontSize}
+              disabled={fontSizeOffset >= 8}
+              className="px-1.5 py-0.5 rounded text-[11px] sm:text-xs font-mono font-black text-slate-700 hover:bg-white hover:text-slate-900 disabled:opacity-30 disabled:hover:bg-transparent active:scale-95 transition"
+              title="Increase Font Size (Add Font / Palakihin)"
+            >
+              A+
+            </button>
+          </div>
+
           {isCustomView && (
             <button
               onClick={handleReturnToLive}
@@ -630,7 +690,10 @@ function LyricsDisplay() {
                           {sec.label} (Instrumental / Chords)
                         </span>
                       </div>
-                      <div className="space-y-1 pt-0.5 font-mono text-amber-700 font-black text-[11px] sm:text-xs leading-relaxed">
+                      <div 
+                        style={{ fontSize: `${Math.max(10, 11 + fontSizeOffset * 1.5)}px` }}
+                        className="space-y-1 pt-0.5 font-mono text-amber-700 font-black leading-relaxed"
+                      >
                         {sec.pairs.map((p, pIdx) => (
                           <div key={pIdx}>{p.chords}</div>
                         ))}
@@ -679,10 +742,16 @@ function LyricsDisplay() {
                                   <div key={lineIdx} className="flex flex-wrap items-end mb-1.5 last:mb-0">
                                     {blocks.map((b, bIdx) => (
                                       <div key={bIdx} className="inline-flex flex-col items-start whitespace-pre">
-                                        <span className="font-mono text-amber-600 font-black text-[11px] sm:text-xs leading-none h-[1.15em] select-none">
+                                        <span 
+                                          style={{ fontSize: `${Math.max(10, 11 + fontSizeOffset * 1.5)}px` }}
+                                          className="font-mono text-amber-600 font-black leading-none h-[1.15em] select-none"
+                                        >
                                           {b.chord || ' '}
                                         </span>
-                                        <span className="text-[10px] sm:text-[11px] md:text-xs font-extrabold text-slate-900 leading-tight uppercase font-sans">
+                                        <span 
+                                          style={{ fontSize: `${Math.max(10, 11 + fontSizeOffset * 2)}px` }}
+                                          className="font-extrabold text-slate-900 leading-tight uppercase font-sans"
+                                        >
                                           {b.text}
                                         </span>
                                       </div>
@@ -692,7 +761,11 @@ function LyricsDisplay() {
                               }
 
                               return (
-                                <p key={lineIdx} className="text-[10px] sm:text-[11px] md:text-xs font-extrabold text-slate-900 leading-tight uppercase tracking-normal font-sans mb-1 last:mb-0">
+                                <p 
+                                  key={lineIdx} 
+                                  style={{ fontSize: `${Math.max(10, 11 + fontSizeOffset * 2)}px` }}
+                                  className="font-extrabold text-slate-900 leading-tight uppercase tracking-normal font-sans mb-1 last:mb-0"
+                                >
                                   {lineStr}
                                 </p>
                               );
