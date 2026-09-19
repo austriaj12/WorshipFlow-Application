@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
 import appLogo from './logo.png';
@@ -449,6 +449,54 @@ function OperatorDashboard() {
   const [timerTextColor, setTimerTextColor] = useState("#ffffff");
   const [timerActive, setTimerActive] = useState(false);
 
+  // Draggable / Customizable Presentation Overlay Timer (Media, PPT, PDF)
+  const [overlayTimerEnabled, setOverlayTimerEnabled] = useState(() => localStorage.getItem('overlayTimerEnabled') !== 'false');
+  const [overlayTimerX, setOverlayTimerX] = useState(() => parseInt(localStorage.getItem('overlayTimerX') || '85'));
+  const [overlayTimerY, setOverlayTimerY] = useState(() => parseInt(localStorage.getItem('overlayTimerY') || '10'));
+  const [overlayTimerSize, setOverlayTimerSize] = useState(() => parseInt(localStorage.getItem('overlayTimerSize') || '42'));
+  const [overlayTimerTextColor, setOverlayTimerTextColor] = useState(() => localStorage.getItem('overlayTimerTextColor') || '#ffffff');
+  const [overlayTimerBgType, setOverlayTimerBgType] = useState(() => localStorage.getItem('overlayTimerBgType') || 'pill'); // 'none' | 'pill' | 'custom'
+  const [overlayTimerBgColor, setOverlayTimerBgColor] = useState(() => localStorage.getItem('overlayTimerBgColor') || '#000000');
+  const [overlayTimerBgOpacity, setOverlayTimerBgOpacity] = useState(() => parseInt(localStorage.getItem('overlayTimerBgOpacity') || '70'));
+  const [overlayTimerBgRadius, setOverlayTimerBgRadius] = useState(() => parseInt(localStorage.getItem('overlayTimerBgRadius') || '16'));
+  const [overlayTimerShowTitle, setOverlayTimerShowTitle] = useState(() => localStorage.getItem('overlayTimerShowTitle') === 'true');
+  const [isDraggingTimerBadge, setIsDraggingTimerBadge] = useState(false);
+  const countdownPreviewRef = useRef(null);
+
+  useEffect(() => { localStorage.setItem('overlayTimerEnabled', String(overlayTimerEnabled)); }, [overlayTimerEnabled]);
+  useEffect(() => { localStorage.setItem('overlayTimerX', String(overlayTimerX)); }, [overlayTimerX]);
+  useEffect(() => { localStorage.setItem('overlayTimerY', String(overlayTimerY)); }, [overlayTimerY]);
+  useEffect(() => { localStorage.setItem('overlayTimerSize', String(overlayTimerSize)); }, [overlayTimerSize]);
+  useEffect(() => { localStorage.setItem('overlayTimerTextColor', overlayTimerTextColor); }, [overlayTimerTextColor]);
+  useEffect(() => { localStorage.setItem('overlayTimerBgType', overlayTimerBgType); }, [overlayTimerBgType]);
+  useEffect(() => { localStorage.setItem('overlayTimerBgColor', overlayTimerBgColor); }, [overlayTimerBgColor]);
+  useEffect(() => { localStorage.setItem('overlayTimerBgOpacity', String(overlayTimerBgOpacity)); }, [overlayTimerBgOpacity]);
+  useEffect(() => { localStorage.setItem('overlayTimerBgRadius', String(overlayTimerBgRadius)); }, [overlayTimerBgRadius]);
+  useEffect(() => { localStorage.setItem('overlayTimerShowTitle', String(overlayTimerShowTitle)); }, [overlayTimerShowTitle]);
+  const [countdownPreviewView, setCountdownPreviewView] = useState('overlay'); // 'overlay' | 'fullscreen'
+
+  // Smooth Window Drag Tracking for 16:9 Overlay Timer Badge
+  useEffect(() => {
+    if (!isDraggingTimerBadge) return;
+    const handleWindowMouseMove = (e) => {
+      if (!countdownPreviewRef.current) return;
+      const rect = countdownPreviewRef.current.getBoundingClientRect();
+      const xPct = Math.max(6, Math.min(94, Math.round(((e.clientX - rect.left) / rect.width) * 100)));
+      const yPct = Math.max(6, Math.min(94, Math.round(((e.clientY - rect.top) / rect.height) * 100)));
+      setOverlayTimerX(xPct);
+      setOverlayTimerY(yPct);
+    };
+    const handleWindowMouseUp = () => {
+      setIsDraggingTimerBadge(false);
+    };
+    window.addEventListener('mousemove', handleWindowMouseMove);
+    window.addEventListener('mouseup', handleWindowMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleWindowMouseMove);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
+    };
+  }, [isDraggingTimerBadge]);
+
   // Modal Controllers
   const [isAddSongOpen, setIsAddSongOpen] = useState(false);
   const [isEditSongOpen, setIsEditSongOpen] = useState(false);
@@ -514,7 +562,7 @@ function OperatorDashboard() {
   const [darkPreset, setDarkPreset] = useState('Default Dark');
 
   // Auto-update State variables
-  const [appVersion, setAppVersion] = useState('2.0.5');
+  const [appVersion, setAppVersion] = useState('2.0.0');
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [updateInfo, setUpdateInfo] = useState(null);
   const [updateStatus, setUpdateStatus] = useState('idle'); // 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error'
@@ -1914,7 +1962,53 @@ function OperatorDashboard() {
       if (window.api.sendSlideUpdate) {
         try {
           let slidePayload = {};
-          if (showOnProjector) {
+          
+          const activeLiveSong = liveSong || selectedSong;
+          const isPresentationNonLyrics = Boolean(activeLiveSong && (
+            activeLiveSong.author === 'PowerPoint Import' || 
+            activeLiveSong.author === 'PDF Import' || 
+            activeLiveSong.author === 'Media'
+          ));
+          const isRunningTimer = showOnProjector || showTimerOnProjector;
+
+          if (isRunningTimer && isPresentationNonLyrics && overlayTimerEnabled) {
+            // Send regular PPT/PDF/Media presentation slide, but with overlay timer badge active!
+            const activeLiveSlides = (liveSlides && liveSlides.length > 0) ? liveSlides : slides;
+            const activeSlideObj = activeLiveSlides && activeLiveSlides[activeSlideIndex];
+            const effectiveBg = getSlideBackground(activeSlideObj, activeLiveSong);
+            const finalBgAsset = formatBgPath(effectiveBg);
+            const prevSlideObj = activeSlideIndex > 0 && activeLiveSlides && activeLiveSlides[activeSlideIndex - 1];
+            const transitionToNext = ((prevSlideObj && prevSlideObj.transitionToNext === 'fade') || (activeSlideObj && activeSlideObj.transitionToNext === 'fade')) ? 'fade' : 'none';
+
+            slidePayload = {
+              text: activeSlideText,
+              label: activeSlideLabel || `Slide ${activeSlideIndex + 1}`,
+              bgAsset: finalBgAsset,
+              style: activeSlideStyle,
+              isImportedSlide: false,
+              transitionToNext: transitionToNext,
+              countdownActive: false,
+              timerActive: false,
+              overlayTimerActive: true,
+              overlayTimerTime: showOnProjector ? countdownTimeStr : timerTimeStr,
+              overlayTimerTitle: showOnProjector ? (countdownTitle || 'Countdown') : (timerTitle || 'Timer'),
+              overlayTimerX: overlayTimerX,
+              overlayTimerY: overlayTimerY,
+              overlayTimerSize: overlayTimerSize,
+              overlayTimerTextColor: overlayTimerTextColor,
+              overlayTimerBgType: overlayTimerBgType,
+              overlayTimerBgColor: overlayTimerBgColor,
+              overlayTimerBgOpacity: overlayTimerBgOpacity,
+              overlayTimerBgRadius: overlayTimerBgRadius,
+              overlayTimerShowTitle: overlayTimerShowTitle,
+              blackout,
+              clearLyrics,
+              mediaPlaying: isMediaItem ? mediaPlaying : true,
+              mediaLoop: isMediaItem ? mediaLoop : true,
+              mediaVolume: isMediaItem ? mediaVolume : 0
+            };
+          } else if (showOnProjector && (!activeLiveSong || (!isPresentationNonLyrics && !activeSlideText && (!slides || slides.length === 0)))) {
+            // Standalone Fullscreen Countdown screen (before service or when no presentation active)
             slidePayload = {
               countdownActive: true,
               countdownTime: countdownTimeStr,
@@ -1927,9 +2021,11 @@ function OperatorDashboard() {
               countdownTimeSize,
               countdownSubtextSize,
               timerActive: false,
+              overlayTimerActive: false,
               blackout
             };
-          } else if (showTimerOnProjector) {
+          } else if (showTimerOnProjector && (!activeLiveSong || (!isPresentationNonLyrics && !activeSlideText && (!slides || slides.length === 0)))) {
+            // Standalone Fullscreen Count-up Timer screen
             slidePayload = {
               timerActive: true,
               timerTime: timerTimeStr,
@@ -1940,10 +2036,12 @@ function OperatorDashboard() {
               timerTitleSize,
               timerTimeSize,
               countdownActive: false,
+              overlayTimerActive: false,
               blackout
             };
           } else {
-            // Send regular slide with active live presentation background asset & transition
+            // Regular slide (lyrics song, or slide when timer is stopped)
+            // Notice: For a lyrics song, overlayTimerActive is false so no timer covers the lyrics!
             const activeLiveSlides = (liveSlides && liveSlides.length > 0) ? liveSlides : slides;
             const activeSlideObj = activeLiveSlides && activeLiveSlides[activeSlideIndex];
             const effectiveBg = getSlideBackground(activeSlideObj, liveSong || selectedSong);
@@ -1960,6 +2058,7 @@ function OperatorDashboard() {
               transitionToNext: transitionToNext,
               countdownActive: false,
               timerActive: false,
+              overlayTimerActive: false,
               blackout,
               clearLyrics,
               mediaPlaying: isMediaItem ? mediaPlaying : true,
@@ -1981,6 +2080,7 @@ function OperatorDashboard() {
               bgAsset: finalBgAsset,
               countdownActive: false,
               timerActive: false,
+              overlayTimerActive: false,
               blackout,
               clearLyrics
             });
@@ -1997,7 +2097,8 @@ function OperatorDashboard() {
     timerActive, timerMinutes, timerSeconds, timerTitle, timerBgColor, timerTextColor, timerTitleSize, timerTimeSize, timerShowOn,
     stageTopLineColor, stageMiddleLineColor, stageMainLineColor, stageUpNextLineColor, stageNextLyricsColor,
     mediaPlaying, mediaLoop, mediaVolume, isLiveActive,
-    stageMainFontSize, stageLabelFontSize, bibleFontSize, bibleRefColor, countdownBgMedia, timerBgMedia
+    stageMainFontSize, stageLabelFontSize, bibleFontSize, bibleRefColor, countdownBgMedia, timerBgMedia,
+    overlayTimerEnabled, overlayTimerX, overlayTimerY, overlayTimerSize, overlayTimerTextColor, overlayTimerBgType, overlayTimerBgColor, overlayTimerBgOpacity, overlayTimerShowTitle
   ]);
 
   // Sync operator volume element ref
@@ -2724,6 +2825,173 @@ function OperatorDashboard() {
     if (clean.startsWith('OUTRO')) return 'border-red-500/25 hover:border-red-500/80';
     return 'border-[var(--border-app)] hover:border-brand/60';
   };
+
+  const renderOverlayTimerCard = () => (
+    <div className="bg-appPanel/40 border border-[var(--border-app)] p-5 rounded-xl space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h4 className="font-bold text-xs uppercase tracking-wider font-mono text-textMain flex items-center gap-1.5">
+            <Clock className="h-3.5 w-3.5 text-brand" />
+            Media, PPT & PDF Overlay Timer
+          </h4>
+          <p className="text-[10px] text-textMuted mt-0.5">
+            Float timer over presentations & videos without blocking the slide. Excluded on lyrics songs.
+          </p>
+        </div>
+        <input 
+          type="checkbox" 
+          checked={overlayTimerEnabled} 
+          onChange={(e) => setOverlayTimerEnabled(e.target.checked)}
+          className="accent-brand h-4 w-4 cursor-pointer"
+        />
+      </div>
+
+      {overlayTimerEnabled && (
+        <div className="space-y-4 pt-2 border-t border-[var(--border-app)]/30">
+          {/* Quick Snap Positions */}
+          <div>
+            <div className="flex justify-between items-center mb-1.5">
+              <label className="text-[9px] text-textMuted font-bold uppercase font-mono">Position Presets (or drag preview)</label>
+              <span className="font-mono text-[9px] text-brand">X: {overlayTimerX}% | Y: {overlayTimerY}%</span>
+            </div>
+            <div className="grid grid-cols-5 gap-1.5">
+              <button type="button" onClick={() => { setOverlayTimerX(12); setOverlayTimerY(10); }} className="py-1 px-1 bg-appBg hover:bg-appBg/80 border border-[var(--border-app)] rounded text-[10px] font-mono font-bold text-textMuted hover:text-brand transition">↖ Top-L</button>
+              <button type="button" onClick={() => { setOverlayTimerX(88); setOverlayTimerY(10); }} className="py-1 px-1 bg-appBg hover:bg-appBg/80 border border-[var(--border-app)] rounded text-[10px] font-mono font-bold text-textMuted hover:text-brand transition">↗ Top-R</button>
+              <button type="button" onClick={() => { setOverlayTimerX(50); setOverlayTimerY(50); }} className="py-1 px-1 bg-appBg hover:bg-appBg/80 border border-[var(--border-app)] rounded text-[10px] font-mono font-bold text-textMuted hover:text-brand transition">⊙ Center</button>
+              <button type="button" onClick={() => { setOverlayTimerX(12); setOverlayTimerY(90); }} className="py-1 px-1 bg-appBg hover:bg-appBg/80 border border-[var(--border-app)] rounded text-[10px] font-mono font-bold text-textMuted hover:text-brand transition">↙ Btm-L</button>
+              <button type="button" onClick={() => { setOverlayTimerX(88); setOverlayTimerY(90); }} className="py-1 px-1 bg-appBg hover:bg-appBg/80 border border-[var(--border-app)] rounded text-[10px] font-mono font-bold text-textMuted hover:text-brand transition">↘ Btm-R</button>
+            </div>
+          </div>
+
+          {/* Size Slider */}
+          <div className="flex flex-col gap-1.5">
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-textMuted font-mono uppercase">Timer Size</span>
+              <span className="font-bold text-brand">{overlayTimerSize}px</span>
+            </div>
+            <input 
+              type="range" 
+              min="20" 
+              max="96" 
+              value={overlayTimerSize}
+              onChange={e => setOverlayTimerSize(parseInt(e.target.value))}
+              className="w-full h-1 bg-appBg rounded appearance-none cursor-pointer accent-brand"
+            />
+          </div>
+
+          {/* Text / Clock Color */}
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-textMain font-medium font-mono uppercase">Text Color</span>
+            <div className="flex items-center gap-2">
+              {['#ffffff', '#facc15', '#38bdf8', '#4ade80', '#f87171'].map(c => (
+                <button 
+                  key={c} 
+                  type="button" 
+                  onClick={() => setOverlayTimerTextColor(c)} 
+                  className={`w-4 h-4 rounded-full border transition-transform ${overlayTimerTextColor.toLowerCase() === c ? 'border-brand ring-2 ring-brand/50 scale-110' : 'border-white/20 hover:scale-105'}`}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+              <input 
+                type="color" 
+                value={overlayTimerTextColor} 
+                onChange={e => setOverlayTimerTextColor(e.target.value)} 
+                className="h-6 w-8 bg-transparent cursor-pointer rounded border border-[var(--border-app)]" 
+              />
+            </div>
+          </div>
+
+          {/* Background Style */}
+          <div className="space-y-2">
+            <label className="text-[9px] text-textMuted font-bold uppercase font-mono block">Background Style</label>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { id: 'none', label: 'None' },
+                { id: 'pill', label: 'Dark Glass' },
+                { id: 'custom', label: 'Custom' }
+              ].map(opt => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setOverlayTimerBgType(opt.id)}
+                  className={`py-1.5 px-2 rounded-lg text-[10px] font-bold uppercase font-mono transition border ${
+                    overlayTimerBgType === opt.id 
+                      ? 'bg-brand text-white border-brand shadow-sm' 
+                      : 'bg-appBg border-[var(--border-app)] text-textMuted hover:text-textMain'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Background Corner Radius Slider (0px sharp to 48px rounded/pill) */}
+          {overlayTimerBgType !== 'none' && (
+            <div className="flex flex-col gap-1.5 pt-1 border-t border-[var(--border-app)]/30">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-textMuted font-mono uppercase">Corner Radius</span>
+                <span className="font-bold text-brand">
+                  {overlayTimerBgRadius}px {overlayTimerBgRadius === 0 ? '(Sharp 0px)' : overlayTimerBgRadius >= 32 ? '(Pill)' : ''}
+                </span>
+              </div>
+              <input 
+                type="range" 
+                min="0" 
+                max="48" 
+                value={overlayTimerBgRadius}
+                onChange={e => setOverlayTimerBgRadius(parseInt(e.target.value))}
+                className="w-full h-1 bg-appBg rounded appearance-none cursor-pointer accent-brand"
+              />
+            </div>
+          )}
+
+          {/* Custom Background Color & Opacity if 'custom' */}
+          {overlayTimerBgType === 'custom' && (
+            <div className="space-y-3 pt-1 border-t border-[var(--border-app)]/30">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-textMuted font-mono uppercase">BG Color</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[10px] text-textMuted">{overlayTimerBgColor}</span>
+                  <input 
+                    type="color" 
+                    value={overlayTimerBgColor} 
+                    onChange={e => setOverlayTimerBgColor(e.target.value)} 
+                    className="h-6 w-8 bg-transparent cursor-pointer rounded border border-[var(--border-app)]" 
+                  />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-textMuted font-mono uppercase">BG Opacity</span>
+                  <span className="font-bold text-brand">{overlayTimerBgOpacity}%</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="10" 
+                  max="100" 
+                  value={overlayTimerBgOpacity}
+                  onChange={e => setOverlayTimerBgOpacity(parseInt(e.target.value))}
+                  className="w-full h-1 bg-appBg rounded appearance-none cursor-pointer accent-brand"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Show Title */}
+          <div className="flex items-center justify-between text-xs pt-1 border-t border-[var(--border-app)]/30">
+            <span className="text-textMuted font-mono uppercase">Show Title Label</span>
+            <input 
+              type="checkbox" 
+              checked={overlayTimerShowTitle} 
+              onChange={e => setOverlayTimerShowTitle(e.target.checked)}
+              className="accent-brand h-4 w-4 cursor-pointer"
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
 
   // Fuzzy Search trigger
   const handleSearchChange = (e) => {
@@ -5399,6 +5667,9 @@ function OperatorDashboard() {
                         />
                       </div>
                     </div>
+
+                    {/* Media, PPT & PDF Draggable Overlay Timer Config Card */}
+                    {renderOverlayTimerCard()}
                   </div>
 
                   {/* Right Column: Timer Preview & Action */}
@@ -5432,47 +5703,156 @@ function OperatorDashboard() {
                       </button>
                     </div>
 
+                    {/* Preview View Mode Switcher */}
+                    <div className="flex items-center justify-between bg-appPanel/40 border border-[var(--border-app)] px-3 py-1.5 rounded-xl text-xs">
+                      <span className="font-mono text-[10px] text-textMuted uppercase font-bold">Monitor Preview</span>
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setCountdownPreviewView('overlay')}
+                          className={`px-2.5 py-1 rounded-md text-[10px] font-bold font-mono uppercase transition ${
+                            countdownPreviewView === 'overlay'
+                              ? 'bg-brand text-white shadow-sm'
+                              : 'bg-appBg text-textMuted hover:text-textMain border border-[var(--border-app)]'
+                          }`}
+                        >
+                          Overlay Drag
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCountdownPreviewView('fullscreen')}
+                          className={`px-2.5 py-1 rounded-md text-[10px] font-bold font-mono uppercase transition ${
+                            countdownPreviewView === 'fullscreen'
+                              ? 'bg-brand text-white shadow-sm'
+                              : 'bg-appBg text-textMuted hover:text-textMain border border-[var(--border-app)]'
+                          }`}
+                        >
+                          Fullscreen
+                        </button>
+                      </div>
+                    </div>
+
                     {/* Aspect-Video 16:9 monitor frame */}
                     <div 
-                      style={{ backgroundColor: countdownBgColor }}
-                      className="w-full aspect-video rounded-xl border border-[var(--border-app)] p-6 relative overflow-hidden flex flex-col justify-center items-center text-center select-none shadow-2xl transition-colors duration-500"
+                      ref={countdownPreviewRef}
+                      style={{
+                        backgroundColor: countdownPreviewView === 'fullscreen' ? countdownBgColor : '#0f172a'
+                      }}
+                      className="w-full aspect-video rounded-xl border border-[var(--border-app)] relative overflow-hidden flex flex-col justify-center items-center text-center select-none shadow-2xl transition-colors duration-500"
                     >
-                      {countdownBgMedia && (
-                        <div className="absolute inset-0 z-0 w-full h-full">
-                          {/\.(mp4|webm|mov|avi)($|\?)/i.test(countdownBgMedia) ? (
-                            <video src={formatBgPath(countdownBgMedia)} autoPlay muted loop playsInline className="w-full h-full object-cover" />
-                          ) : (
-                            <img src={formatBgPath(countdownBgMedia)} className="w-full h-full object-cover" alt="" />
+                      {countdownPreviewView === 'fullscreen' ? (
+                        <>
+                          {countdownBgMedia && (
+                            <div className="absolute inset-0 z-0 w-full h-full">
+                              {/\.(mp4|webm|mov|avi)($|\?)/i.test(countdownBgMedia) ? (
+                                <video src={formatBgPath(countdownBgMedia)} autoPlay muted loop playsInline className="w-full h-full object-cover" />
+                              ) : (
+                                <img src={formatBgPath(countdownBgMedia)} className="w-full h-full object-cover" alt="" />
+                              )}
+                            </div>
                           )}
+                          <div className="space-y-1 z-10 p-6">
+                            {countdownMode !== 'current' && (countdownTitle || 'Countdown') && (
+                              <p style={{ fontSize: `${countdownTitleSize * 0.22}px`, color: 'rgba(255,255,255,0.75)' }} className="font-sans font-medium uppercase tracking-widest leading-tight">
+                                {countdownTitle || 'Countdown'}
+                              </p>
+                            )}
+                            <p style={{ fontSize: `${countdownTimeSize * 0.22}px`, color: '#ffffff' }} className="font-mono font-bold leading-none py-1">
+                              {countdownMode === 'current'
+                                 ? (() => {
+                                     const now = new Date();
+                                     let hours = now.getHours();
+                                     const ampm = hours >= 12 ? 'PM' : 'AM';
+                                     hours = hours % 12;
+                                     hours = hours ? hours : 12;
+                                     const mins = String(now.getMinutes()).padStart(2, '0');
+                                     const secs = String(now.getSeconds()).padStart(2, '0');
+                                     return `${hours}:${mins}:${secs} ${ampm}`;
+                                   })()
+                                 : `${String(countdownMinutes).padStart(2, '0')}:${String(countdownSeconds).padStart(2, '0')}`
+                               }
+                            </p>
+                            {countdownMode !== 'current' && countdownSubtext && (
+                              <p style={{ fontSize: `${countdownSubtextSize * 0.22}px`, color: 'rgba(255,255,255,0.5)' }} className="font-sans italic leading-tight">
+                                {countdownSubtext}
+                              </p>
+                            )}
+                          </div>
+                        </>
+                      ) : (
+                        /* Presentation Overlay Interactive Drag Mockup View */
+                        <div className="absolute inset-0 w-full h-full flex items-center justify-center overflow-hidden bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 p-4">
+                          {/* Mock PPT/Media Slide Content */}
+                          <div className="w-full h-full rounded border border-white/10 flex flex-col justify-center items-center text-center p-4 bg-white/5 backdrop-blur-sm pointer-events-none select-none">
+                            <div className="opacity-40 uppercase tracking-widest font-mono text-[9px] mb-1">
+                              [ SAMPLE POWERPOINT / PDF / MEDIA SLIDE ]
+                            </div>
+                            <div className="text-white/60 text-xs font-semibold max-w-[80%]">
+                              Your presentation remains completely visible on the projector screen
+                            </div>
+                          </div>
+
+                          {/* Coordinates helper badge */}
+                          <div className="absolute top-2 left-2 z-20 pointer-events-none">
+                            <span className="px-2 py-0.5 rounded bg-black/60 backdrop-blur-md text-white/80 font-mono text-[8px] font-bold uppercase border border-white/10 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                              DRAG BADGE • X: {overlayTimerX}% Y: {overlayTimerY}%
+                            </span>
+                          </div>
+
+                          {/* Draggable Timer Badge */}
+                          <div
+                            onMouseDown={(e) => {
+                              e.stopPropagation();
+                              setIsDraggingTimerBadge(true);
+                            }}
+                            className={`cursor-move select-none transition-shadow ${
+                              isDraggingTimerBadge ? 'ring-2 ring-brand ring-offset-2 ring-offset-slate-900 shadow-2xl scale-105' : 'hover:ring-1 hover:ring-brand/60'
+                            }`}
+                            style={{
+                              position: 'absolute',
+                              left: `${overlayTimerX}%`,
+                              top: `${overlayTimerY}%`,
+                              transform: 'translate(-50%, -50%)',
+                              zIndex: 30,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              ...(overlayTimerBgType === 'none'
+                                ? { background: 'transparent' }
+                                : overlayTimerBgType === 'custom'
+                                ? {
+                                    backgroundColor: overlayTimerBgColor || '#000000',
+                                    opacity: Math.max(0.1, overlayTimerBgOpacity / 100),
+                                    padding: `${Math.max(2, overlayTimerSize * 0.05)}px ${Math.max(6, overlayTimerSize * 0.15)}px`,
+                                    borderRadius: `${overlayTimerBgRadius}px`,
+                                    boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
+                                    border: '1px solid rgba(255,255,255,0.2)'
+                                  }
+                                : {
+                                    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                                    padding: `${Math.max(2, overlayTimerSize * 0.05)}px ${Math.max(6, overlayTimerSize * 0.14)}px`,
+                                    borderRadius: `${overlayTimerBgRadius}px`,
+                                    boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
+                                    border: '1px solid rgba(255,255,255,0.2)'
+                                  })
+                            }}
+                          >
+                            {overlayTimerShowTitle && (
+                              <span style={{ fontSize: `${Math.max(6, overlayTimerSize * 0.08)}px`, color: overlayTimerTextColor, opacity: 0.85, fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '1px' }}>
+                                {countdownMode === 'current' ? 'CLOCK' : (countdownTitle || 'COUNTDOWN')}
+                              </span>
+                            )}
+                            <span style={{ fontSize: `${Math.max(11, overlayTimerSize * 0.24)}px`, color: overlayTimerTextColor, fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1, textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
+                              {countdownMode === 'current'
+                                ? '10:30 AM'
+                                : `${String(countdownMinutes).padStart(2, '0')}:${String(countdownSeconds).padStart(2, '0')}`
+                              }
+                            </span>
+                          </div>
                         </div>
                       )}
-                      <div className="space-y-1">
-                        {countdownMode !== 'current' && (countdownTitle || 'Countdown') && (
-                          <p style={{ fontSize: `${countdownTitleSize * 0.22}px`, color: 'rgba(255,255,255,0.75)' }} className="font-sans font-medium uppercase tracking-widest leading-tight">
-                            {countdownTitle || 'Countdown'}
-                          </p>
-                        )}
-                        <p style={{ fontSize: `${countdownTimeSize * 0.22}px`, color: '#ffffff' }} className="font-mono font-bold leading-none py-1">
-                          {countdownMode === 'current'
-                             ? (() => {
-                                 const now = new Date();
-                                 let hours = now.getHours();
-                                 const ampm = hours >= 12 ? 'PM' : 'AM';
-                                 hours = hours % 12;
-                                 hours = hours ? hours : 12;
-                                 const mins = String(now.getMinutes()).padStart(2, '0');
-                                 const secs = String(now.getSeconds()).padStart(2, '0');
-                                 return `${hours}:${mins}:${secs} ${ampm}`;
-                               })()
-                             : `${String(countdownMinutes).padStart(2, '0')}:${String(countdownSeconds).padStart(2, '0')}`
-                           }
-                        </p>
-                        {countdownMode !== 'current' && countdownSubtext && (
-                          <p style={{ fontSize: `${countdownSubtextSize * 0.22}px`, color: 'rgba(255,255,255,0.5)' }} className="font-sans italic leading-tight">
-                            {countdownSubtext}
-                          </p>
-                        )}
-                      </div>
                     </div>
 
                     {/* Trigger Control Panel */}
@@ -5655,32 +6035,139 @@ function OperatorDashboard() {
                         />
                       </div>
                     </div>
+
+                    {/* Media, PPT & PDF Draggable Overlay Timer Config Card */}
+                    {renderOverlayTimerCard()}
                   </div>
 
                   {/* Right Column: Timer Preview & Action */}
                   <div className="space-y-4">
+                    {/* Preview View Mode Switcher */}
+                    <div className="flex items-center justify-between bg-appPanel/40 border border-[var(--border-app)] px-3 py-1.5 rounded-xl text-xs">
+                      <span className="font-mono text-[10px] text-textMuted uppercase font-bold">Monitor Preview</span>
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setCountdownPreviewView('overlay')}
+                          className={`px-2.5 py-1 rounded-md text-[10px] font-bold font-mono uppercase transition ${
+                            countdownPreviewView === 'overlay'
+                              ? 'bg-brand text-white shadow-sm'
+                              : 'bg-appBg text-textMuted hover:text-textMain border border-[var(--border-app)]'
+                          }`}
+                        >
+                          Overlay Drag
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCountdownPreviewView('fullscreen')}
+                          className={`px-2.5 py-1 rounded-md text-[10px] font-bold font-mono uppercase transition ${
+                            countdownPreviewView === 'fullscreen'
+                              ? 'bg-brand text-white shadow-sm'
+                              : 'bg-appBg text-textMuted hover:text-textMain border border-[var(--border-app)]'
+                          }`}
+                        >
+                          Fullscreen
+                        </button>
+                      </div>
+                    </div>
+
                     {/* Aspect-Video 16:9 monitor frame */}
                     <div 
-                      style={{ backgroundColor: timerBgColor }}
-                      className="w-full aspect-video rounded-xl border border-[var(--border-app)] p-6 relative overflow-hidden flex flex-col justify-center items-center text-center select-none shadow-2xl transition-colors duration-500"
+                      ref={countdownPreviewView === 'overlay' ? countdownPreviewRef : null}
+                      style={{ backgroundColor: countdownPreviewView === 'fullscreen' ? timerBgColor : '#0f172a' }}
+                      className="w-full aspect-video rounded-xl border border-[var(--border-app)] relative overflow-hidden flex flex-col justify-center items-center text-center select-none shadow-2xl transition-colors duration-500"
                     >
-                      {timerBgMedia && (
-                        <div className="absolute inset-0 z-0 w-full h-full">
-                          {/\.(mp4|webm|mov|avi)($|\?)/i.test(timerBgMedia) ? (
-                            <video src={formatBgPath(timerBgMedia)} autoPlay muted loop playsInline className="w-full h-full object-cover" />
-                          ) : (
-                            <img src={formatBgPath(timerBgMedia)} className="w-full h-full object-cover" alt="" />
+                      {countdownPreviewView === 'fullscreen' ? (
+                        <>
+                          {timerBgMedia && (
+                            <div className="absolute inset-0 z-0 w-full h-full">
+                              {/\.(mp4|webm|mov|avi)($|\?)/i.test(timerBgMedia) ? (
+                                <video src={formatBgPath(timerBgMedia)} autoPlay muted loop playsInline className="w-full h-full object-cover" />
+                              ) : (
+                                <img src={formatBgPath(timerBgMedia)} className="w-full h-full object-cover" alt="" />
+                              )}
+                            </div>
                           )}
+                          <div className="space-y-1 z-10">
+                            <p style={{ fontSize: `${timerTitleSize * 0.22}px`, color: timerTextColor || 'rgba(255,255,255,0.75)' }} className="font-sans font-medium uppercase tracking-widest leading-tight">
+                              {timerTitle || 'Timer'}
+                            </p>
+                            <p style={{ fontSize: `${timerTimeSize * 0.22}px`, color: timerTextColor || '#ffffff' }} className="font-mono font-bold leading-none py-1">
+                              {String(timerMinutes).padStart(2, '0')}:{String(timerSeconds).padStart(2, '0')}
+                            </p>
+                          </div>
+                        </>
+                      ) : (
+                        /* Presentation Overlay Interactive Drag Mockup View */
+                        <div className="absolute inset-0 w-full h-full flex items-center justify-center overflow-hidden bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 p-4">
+                          {/* Mock PPT/Media Slide Content */}
+                          <div className="w-full h-full rounded border border-white/10 flex flex-col justify-center items-center text-center p-4 bg-white/5 backdrop-blur-sm pointer-events-none select-none">
+                            <div className="opacity-40 uppercase tracking-widest font-mono text-[9px] mb-1">
+                              [ SAMPLE POWERPOINT / PDF / MEDIA SLIDE ]
+                            </div>
+                            <div className="text-white/60 text-xs font-semibold max-w-[80%]">
+                              Your presentation remains completely visible on the projector screen
+                            </div>
+                          </div>
+
+                          {/* Coordinates helper badge */}
+                          <div className="absolute top-2 left-2 z-20 pointer-events-none">
+                            <span className="px-2 py-0.5 rounded bg-black/60 backdrop-blur-md text-white/80 font-mono text-[8px] font-bold uppercase border border-white/10 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                              DRAG BADGE • X: {overlayTimerX}% Y: {overlayTimerY}%
+                            </span>
+                          </div>
+
+                          {/* Draggable Timer Badge */}
+                          <div
+                            onMouseDown={(e) => {
+                              e.stopPropagation();
+                              setIsDraggingTimerBadge(true);
+                            }}
+                            className={`cursor-move select-none transition-shadow ${
+                              isDraggingTimerBadge ? 'ring-2 ring-brand ring-offset-2 ring-offset-slate-900 shadow-2xl scale-105' : 'hover:ring-1 hover:ring-brand/60'
+                            }`}
+                            style={{
+                              position: 'absolute',
+                              left: `${overlayTimerX}%`,
+                              top: `${overlayTimerY}%`,
+                              transform: 'translate(-50%, -50%)',
+                              zIndex: 30,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              ...(overlayTimerBgType === 'none'
+                                ? { background: 'transparent' }
+                                : overlayTimerBgType === 'custom'
+                                ? {
+                                    backgroundColor: overlayTimerBgColor || '#000000',
+                                    opacity: Math.max(0.1, overlayTimerBgOpacity / 100),
+                                    padding: `${Math.max(2, overlayTimerSize * 0.05)}px ${Math.max(6, overlayTimerSize * 0.15)}px`,
+                                    borderRadius: `${overlayTimerBgRadius}px`,
+                                    boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
+                                    border: '1px solid rgba(255,255,255,0.2)'
+                                  }
+                                : {
+                                    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                                    padding: `${Math.max(2, overlayTimerSize * 0.05)}px ${Math.max(6, overlayTimerSize * 0.14)}px`,
+                                    borderRadius: `${overlayTimerBgRadius}px`,
+                                    boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
+                                    border: '1px solid rgba(255,255,255,0.2)'
+                                  })
+                            }}
+                          >
+                            {overlayTimerShowTitle && (
+                              <span style={{ fontSize: `${Math.max(6, overlayTimerSize * 0.08)}px`, color: overlayTimerTextColor, opacity: 0.85, fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '1px' }}>
+                                {timerTitle || 'TIMER'}
+                              </span>
+                            )}
+                            <span style={{ fontSize: `${Math.max(11, overlayTimerSize * 0.24)}px`, color: overlayTimerTextColor, fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1, textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
+                              {String(timerMinutes).padStart(2, '0')}:{String(timerSeconds).padStart(2, '0')}
+                            </span>
+                          </div>
                         </div>
                       )}
-                      <div className="space-y-1">
-                        <p style={{ fontSize: `${timerTitleSize * 0.22}px`, color: 'rgba(255,255,255,0.75)' }} className="font-sans font-medium uppercase tracking-widest leading-tight">
-                          {timerTitle || 'Timer'}
-                        </p>
-                        <p style={{ fontSize: `${timerTimeSize * 0.22}px`, color: '#ffffff' }} className="font-mono font-bold leading-none py-1">
-                          {String(timerMinutes).padStart(2, '0')}:{String(timerSeconds).padStart(2, '0')}
-                        </p>
-                      </div>
                     </div>
 
                     {/* Trigger Control Panel */}
@@ -5924,34 +6411,56 @@ function OperatorDashboard() {
       <aside className="w-[22%] min-w-[260px] max-w-[340px] shrink-0 flex flex-col bg-appPanel border-l border-[var(--border-app)] select-none">
         {/* Live Output */}
         <div className="p-4 border-b border-[var(--border-app)] bg-appBg">
-          <h3 className="text-[11px] font-bold text-textMuted uppercase tracking-wider mb-2 font-mono flex items-center gap-1.5">
+          <h3 className="text-[11px] font-bold text-textMuted uppercase tracking-wider mb-2 font-mono flex items-center gap-1.5 flex-wrap">
             Live Output
-            {countdownActive && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-500 text-white font-mono animate-pulse">COUNTDOWN</span>
-            )}
-            {timerActive && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-brand text-white font-mono animate-pulse">TIMER</span>
-            )}
-            {isCountdownRunning && !countdownActive && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-600/35 text-red-500 border border-red-500/25 font-mono animate-pulse">COUNTDOWN RUNNING</span>
-            )}
-            {isTimerRunning && !timerActive && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-600/35 text-amber-500 border border-amber-500/25 font-mono animate-pulse">TIMER RUNNING</span>
-            )}
+            {(() => {
+              const activeLiveSong = liveSong || selectedSong;
+              const isPresentationNonLyrics = Boolean(activeLiveSong && (
+                activeLiveSong.author === 'PowerPoint Import' || 
+                activeLiveSong.author === 'PDF Import' || 
+                activeLiveSong.author === 'Media'
+              ));
+              const isLiveOverlayTimer = (showOnProjector || showTimerOnProjector) && isPresentationNonLyrics && overlayTimerEnabled;
+              if (isLiveOverlayTimer) {
+                return <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500 text-black font-mono font-bold animate-pulse">OVERLAY TIMER</span>;
+              }
+              if (countdownActive) {
+                return <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-500 text-white font-mono animate-pulse">COUNTDOWN</span>;
+              }
+              if (timerActive) {
+                return <span className="text-[9px] px-1.5 py-0.5 rounded bg-brand text-white font-mono animate-pulse">TIMER</span>;
+              }
+              if (isCountdownRunning && !countdownActive) {
+                return <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-600/35 text-red-500 border border-red-500/25 font-mono animate-pulse">COUNTDOWN RUNNING</span>;
+              }
+              if (isTimerRunning && !timerActive) {
+                return <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-600/35 text-amber-500 border border-amber-500/25 font-mono animate-pulse">TIMER RUNNING</span>;
+              }
+              return null;
+            })()}
           </h3>
           {(() => {
+            const activeLiveSong = liveSong || selectedSong;
+            const isPresentationNonLyrics = Boolean(activeLiveSong && (
+              activeLiveSong.author === 'PowerPoint Import' || 
+              activeLiveSong.author === 'PDF Import' || 
+              activeLiveSong.author === 'Media'
+            ));
+            const isLiveOverlayTimer = (showOnProjector || showTimerOnProjector) && isPresentationNonLyrics && overlayTimerEnabled;
             const curSlideBgMedia = formatBgPath(activeBgAsset || '');
 
             return (
               <div 
-                className={`w-full aspect-video bg-black rounded-lg border ${(showOnProjector || showTimerOnProjector) ? 'border-red-500/60' : 'border-[var(--border-app)]'} relative overflow-hidden flex flex-col p-3 transition-all duration-300 ${
-                  !(showOnProjector || showTimerOnProjector) ? getLivePreviewFlexAlignment() : 'items-center justify-center'
+                className={`w-full aspect-video bg-black rounded-lg border ${
+                  isLiveOverlayTimer ? 'border-amber-500/60' : (showOnProjector || showTimerOnProjector) ? 'border-red-500/60' : 'border-[var(--border-app)]'
+                } relative overflow-hidden flex flex-col p-3 transition-all duration-300 ${
+                  !(showOnProjector || showTimerOnProjector) || isLiveOverlayTimer ? getLivePreviewFlexAlignment() : 'items-center justify-center'
                 }`}
                 style={{
                   containerType: 'inline-size',
-                  ...(showOnProjector 
+                  ...(!isLiveOverlayTimer && showOnProjector 
                     ? { backgroundColor: countdownBgColor || '#000000' } 
-                    : showTimerOnProjector 
+                    : !isLiveOverlayTimer && showTimerOnProjector 
                       ? { backgroundColor: timerBgColor || '#000000' }
                       : (!blackout && curSlideBgMedia && isBgColor(curSlideBgMedia) ? { backgroundColor: curSlideBgMedia } : {}))
                 }}
@@ -5959,21 +6468,21 @@ function OperatorDashboard() {
                 {/* Background media */}
                 {!blackout && (
                   <div className="absolute inset-0 z-0 w-full h-full">
-                    {showOnProjector && countdownBgMedia ? (
+                    {!isLiveOverlayTimer && showOnProjector && countdownBgMedia ? (
                       /\.(mp4|webm|mov|avi)($|\?)/i.test(countdownBgMedia) ? (
                         <video src={formatBgPath(countdownBgMedia)} autoPlay muted loop playsInline className="w-full h-full object-cover" />
                       ) : (
                         <img src={formatBgPath(countdownBgMedia)} className="w-full h-full object-cover" alt="" />
                       )
-                    ) : showTimerOnProjector && timerBgMedia ? (
+                    ) : !isLiveOverlayTimer && showTimerOnProjector && timerBgMedia ? (
                       /\.(mp4|webm|mov|avi)($|\?)/i.test(timerBgMedia) ? (
                         <video src={formatBgPath(timerBgMedia)} autoPlay muted loop playsInline className="w-full h-full object-cover" />
                       ) : (
                         <img src={formatBgPath(timerBgMedia)} className="w-full h-full object-cover" alt="" />
                       )
                     ) : (
-                      // Regular slide background with 2.2s slow-motion crossfade
-                      !showOnProjector && !showTimerOnProjector && (
+                      // Regular slide background with 2.2s slow-motion crossfade (or live presentation slide during overlay timer)
+                      ((!showOnProjector && !showTimerOnProjector) || isLiveOverlayTimer) && (
                         <>
                           {/* Preview Layer A */}
                           {previewLayerA.src && previewLayerA.type !== 'color' && (
@@ -6016,8 +6525,92 @@ function OperatorDashboard() {
                   </div>
                 )}
                 
-                {/* Countdown overlay content */}
-                {showOnProjector && !blackout ? (
+                {/* Live Output content */}
+                {isLiveOverlayTimer ? (
+                  <>
+                    <div 
+                      className="z-10 flex-1 flex flex-col justify-center items-center text-center w-full" 
+                      style={liveOutputAnimStyle}
+                    >
+                      {(!clearLyrics && !blackout) && (previewDisplayedText || activeSlideText) && (
+                        <p 
+                          className="whitespace-pre-line uppercase projector-text-shadow"
+                          style={getLivePreviewTextStyle()}
+                        >
+                          {previewDisplayedText || activeSlideText}
+                        </p>
+                      )}
+                    </div>
+                    {/* Active Slide Label Indicator */}
+                    {activeSlideLabel && !blackout && (
+                      <div className="absolute top-2 left-2 z-20">
+                        <span className={`px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase tracking-wider ${getLabelBadgeStyle(activeSlideLabel).bg} ${getLabelBadgeStyle(activeSlideLabel).text}`}>
+                          {activeSlideLabel}
+                        </span>
+                      </div>
+                    )}
+                    {/* Floating Overlay Timer Badge */}
+                    {!blackout && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: `${overlayTimerX}%`,
+                          top: `${overlayTimerY}%`,
+                          transform: 'translate(-50%, -50%)',
+                          zIndex: 35,
+                          pointerEvents: 'none',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          transition: 'left 120ms ease-out, top 120ms ease-out',
+                          ...(overlayTimerBgType === 'none'
+                            ? { background: 'transparent' }
+                            : overlayTimerBgType === 'custom'
+                            ? {
+                                backgroundColor: overlayTimerBgColor || '#000000',
+                                opacity: Math.max(0.1, overlayTimerBgOpacity / 100),
+                                padding: `${Math.max(1, overlayTimerSize * 0.04)}px ${Math.max(4, overlayTimerSize * 0.12)}px`,
+                                borderRadius: `${Math.round(overlayTimerBgRadius * 0.35)}px`,
+                                boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
+                                border: '1px solid rgba(255,255,255,0.2)'
+                              }
+                            : {
+                                backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                                padding: `${Math.max(1, overlayTimerSize * 0.04)}px ${Math.max(4, overlayTimerSize * 0.12)}px`,
+                                borderRadius: `${Math.round(overlayTimerBgRadius * 0.35)}px`,
+                                boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
+                                border: '1px solid rgba(255,255,255,0.2)'
+                              })
+                        }}
+                      >
+                        {overlayTimerShowTitle && (
+                          <span style={{ fontSize: `${Math.max(5, overlayTimerSize * 0.07)}px`, color: overlayTimerTextColor, opacity: 0.85, fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '1px' }}>
+                            {showOnProjector ? (countdownMode === 'current' ? 'CLOCK' : (countdownTitle || 'COUNTDOWN')) : (timerTitle || 'TIMER')}
+                          </span>
+                        )}
+                        <span style={{ fontSize: `${Math.max(9, overlayTimerSize * 0.2)}px`, color: overlayTimerTextColor, fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1, textShadow: '0 2px 6px rgba(0,0,0,0.8)' }}>
+                          {showOnProjector
+                            ? (countdownMode === 'current'
+                                ? (() => {
+                                    const now = new Date();
+                                    let hours = now.getHours();
+                                    const ampm = hours >= 12 ? 'PM' : 'AM';
+                                    hours = hours % 12;
+                                    hours = hours ? hours : 12;
+                                    const mins = String(now.getMinutes()).padStart(2, '0');
+                                    const secs = String(now.getSeconds()).padStart(2, '0');
+                                    return `${hours}:${mins}:${secs} ${ampm}`;
+                                  })()
+                                : formatSecondsToMinSec(countdownSeconds)
+                              )
+                            : formatSecondsToMinSec(timerSeconds)
+                          }
+                        </span>
+                      </div>
+                    )}
+                  </>
+                ) : showOnProjector && !blackout ? (
                   <div className="z-10 flex flex-col items-center justify-center text-center w-full px-2">
                     {countdownMode !== 'current' && countdownTitle && (
                       <div style={{ fontSize: `${Math.max(6, (countdownTitleSize || 56) * 0.065)}px`, fontWeight: 'bold', textTransform: 'uppercase', opacity: 0.85, color: '#fff', marginBottom: '4px', lineHeight: 1.2 }}>

@@ -11,12 +11,12 @@ const { spawn } = require('child_process');
 function parseSemver(versionStr) {
   if (!versionStr) return null;
   const cleaned = String(versionStr).trim().replace(/^v/i, '');
-  const match = cleaned.match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/);
+  const match = cleaned.match(/^(\d+)\.(\d+)(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?/);
   if (!match) return null;
   return {
     major: parseInt(match[1], 10),
     minor: parseInt(match[2], 10),
-    patch: parseInt(match[3], 10),
+    patch: match[3] !== undefined ? parseInt(match[3], 10) : 0,
     prerelease: match[4] || null
   };
 }
@@ -94,15 +94,8 @@ async function checkGitHubUpdate(currentVersion, repo = 'austriaj12/WorshipFlow-
           const validReleases = releases.filter(r => !r.draft && !r.prerelease);
           const targetReleases = validReleases.length > 0 ? validReleases : releases.filter(r => !r.draft);
 
-          // Find release with highest semver version
+          // GitHub API returns releases ordered by publish date descending (first entry is the latest release)
           let latestRelease = targetReleases[0];
-          for (const rel of targetReleases) {
-            const relVer = rel.tag_name || rel.name;
-            const latestVer = latestRelease.tag_name || latestRelease.name;
-            if (compareSemver(relVer, latestVer) > 0) {
-              latestRelease = rel;
-            }
-          }
 
           const rawTag = latestRelease.tag_name || latestRelease.name || '';
           const latestVersion = rawTag.replace(/^v/i, '');

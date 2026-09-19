@@ -42,7 +42,8 @@ function ProjectorScreen() {
     style: null,
     isBible: false,
     blackout: false,
-    clearLyrics: false
+    clearLyrics: false,
+    overlayTimerActive: false
   });
 
   // State to drive smooth opacity transitions (crossfades) on text updates
@@ -562,6 +563,74 @@ function ProjectorScreen() {
             </div>
           </div>
         </div>
+
+        {/* Floating Draggable Overlay Timer for Media, PPT, PDF Presentations */}
+        {slide.overlayTimerActive && !slide.blackout && (
+          <div
+            style={{
+              position: 'absolute',
+              left: `${slide.overlayTimerX ?? 85}%`,
+              top: `${slide.overlayTimerY ?? 10}%`,
+              transform: 'translate(-50%, -50%)',
+              zIndex: 35,
+              pointerEvents: 'none',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'left 120ms ease-out, top 120ms ease-out',
+              ...(slide.overlayTimerBgType === 'none'
+                ? { background: 'transparent' }
+                : slide.overlayTimerBgType === 'custom'
+                ? {
+                    backgroundColor: slide.overlayTimerBgColor || '#000000',
+                    opacity: Math.max(0.1, (slide.overlayTimerBgOpacity ?? 70) / 100),
+                    backdropFilter: 'blur(12px)',
+                    padding: `${(slide.overlayTimerSize || 42) * 0.22}px ${(slide.overlayTimerSize || 42) * 0.55}px`,
+                    borderRadius: `${slide.overlayTimerBgRadius ?? 16}px`,
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+                    border: '1px solid rgba(255,255,255,0.15)'
+                  }
+                : {
+                    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+                    backdropFilter: 'blur(12px)',
+                    padding: `${(slide.overlayTimerSize || 42) * 0.2}px ${(slide.overlayTimerSize || 42) * 0.5}px`,
+                    borderRadius: `${slide.overlayTimerBgRadius ?? 16}px`,
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+                    border: '1px solid rgba(255,255,255,0.15)'
+                  })
+            }}
+          >
+            {slide.overlayTimerShowTitle && slide.overlayTimerTitle && (
+              <span
+                style={{
+                  fontSize: `${Math.max(12, (slide.overlayTimerSize || 42) * 0.38)}px`,
+                  color: slide.overlayTimerTextColor || '#ffffff',
+                  opacity: 0.85,
+                  fontWeight: 800,
+                  letterSpacing: '0.12em',
+                  textTransform: 'uppercase',
+                  marginBottom: '2px'
+                }}
+              >
+                {slide.overlayTimerTitle}
+              </span>
+            )}
+            <span
+              style={{
+                fontSize: `${slide.overlayTimerSize || 42}px`,
+                color: slide.overlayTimerTextColor || '#ffffff',
+                fontWeight: 800,
+                fontFamily: 'monospace',
+                lineHeight: 1,
+                letterSpacing: '0.04em',
+                textShadow: '0 2px 12px rgba(0,0,0,0.85)'
+              }}
+            >
+              {slide.overlayTimerTime || '00:00'}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Countdown Timer Overlay Layer (renders outside 16:9 inner scale at absolute viewport bounds) */}
